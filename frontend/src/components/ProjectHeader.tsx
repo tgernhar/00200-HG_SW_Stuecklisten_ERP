@@ -1,0 +1,59 @@
+/**
+ * Project Header Component
+ */
+import React from 'react'
+import { Project } from '../services/types'
+
+interface ProjectHeaderProps {
+  project: Project | null
+  onImportSolidworks: () => void
+  onCheckERP: () => void
+  onSyncOrders: () => void
+  onCreateDocuments: () => void
+  onCheckDocuments: () => void
+  onPrintPDF: () => void
+  onExport: () => void
+}
+
+export const ProjectHeader: React.FC<ProjectHeaderProps> = ({
+  project,
+  onImportSolidworks,
+  onCheckERP,
+  onSyncOrders,
+  onCreateDocuments,
+  onCheckDocuments,
+  onPrintPDF,
+  onExport
+}) => {
+  if (!project) {
+    return <div>Kein Projekt ausgewählt</div>
+  }
+
+  return (
+    <div style={{ padding: '20px', borderBottom: '1px solid #ccc', backgroundColor: '#f5f5f5' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+        <div>
+          <strong>AU-NR:</strong> {project.au_nr}
+        </div>
+        <div>
+          {project.project_path && (
+            <a href={project.project_path} target="_blank" rel="noopener noreferrer">
+              Projektpfad
+            </a>
+          )}
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+        <button onClick={onImportSolidworks}>Import SOLIDWORKS</button>
+        <button onClick={onCheckERP}>ERP-Abgleich</button>
+        <button onClick={onSyncOrders}>Sync ERP</button>
+        <button onClick={onCreateDocuments} style={{ fontWeight: 'bold' }}>
+          Dokumente erstellen
+        </button>
+        <button onClick={onCheckDocuments}>Dokumente prüfen</button>
+        <button onClick={onPrintPDF}>PDF Drucken</button>
+        <button onClick={onExport}>Export</button>
+      </div>
+    </div>
+  )
+}
