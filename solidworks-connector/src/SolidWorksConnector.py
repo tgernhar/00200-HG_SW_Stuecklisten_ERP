@@ -3,7 +3,15 @@ SOLIDWORKS Connector - Main Module
 """
 import win32com.client
 import os
+import logging
+import threading
+import pythoncom
+import getpass
+import pywintypes
 from typing import List, Dict, Any, Optional
+
+# Logger für SOLIDWORKS-Connector
+connector_logger = logging.getLogger('solidworks_connector')
 
 
 class SolidWorksConnector:
@@ -11,21 +19,92 @@ class SolidWorksConnector:
     
     def __init__(self):
         self.sw_app = None
+        # Track which thread created the COM object (COM objects must stay on the same thread)
+        self._owner_thread_id: int | None = None
+        self._com_initialized: bool = False
     
     def connect(self):
         """Verbindung zu SOLIDWORKS herstellen"""
         try:
-            self.sw_app = win32com.client.Dispatch("SldWorks.Application")
+            # Debug: Direktes File-Write zum Testen
+            import datetime
+            connector_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            log_file = os.path.join(connector_dir, 'logs', f'solidworks_connector_{datetime.datetime.now().strftime("%Y%m%d")}.log')
+            with open(log_file, 'a', encoding='utf-8') as f:
+                f.write(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - DIRECT WRITE - Versuche Verbindung zu SOLIDWORKS herzustellen...\n")
+            
+            # COM initialization is required in the current thread before any win32com calls.
+            # Runtime evidence: (-2147221008, 'CoInitialize wurde nicht aufgerufen.')
+            try:
+                pythoncom.CoInitialize()
+                self._com_initialized = True
+            except Exception as ci_err:
+                # Still proceed to log and fail clearly if Dispatch fails
+                with open(log_file, 'a', encoding='utf-8') as f:
+                    f.write(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - DIRECT WRITE ERROR - CoInitialize failed: {ci_err}\n")
+
+            self._owner_thread_id = threading.get_ident()
+            with open(log_file, 'a', encoding='utf-8') as f:
+                f.write(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - DIRECT WRITE - Thread ident: {self._owner_thread_id}\n")
+                f.write(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - DIRECT WRITE - PID: {os.getpid()} USER: {getpass.getuser()}\n")
+                f.flush()
+
+            connector_logger.info("Versuche Verbindung zu SOLIDWORKS herzustellen...")
+            # Prefer attaching to an already running instance (common in user workflows).
+            # If that fails, fall back to creating a new instance.
+            connected_via = None
+            try:
+                self.sw_app = win32com.client.GetActiveObject("SldWorks.Application")
+                connected_via = "GetActiveObject"
+            except Exception:
+                # Create a new instance in the local server context
+                self.sw_app = win32com.client.DispatchEx("SldWorks.Application", clsctx=pythoncom.CLSCTX_LOCAL_SERVER)
+                connected_via = "DispatchEx(CLSCTX_LOCAL_SERVER)"
+
             self.sw_app.Visible = False
+            
+            with open(log_file, 'a', encoding='utf-8') as f:
+                f.write(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - DIRECT WRITE SUCCESS - Erfolgreich zu SOLIDWORKS verbunden\n")
+                f.write(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - DIRECT WRITE SUCCESS - Connected via: {connected_via}\n")
+                f.flush()
+            connector_logger.info("Erfolgreich zu SOLIDWORKS verbunden")
             return True
+        except pywintypes.com_error as e:
+            import datetime
+            connector_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            log_file = os.path.join(connector_dir, 'logs', f'solidworks_connector_{datetime.datetime.now().strftime("%Y%m%d")}.log')
+            with open(log_file, 'a', encoding='utf-8') as f:
+                f.write(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - DIRECT WRITE ERROR - COM error connecting to SOLIDWORKS: {e}\n")
+                try:
+                    f.write(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - DIRECT WRITE ERROR - COM hresult: {getattr(e, 'hresult', None)}\n")
+                    f.write(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - DIRECT WRITE ERROR - COM excepinfo: {getattr(e, 'excepinfo', None)}\n")
+                except Exception:
+                    pass
+                import traceback
+                f.write(traceback.format_exc() + "\n")
+                f.flush()
+            connector_logger.error(f"COM Fehler beim Verbinden zu SOLIDWORKS: {e}", exc_info=True)
+            return False
         except Exception as e:
-            print(f"Fehler beim Verbinden zu SOLIDWORKS: {e}")
+            import datetime
+            connector_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            log_file = os.path.join(connector_dir, 'logs', f'solidworks_connector_{datetime.datetime.now().strftime("%Y%m%d")}.log')
+            with open(log_file, 'a', encoding='utf-8') as f:
+                f.write(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - DIRECT WRITE ERROR - Fehler beim Verbinden zu SOLIDWORKS: {e}\n")
+                import traceback
+                f.write(f"Traceback: {traceback.format_exc()}\n")
+                f.flush()
+            connector_logger.error(f"Fehler beim Verbinden zu SOLIDWORKS: {e}", exc_info=True)
             return False
     
     def disconnect(self):
         """Verbindung zu SOLIDWORKS trennen"""
         if self.sw_app:
             self.sw_app = None
+        # We intentionally do NOT call CoUninitialize here:
+        # - Request threads may be reused by the server.
+        # - Uninitializing COM while objects are still referenced can cause undefined behavior.
+        # If needed, we can revisit with a dedicated COM thread model.
     
     def get_all_parts_and_properties_from_assembly(self, assembly_filepath: str) -> List[List[Any]]:
         """
@@ -48,12 +127,41 @@ class SolidWorksConnector:
             - results[12][j] = Filepath Drawing
             - results[13][j] = Exclude from Boom Flag
         """
+        # Debug: Direktes File-Write zum Testen
+        import datetime
+        try:
+            connector_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            log_file = os.path.join(connector_dir, 'logs', f'solidworks_connector_{datetime.datetime.now().strftime("%Y%m%d")}.log')
+            with open(log_file, 'a', encoding='utf-8') as f:
+                f.write(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - DIRECT WRITE - get_all_parts_and_properties_from_assembly aufgerufen mit: {assembly_filepath}\n")
+                f.flush()  # Stelle sicher, dass die Daten sofort geschrieben werden
+        except Exception as write_error:
+            # Falls File-Write fehlschlägt, logge es
+            connector_logger.error(f"Fehler beim File-Write: {write_error}", exc_info=True)
+        
+        connector_logger.info(f"get_all_parts_and_properties_from_assembly aufgerufen mit: {assembly_filepath}")
+        
         if not self.sw_app:
+            with open(log_file, 'a', encoding='utf-8') as f:
+                f.write(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - DIRECT WRITE - SOLIDWORKS-Verbindung nicht vorhanden, versuche Verbindung...\n")
+            connector_logger.info("SOLIDWORKS-Verbindung nicht vorhanden, versuche Verbindung...")
             if not self.connect():
+                with open(log_file, 'a', encoding='utf-8') as f:
+                    f.write(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - DIRECT WRITE ERROR - Konnte nicht zu SOLIDWORKS verbinden\n")
+                connector_logger.error("Konnte nicht zu SOLIDWORKS verbinden")
                 raise Exception("Konnte nicht zu SOLIDWORKS verbinden")
         
+        # Defensive: ensure we do not use a COM object from a different thread
+        current_tid = threading.get_ident()
+        if self._owner_thread_id is not None and self._owner_thread_id != current_tid:
+            connector_logger.error(f"COM object thread mismatch: owner={self._owner_thread_id}, current={current_tid}")
+            raise Exception("Interner Fehler: SOLIDWORKS COM Objekt wurde in anderem Thread erstellt (Thread-Mismatch)")
+
         if not os.path.exists(assembly_filepath):
+            connector_logger.error(f"Assembly-Datei nicht gefunden: {assembly_filepath}")
             raise Exception(f"Assembly-Datei nicht gefunden: {assembly_filepath}")
+        
+        connector_logger.info(f"Assembly-Datei gefunden: {assembly_filepath}")
         
         # Öffne Assembly
         sw_model = self.sw_app.OpenDoc6(

@@ -5,18 +5,65 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
 from SolidWorksConnector import SolidWorksConnector
+import os
+import logging
+import threading
+from logging.handlers import RotatingFileHandler
+from datetime import datetime
+
+# Konfiguriere Logging
+connector_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+log_dir = os.path.join(connector_dir, 'logs')
+os.makedirs(log_dir, exist_ok=True)
+log_file = os.path.join(log_dir, f'solidworks_connector_{datetime.now().strftime("%Y%m%d")}.log')
+
+# Erstelle Logger
+connector_logger = logging.getLogger('solidworks_connector')
+connector_logger.setLevel(logging.DEBUG)
+
+# File Handler mit Rotation
+file_handler = RotatingFileHandler(
+    log_file,
+    maxBytes=10*1024*1024,  # 10 MB
+    backupCount=5,
+    encoding='utf-8'
+)
+file_handler.setLevel(logging.DEBUG)
+file_formatter = logging.Formatter(
+    '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+file_handler.setFormatter(file_formatter)
+
+# Console Handler
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+console_formatter = logging.Formatter('%(levelname)s - %(message)s')
+console_handler.setFormatter(console_formatter)
+
+# Füge Handler hinzu (nur wenn noch nicht vorhanden)
+if not connector_logger.handlers:
+    connector_logger.addHandler(file_handler)
+    connector_logger.addHandler(console_handler)
+
+# Stelle sicher, dass der Logger auch in die Datei schreibt
+connector_logger.propagate = False  # Verhindere Propagation zum Root-Logger, da wir eigene Handler haben
+
+connector_logger.info(f"SOLIDWORKS-Connector-Logging initialisiert. Log-Datei: {log_file}")
 
 app = FastAPI(title="SOLIDWORKS Connector API", version="1.0.0")
 
-# Global connector instance - lazy initialization to avoid blocking service start
-_connector = None
+# IMPORTANT:
+# FastAPI request handlers may run in different threads. COM objects (SOLIDWORKS)
+# are generally apartment-threaded and must not be used across threads.
+# Therefore we keep ONE connector instance PER THREAD.
+_thread_local = threading.local()
 
 def get_connector():
     """Get or create the SolidWorks connector instance"""
-    global _connector
-    if _connector is None:
-        _connector = SolidWorksConnector()
-    return _connector
+    if not hasattr(_thread_local, "connector") or _thread_local.connector is None:
+        _thread_local.connector = SolidWorksConnector()
+    return _thread_local.connector
 
 
 class AssemblyRequest(BaseModel):
@@ -39,6 +86,43 @@ async def root():
 async def health_check():
     return {"status": "healthy"}
 
+@app.get("/test-log")
+async def test_log():
+    """Test-Endpoint zum Prüfen, ob File-Writes funktionieren"""
+    try:
+        # Debug: Direktes File-Write zum Testen
+        # NOTE: `datetime` is already imported above as `from datetime import datetime`
+        log_file = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            'logs',
+            f'solidworks_connector_{datetime.now().strftime("%Y%m%d")}.log'
+        )
+        
+        test_message = f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - DIRECT WRITE TEST - Test-Log-Endpoint aufgerufen\n"
+        
+        try:
+            with open(log_file, 'a', encoding='utf-8') as f:
+                f.write(test_message)
+            return {
+                "status": "success",
+                "message": "Log geschrieben",
+                "log_file": log_file,
+                "test_message": test_message
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": f"Fehler beim Schreiben: {e}",
+                "log_file": log_file,
+                "error_type": type(e).__name__
+            }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Fehler: {e}",
+            "error_type": type(e).__name__
+        }
+
 
 @app.post("/api/solidworks/get-all-parts-from-assembly")
 async def get_all_parts_from_assembly(request: AssemblyRequest):
@@ -46,15 +130,29 @@ async def get_all_parts_from_assembly(request: AssemblyRequest):
     Liest alle Teile und Properties aus Assembly
     """
     try:
+        # Debug: Direktes File-Write zum Testen
+        # NOTE: `datetime` is already imported above as `from datetime import datetime`
+        log_file = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            'logs',
+            f'solidworks_connector_{datetime.now().strftime("%Y%m%d")}.log'
+        )
+        with open(log_file, 'a', encoding='utf-8') as f:
+            f.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - DIRECT WRITE - get-all-parts-from-assembly aufgerufen mit filepath: {request.assembly_filepath}\n")
+        
+        connector_logger.info(f"get-all-parts-from-assembly aufgerufen mit filepath: {request.assembly_filepath}")
         connector = get_connector()
+        connector_logger.info(f"Connector-Instanz erhalten, rufe get_all_parts_and_properties_from_assembly auf...")
         results = connector.get_all_parts_and_properties_from_assembly(
             request.assembly_filepath
         )
+        connector_logger.info(f"Erfolgreich: {len(results) if results else 0} Ergebnisse erhalten")
         return {
             "success": True,
             "results": results
         }
     except Exception as e:
+        connector_logger.error(f"Fehler in get-all-parts-from-assembly: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

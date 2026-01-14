@@ -6,6 +6,12 @@ import sys
 import os
 import site
 
+# Konfiguriere Logging ZUERST
+from app.core.logging_config import setup_logging
+log_file = setup_logging()
+import logging
+logger = logging.getLogger(__name__)
+
 # Füge User-Site-Packages zum Python-Pfad hinzu (wichtig für Subprozesse)
 # Prüfe beide mögliche Benutzer-Pfade
 user_site = site.getusersitepackages()
@@ -45,13 +51,19 @@ except ImportError as e:
     print(f"DEBUG: PYTHONPATH = {os.environ.get('PYTHONPATH', 'NOT SET')}")
     raise
 
+logger.info(f"Backend-Logging initialisiert. Log-Datei: {log_file}")
+logger.info(f"Backend-Verzeichnis: {os.path.dirname(os.path.abspath(__file__))}")
+print(f"INFO: Backend-Log-Datei: {log_file}", flush=True)
+
 # Importiere die App direkt, um sicherzustellen, dass alle Module gefunden werden
 from app.main import app
 
 if __name__ == "__main__":
+    logger.info("Starte Backend-Server auf http://0.0.0.0:8000")
     uvicorn.run(
         app,
         host="0.0.0.0",
         port=8000,
-        reload=False  # Deaktiviere Reload, um Subprozess-Probleme zu vermeiden
+        reload=False,  # Deaktiviere Reload, um Subprozess-Probleme zu vermeiden
+        log_config=None  # Verwende unser eigenes Logging
     )

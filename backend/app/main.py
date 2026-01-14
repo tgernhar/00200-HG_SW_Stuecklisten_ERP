@@ -50,10 +50,14 @@ async def global_exception_handler(request: Request, exc: Exception):
 # Middleware zum Loggen aller Requests
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
-    print(f"DEBUG: Request: {request.method} {request.url}", flush=True)
-    print(f"DEBUG: Query params: {dict(request.query_params)}", flush=True)
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.propagate = True
+    logger.setLevel(logging.DEBUG)
+    logger.info(f"Request: {request.method} {request.url.path}")
+    logger.debug(f"Query params: {dict(request.query_params)}")
     response = await call_next(request)
-    print(f"DEBUG: Response status: {response.status_code}", flush=True)
+    logger.info(f"Response status: {response.status_code}")
     return response
 
 # Include Routers

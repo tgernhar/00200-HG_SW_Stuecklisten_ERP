@@ -4,6 +4,38 @@ Windows Service Wrapper für SOLIDWORKS Connector
 import sys
 import os
 
+# --- Ensure workspace connector sources are importable ---
+# When running as a Windows Service via pythonservice.exe, the module search path
+# may NOT include this script's directory. Without this, `from main import app`
+# can accidentally import a different `main` module (wrong code version),
+# which we observed via OpenAPI missing `/test-log`.
+_this_dir = os.path.dirname(os.path.abspath(__file__))
+if _this_dir not in sys.path:
+    sys.path.insert(0, _this_dir)
+
+# Debug: write which directory is used for imports (safe, no secrets)
+_log_dir = None
+try:
+    _log_dir = os.path.join(os.path.dirname(_this_dir), "logs")
+    os.makedirs(_log_dir, exist_ok=True)
+    with open(os.path.join(_log_dir, "service_bootstrap.log"), "a", encoding="utf-8") as _f:
+        import datetime
+        _f.write(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - BOOTSTRAP: sys.path[0]={sys.path[0]} this_dir={_this_dir}\n")
+        _f.write(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - BOOTSTRAP: service.py __file__={__file__}\n")
+        _f.flush()
+except Exception as e:
+    # Falls das Schreiben fehlschlägt, versuche es in einem anderen Verzeichnis
+    try:
+        _log_dir = os.path.join(os.path.expanduser("~"), "solidworks_connector_logs")
+        os.makedirs(_log_dir, exist_ok=True)
+        with open(os.path.join(_log_dir, "service_bootstrap.log"), "a", encoding="utf-8") as _f:
+            import datetime
+            _f.write(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - BOOTSTRAP ERROR: {e}\n")
+            _f.write(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - BOOTSTRAP: sys.path[0]={sys.path[0]} this_dir={_this_dir}\n")
+            _f.flush()
+    except:
+        pass
+
 # Fix: Add pywin32 installation path to sys.path BEFORE any imports
 # pywin32 may be installed in a different user's site-packages directory
 # The service process runs under SYSTEM account, so we need to check multiple locations
@@ -79,7 +111,28 @@ import socket
 import uvicorn
 
 try:
-    from main import app
+    import main as _sw_main
+    app = _sw_main.app
+    # Debug: Log which main.py was imported
+    try:
+        import datetime
+        if _log_dir:
+            with open(os.path.join(_log_dir, "service_bootstrap.log"), "a", encoding="utf-8") as _f:
+                _f.write(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - BOOTSTRAP: imported main from: {_sw_main.__file__}\n")
+                _f.write(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - BOOTSTRAP: app has {len(app.routes)} routes\n")
+                _f.write(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - BOOTSTRAP: routes: {[r.path for r in app.routes]}\n")
+                _f.flush()
+        else:
+            # Fallback: versuche es im Home-Verzeichnis
+            _alt_log_dir = os.path.join(os.path.expanduser("~"), "solidworks_connector_logs")
+            os.makedirs(_alt_log_dir, exist_ok=True)
+            with open(os.path.join(_alt_log_dir, "service_bootstrap.log"), "a", encoding="utf-8") as _f:
+                _f.write(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - BOOTSTRAP: imported main from: {_sw_main.__file__}\n")
+                _f.write(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - BOOTSTRAP: app has {len(app.routes)} routes\n")
+                _f.write(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - BOOTSTRAP: routes: {[r.path for r in app.routes]}\n")
+                _f.flush()
+    except Exception as log_err:
+        servicemanager.LogErrorMsg(f"Error writing bootstrap log: {log_err}")
 except Exception as e:
     servicemanager.LogErrorMsg(f"Error importing main.app: {e}")
     raise
@@ -118,6 +171,11 @@ class SolidWorksConnectorService(win32serviceutil.ServiceFramework):
             raise
 
     def main(self):
+        # Verwende Logger aus main.py (wurde bereits beim Import initialisiert)
+        import logging
+        connector_logger = logging.getLogger('solidworks_connector')
+        connector_logger.info("SOLIDWORKS-Connector Service gestartet")
+        
         # Starte FastAPI Server
         # Fix: sys.stdout is None in Windows Service context, so we need to disable
         # uvicorn's default logging configuration that tries to use sys.stdout.isatty()
@@ -135,8 +193,10 @@ class SolidWorksConnectorService(win32serviceutil.ServiceFramework):
         # Run server in a separate thread to allow service to respond to stop events
         def run_server():
             try:
+                connector_logger.info("Uvicorn-Server wird gestartet...")
                 server.run()
             except Exception as e:
+                connector_logger.error(f"Uvicorn server error: {e}", exc_info=True)
                 servicemanager.LogErrorMsg(f"Uvicorn server error: {e}")
                 raise
         
