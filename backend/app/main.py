@@ -1,10 +1,13 @@
 """
 FastAPI Main Application
 """
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
 from app.api.routes import projects, articles, documents, erp
 from app.core.config import settings
+import traceback
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -12,7 +15,7 @@ app = FastAPI(
     description="Webbasiertes Stücklisten-ERP System"
 )
 
-# CORS Middleware
+# CORS Middleware - MUSS vor Exception Handlers sein
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # In Production: spezifische Origins angeben
@@ -20,6 +23,38 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Exception Handler für alle Exceptions - stellt sicher, dass CORS-Header gesendet werden
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """Global exception handler that ensures CORS headers are sent even on errors"""
+    import logging
+    logging.error(f"Unhandled exception: {exc}", exc_info=True)
+    print(f"ERROR: Global exception handler: {exc}", flush=True)
+    import traceback
+    traceback.print_exc()
+    
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={
+            "detail": str(exc),
+            "type": type(exc).__name__
+        },
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "*",
+            "Access-Control-Allow-Headers": "*",
+        }
+    )
+
+# Middleware zum Loggen aller Requests
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    print(f"DEBUG: Request: {request.method} {request.url}", flush=True)
+    print(f"DEBUG: Query params: {dict(request.query_params)}", flush=True)
+    response = await call_next(request)
+    print(f"DEBUG: Response status: {response.status_code}", flush=True)
+    return response
 
 # Include Routers
 app.include_router(projects.router, prefix=settings.API_V1_STR, tags=["projects"])

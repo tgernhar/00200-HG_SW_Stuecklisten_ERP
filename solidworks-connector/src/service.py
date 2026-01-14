@@ -6,16 +6,37 @@ import os
 
 # Fix: Add pywin32 installation path to sys.path BEFORE any imports
 # pywin32 may be installed in a different user's site-packages directory
+# The service process runs under SYSTEM account, so we need to check multiple locations
+# IMPORTANT: Check system-wide locations FIRST, as the service runs under SYSTEM account
 pywin32_location = None
 possible_paths = [
+    # System-wide locations FIRST (service runs under SYSTEM account)
+    r'C:\Program Files\Python314\Lib\site-packages',
+    r'C:\Python314\Lib\site-packages',
+    # Try to find Python installation directory
+    os.path.join(os.path.dirname(sys.executable), 'Lib', 'site-packages'),
+    # User-specific locations (for debug mode and command-line usage)
     r'C:\Users\tgernhar\AppData\Roaming\Python\Python314\site-packages',
     r'C:\Users\admin\AppData\Roaming\Python\Python314\site-packages',
     os.path.expanduser(r'~\AppData\Roaming\Python\Python314\site-packages'),
+    # Check all user profiles
 ]
+# Also check all user profiles in C:\Users
+if os.path.exists(r'C:\Users'):
+    try:
+        for user_dir in os.listdir(r'C:\Users'):
+            user_path = os.path.join(r'C:\Users', user_dir, r'AppData\Roaming\Python\Python314\site-packages')
+            if os.path.exists(user_path):
+                possible_paths.append(user_path)
+    except Exception:
+        pass
+
 for path in possible_paths:
-    if os.path.exists(os.path.join(path, 'win32', 'lib', 'win32serviceutil.py')):
-        pywin32_location = path
-        break
+    if path and os.path.exists(path):
+        win32serviceutil_path = os.path.join(path, 'win32', 'lib', 'win32serviceutil.py')
+        if os.path.exists(win32serviceutil_path):
+            pywin32_location = path
+            break
 
 if pywin32_location and pywin32_location not in sys.path:
     sys.path.insert(0, pywin32_location)
@@ -49,35 +70,18 @@ except ImportError:
     pass  # win32 package might not be importable directly
 
 import win32serviceutil
+
 import win32service
 import servicemanager
+import win32event
+import threading
 import socket
 import uvicorn
 
-# #region agent log
-import json
-log_path = r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log"
-try:
-    with open(log_path, "a", encoding="utf-8") as f:
-        f.write(json.dumps({"sessionId":"debug-session","runId":"service-start","hypothesisId":"G","location":"service.py:55","message":"Before importing main.app","data":{},"timestamp":int(__import__("time").time()*1000)}) + "\n")
-except: pass
-# #endregion
 try:
     from main import app
-    # #region agent log
-    try:
-        with open(log_path, "a", encoding="utf-8") as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"service-start","hypothesisId":"H","location":"service.py:62","message":"main.app imported successfully","data":{},"timestamp":int(__import__("time").time()*1000)}) + "\n")
-    except: pass
-    # #endregion
 except Exception as e:
-    # #region agent log
-    try:
-        import traceback
-        with open(log_path, "a", encoding="utf-8") as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"service-start","hypothesisId":"I","location":"service.py:68","message":"Error importing main.app","data":{"error":str(e),"error_type":type(e).__name__,"traceback":traceback.format_exc()},"timestamp":int(__import__("time").time()*1000)}) + "\n")
-    except: pass
-    # #endregion
+    servicemanager.LogErrorMsg(f"Error importing main.app: {e}")
     raise
 
 
@@ -88,79 +92,66 @@ class SolidWorksConnectorService(win32serviceutil.ServiceFramework):
 
     def __init__(self, args):
         win32serviceutil.ServiceFramework.__init__(self, args)
-        self.stop_event = win32service.CreateEvent(None, 0, 0, None)
+        self.stop_event = win32event.CreateEvent(None, 0, 0, None)
         socket.setdefaulttimeout(60)
         self.is_alive = True
 
     def SvcStop(self):
         self.ReportServiceStatus(win32service.SERVICE_STOP_PENDING)
-        import win32event
         win32event.SetEvent(self.stop_event)
         self.is_alive = False
 
     def SvcDoRun(self):
-        # #region agent log
-        import json
-        import traceback
-        log_path = r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log"
-        try:
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"service-start","hypothesisId":"A","location":"service.py:76","message":"SvcDoRun called","data":{},"timestamp":int(__import__("time").time()*1000)}) + "\n")
-        except: pass
-        # #endregion
+        # CRITICAL: Report service as running IMMEDIATELY to avoid timeout
+        self.ReportServiceStatus(win32service.SERVICE_RUNNING)
+        
         servicemanager.LogMsg(
             servicemanager.EVENTLOG_INFORMATION_TYPE,
             servicemanager.PYS_SERVICE_STARTED,
             (self._svc_name_, '')
         )
-        # #region agent log
-        try:
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"service-start","hypothesisId":"B","location":"service.py:85","message":"Service status logged, calling main()","data":{},"timestamp":int(__import__("time").time()*1000)}) + "\n")
-        except: pass
-        # #endregion
+        
         try:
             self.main()
         except Exception as e:
-            # #region agent log
-            try:
-                with open(log_path, "a", encoding="utf-8") as f:
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"service-start","hypothesisId":"C","location":"service.py:91","message":"Error in main()","data":{"error":str(e),"error_type":type(e).__name__,"traceback":traceback.format_exc()},"timestamp":int(__import__("time").time()*1000)}) + "\n")
-            except: pass
-            # #endregion
             servicemanager.LogErrorMsg(f"Error in service main: {e}")
             raise
 
     def main(self):
-        # #region agent log
-        import json
-        log_path = r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log"
-        try:
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"service-start","hypothesisId":"D","location":"service.py:100","message":"main() called, creating uvicorn config","data":{},"timestamp":int(__import__("time").time()*1000)}) + "\n")
-        except: pass
-        # #endregion
         # Starte FastAPI Server
+        # Fix: sys.stdout is None in Windows Service context, so we need to disable
+        # uvicorn's default logging configuration that tries to use sys.stdout.isatty()
+        # We'll use access_log=False to disable access logging and log_config=None to use minimal logging
         config = uvicorn.Config(
             app=app,
             host="0.0.0.0",
             port=8001,
-            log_level="info"
+            log_level="info",
+            access_log=False,  # Disable access logging to avoid sys.stdout issues
+            log_config=None  # Use minimal logging configuration
         )
-        # #region agent log
-        try:
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"service-start","hypothesisId":"E","location":"service.py:110","message":"Uvicorn config created, creating server","data":{},"timestamp":int(__import__("time").time()*1000)}) + "\n")
-        except: pass
-        # #endregion
         server = uvicorn.Server(config)
-        # #region agent log
-        try:
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"service-start","hypothesisId":"F","location":"service.py:114","message":"Server created, calling server.run()","data":{},"timestamp":int(__import__("time").time()*1000)}) + "\n")
-        except: pass
-        # #endregion
-        server.run()
+        
+        # Run server in a separate thread to allow service to respond to stop events
+        def run_server():
+            try:
+                server.run()
+            except Exception as e:
+                servicemanager.LogErrorMsg(f"Uvicorn server error: {e}")
+                raise
+        
+        server_thread = threading.Thread(target=run_server, daemon=True)
+        server_thread.start()
+        
+        # Wait for stop event
+        while self.is_alive:
+            result = win32event.WaitForSingleObject(self.stop_event, 1000)
+            if result == win32event.WAIT_OBJECT_0:
+                break
+        
+        # Shutdown server
+        server.should_exit = True
+        server_thread.join(timeout=5)
 
 
 if __name__ == '__main__':

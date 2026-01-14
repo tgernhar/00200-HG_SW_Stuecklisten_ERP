@@ -36,6 +36,7 @@ services:
     volumes:
       - ./backend:/app
       - uploads_data:/app/uploads
+      - C:/Thomas/Solidworks:/mnt/solidworks:ro
     depends_on:
       mysql:
         condition: service_healthy

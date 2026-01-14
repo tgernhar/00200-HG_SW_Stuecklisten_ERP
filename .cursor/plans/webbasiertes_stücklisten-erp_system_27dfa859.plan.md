@@ -201,8 +201,8 @@ graph TB
 
 - `POST /api/articles/{id}/check-erp` - Artikelnummer im ERP prüfen (Einzelprüfung)
 - `POST /api/projects/{id}/check-all-articlenumbers` - Batch-Prüfung: Durchläuft alle Artikel, prüft Artikelnummern in ERP (entspricht VBA `Check_Articlenumber_Exists`)
-  - Response: `{ "checked": [...], "exists": [...], "not_exists": [...] }`
-  - Logik: Prüft für jede Zeile Spalte C2 (H+G Artikelnummer) in MySQL-Datenbank, setzt Status (grün=vorhanden, rot=fehlt)
+        - Response: `{ "checked": [...], "exists": [...], "not_exists": [...] }`
+        - Logik: Prüft für jede Zeile Spalte C2 (H+G Artikelnummer) in MySQL-Datenbank, setzt Status (grün=vorhanden, rot=fehlt)
 - `GET /api/articles/{id}/orders` - Bestellungen abrufen
 - `POST /api/projects/{id}/sync-orders` - Bestellungen synchronisieren
 
@@ -212,18 +212,18 @@ graph TB
 - `POST /api/articles/{id}/check-documents` - Dokumente prüfen (Dateisystem-Check)
 - `POST /api/articles/{id}/generate-documents` - Einzelnes Dokument generieren (für spezifischen Dokumenttyp)
 - `POST /api/projects/{id}/generate-documents-batch` - Batch-Generierung: Durchläuft alle Artikel, generiert Dokumente wo Wert="1"
-  - Request Body: `{ "document_types": ["PDF", "Bestell_PDF", "DXF", "Bestell_DXF", "STEP", "X_T", "STL"] }` (optional, wenn leer: alle Typen)
-  - Response: `{ "generated": [...], "failed": [...], "skipped": [...] }`
-  - Logik: Prüft für jede Zeile alle Dokument-Spalten (B2, B3, B4, B5, B8, B9, B10), wenn Wert="1" wird Dokument generiert, nach Erfolg wird Wert auf "x" gesetzt
+        - Request Body: `{ "document_types": ["PDF", "Bestell_PDF", "DXF", "Bestell_DXF", "STEP", "X_T", "STL"] }` (optional, wenn leer: alle Typen)
+        - Response: `{ "generated": [...], "failed": [...], "skipped": [...] }`
+        - Logik: Prüft für jede Zeile alle Dokument-Spalten (B2, B3, B4, B5, B8, B9, B10), wenn Wert="1" wird Dokument generiert, nach Erfolg wird Wert auf "x" gesetzt
 - `POST /api/projects/{id}/batch-print-pdf` - Batch-PDF-Druck: Durchläuft alle Artikel, druckt PDFs wo B1="1" UND B2="x"
-  - Request Body: `{ "confirm_printer_setup": true }` (optional, Frontend zeigt Bestätigungsdialog)
-  - Response: `{ "printed": [...], "failed": [...], "skipped": [...] }`
-  - Logik:
-    - Prüft für jede Zeile: B1 (PDF Drucken) = "1" UND B2 (PDF) = "x"
-    - Liest PDF-Hyperlink aus B2
-    - Baut vollständigen Dateipfad: `pfad` + Dateiname aus Hyperlink
-    - Sendet Druckauftrag an System-Drucker
-    - Setzt nach erfolgreichem Druck: B1 = "x" (als "gedruckt" markiert)
+        - Request Body: `{ "confirm_printer_setup": true }` (optional, Frontend zeigt Bestätigungsdialog)
+        - Response: `{ "printed": [...], "failed": [...], "skipped": [...] }`
+        - Logik:
+                - Prüft für jede Zeile: B1 (PDF Drucken) = "1" UND B2 (PDF) = "x"
+                - Liest PDF-Hyperlink aus B2
+                - Baut vollständigen Dateipfad: `pfad` + Dateiname aus Hyperlink
+                - Sendet Druckauftrag an System-Drucker
+                - Setzt nach erfolgreichem Druck: B1 = "x" (als "gedruckt" markiert)
 
 ### SOLIDWORKS-Connector
 
@@ -231,20 +231,20 @@ graph TB
 - `POST /api/solidworks/write-properties` - Custom Properties schreiben
 - `POST /api/solidworks/generate-documents` - PDF/DXF generieren
 - `POST /api/solidworks/get-all-parts-from-assembly` - Liest alle Teile und Properties aus Assembly (entspricht `Main_Get_All_Parts_and_Properties_From_Assembly`)
-  - Request Body: `{ "assembly_filepath": "C:/Pfad/zur/Assembly.SLDASM" }`
-  - Response: 2D-Array mit Struktur:
-    - `Results[0][j]` = Child/Position (0, 1, 2, ...)
-    - `Results[1][j]` = Partname
-    - `Results[2][j]` = Configuration
-    - `Results[4][i]` = Property Name (für Properties-Schleife)
-    - `Results[5][i]` = Property Value
-    - `Results[7][j]` = X-Dimension (Länge)
-    - `Results[8][j]` = Y-Dimension (Breite)
-    - `Results[9][j]` = Z-Dimension (Höhe)
-    - `Results[10][j]` = Gewicht
-    - `Results[11][j]` = Filepath Part/ASM
-    - `Results[12][j]` = Filepath Drawing
-    - `Results[13][j]` = Exclude from Boom Flag (1 = ausgeschlossen)
+        - Request Body: `{ "assembly_filepath": "C:/Pfad/zur/Assembly.SLDASM" }`
+        - Response: 2D-Array mit Struktur:
+                - `Results[0][j]` = Child/Position (0, 1, 2, ...)
+                - `Results[1][j]` = Partname
+                - `Results[2][j]` = Configuration
+                - `Results[4][i]` = Property Name (für Properties-Schleife)
+                - `Results[5][i]` = Property Value
+                - `Results[7][j]` = X-Dimension (Länge)
+                - `Results[8][j]` = Y-Dimension (Breite)
+                - `Results[9][j]` = Z-Dimension (Höhe)
+                - `Results[10][j]` = Gewicht
+                - `Results[11][j]` = Filepath Part/ASM
+                - `Results[12][j]` = Filepath Drawing
+                - `Results[13][j]` = Exclude from Boom Flag (1 = ausgeschlossen)
 
 ## Frontend-Features (React + AG Grid)
 
@@ -257,9 +257,9 @@ Die Haupttabelle ist sehr breit (ca. 40+ Spalten) und erfordert horizontales Scr
 - **Pinned Columns**: Erste 2-3 Spalten (z.B. Pos-Nr, H+G Artikelnummer) können fixiert werden
 - **Column Groups**: Drei Hauptgruppen (Block A, B, C) mit Untergruppen
 - **Column Sizing**:
-  - Auto-Size für optimale Lesbarkeit
-  - Minimale Spaltenbreiten je nach Inhalt
-  - Resizable Spalten (Benutzer kann anpassen)
+        - Auto-Size für optimale Lesbarkeit
+        - Minimale Spaltenbreiten je nach Inhalt
+        - Resizable Spalten (Benutzer kann anpassen)
 
 ### Detaillierte Spaltenstruktur
 
@@ -335,16 +335,21 @@ Die Haupttabelle ist sehr breit (ca. 40+ Spalten) und erfordert horizontales Scr
 3. System durchläuft alle Zeilen der Tabelle (auch gefilterte, wenn Filter aktiv)
 4. Für jede Zeile: Prüfe alle Dokument-Spalten (B2, B3, B4, B5, B8, B9, B10)
 5. Wenn Wert = "1":
-   - Generiere entsprechendes Dokument über SOLIDWORKS-Connector
-   - Dokumenttyp wird aus Spaltenname abgeleitet (PDF, Bestell_PDF, DXF, Bestell_DXF, STEP, X_T, STL)
+
+            - Generiere entsprechendes Dokument über SOLIDWORKS-Connector
+            - Dokumenttyp wird aus Spaltenname abgeleitet (PDF, Bestell_PDF, DXF, Bestell_DXF, STEP, X_T, STL)
+
 6. Nach erfolgreicher Generierung:
-   - Setze Wert auf "x"
-   - Aktualisiere Status-Anzeige (grün + Hyperlink)
-   - Speichere Dateipfad in Datenbank
+
+            - Setze Wert auf "x"
+            - Aktualisiere Status-Anzeige (grün + Hyperlink)
+            - Speichere Dateipfad in Datenbank
+
 7. Bei Fehler:
-   - Setze Wert zurück auf leer
-   - Zeige Fehlermeldung in Status-Bar oder als Toast-Notification
-   - Zelle bleibt rot markiert
+
+            - Setze Wert zurück auf leer
+            - Zeige Fehlermeldung in Status-Bar oder als Toast-Notification
+            - Zelle bleibt rot markiert
 
 **PDF-Druck-Workflow** (entspricht VBA `Main_Print_PDF`):
 
@@ -359,19 +364,20 @@ Die Haupttabelle ist sehr breit (ca. 40+ Spalten) und erfordert horizontales Scr
    ```
 
 5. Wenn Benutzer bestätigt:
-   - System durchläuft alle Zeilen der Tabelle (auch gefilterte, wenn Filter aktiv)
-   - Für jede Zeile prüfen:
-     - **Bedingung**: B1 = "1" UND B2 = "x"
-   - Wenn Bedingung erfüllt:
-     - Lese PDF-Hyperlink aus B2 (Zelle enthält Hyperlink zur PDF-Datei)
-     - Extrahiere Dateiname aus Hyperlink (alles nach dem letzten "/")
-     - Baue vollständigen Dateipfad: `pfad` (aus Spalte C19) + Dateiname
-     - Prüfe ob Dateipfad existiert
-     - Wenn Datei existiert:
-       - Sende Druckauftrag an System-Standarddrucker (über Backend/System-API)
-       - Nach erfolgreichem Druck: Setze B1 = "x" (als "gedruckt" markiert)
-       - Speichere Änderung in Datenbank
-     - Bei Fehler: Zeige Fehlermeldung, B1 bleibt "1"
+
+            - System durchläuft alle Zeilen der Tabelle (auch gefilterte, wenn Filter aktiv)
+            - Für jede Zeile prüfen:
+                    - **Bedingung**: B1 = "1" UND B2 = "x"
+            - Wenn Bedingung erfüllt:
+                    - Lese PDF-Hyperlink aus B2 (Zelle enthält Hyperlink zur PDF-Datei)
+                    - Extrahiere Dateiname aus Hyperlink (alles nach dem letzten "/")
+                    - Baue vollständigen Dateipfad: `pfad` (aus Spalte C19) + Dateiname
+                    - Prüfe ob Dateipfad existiert
+                    - Wenn Datei existiert:
+                            - Sende Druckauftrag an System-Standarddrucker (über Backend/System-API)
+                            - Nach erfolgreichem Druck: Setze B1 = "x" (als "gedruckt" markiert)
+                            - Speichere Änderung in Datenbank
+                    - Bei Fehler: Zeige Fehlermeldung, B1 bleibt "1"
 
 6. Status-Bar zeigt Ergebnis: Anzahl gedruckter, fehlgeschlagener und übersprungener PDFs
 
@@ -432,12 +438,12 @@ Die Haupttabelle ist sehr breit (ca. 40+ Spalten) und erfordert horizontales Scr
 - **Geschätzte Gesamtbreite**: ~4000-5000px (abhängig von Inhalt)
 - **Viewport-Breite**: 100% des Browserfensters
 - **Horizontaler Scrollbalken**:
-  - Immer sichtbar wenn Tabelle breiter als Viewport
-  - Smooth Scrolling aktiviert
-  - Scroll-Position wird gespeichert (Session/LocalStorage)
+        - Immer sichtbar wenn Tabelle breiter als Viewport
+        - Smooth Scrolling aktiviert
+        - Scroll-Position wird gespeichert (Session/LocalStorage)
 - **Vertikaler Scrollbalken**:
-  - Für Zeilen-Scrolling
-  - Virtual Scrolling für Performance (AG Grid Standard)
+        - Für Zeilen-Scrolling
+        - Virtual Scrolling für Performance (AG Grid Standard)
 
 ### AG Grid Konfiguration
 
@@ -516,69 +522,69 @@ const gridOptions = {
 ### Cell Renderers und Styling
 
 - **Status-Spalten (BNR-Status)**: Badge-Component mit Farbcodierung
-  - Unbearbeitet: grau
-  - Bestellt: gelb
-  - Geliefert: grün
-  - Erledigt: blau
+        - Unbearbeitet: grau
+        - Bestellt: gelb
+        - Geliefert: grün
+        - Erledigt: blau
 
 - **Dokument-Spalten (B2, B3, B4, B5, B8, B9, B10)**: Kombinierter Status/Input-Renderer
-  - **Leer**: Rote Zelle, rotes X-Icon, kein Hyperlink → Dokument fehlt
-  - **"x"**: Grüne Zelle, grüner Checkmark + Hyperlink → Dokument vorhanden, Klick öffnet Datei/Ordner
-  - **"1"**: Gelbe/orange Zelle, gelbes Warn-Icon → Dokument soll generiert werden (wird bei Button-Klick erstellt)
-  - Inline-Editing: Benutzer kann "1", "x" oder leer eingeben
-  - Validierung: Nur leer, "1" oder "x" erlaubt
+        - **Leer**: Rote Zelle, rotes X-Icon, kein Hyperlink → Dokument fehlt
+        - **"x"**: Grüne Zelle, grüner Checkmark + Hyperlink → Dokument vorhanden, Klick öffnet Datei/Ordner
+        - **"1"**: Gelbe/orange Zelle, gelbes Warn-Icon → Dokument soll generiert werden (wird bei Button-Klick erstellt)
+        - Inline-Editing: Benutzer kann "1", "x" oder leer eingeben
+        - Validierung: Nur leer, "1" oder "x" erlaubt
 
 - **PDF-Druck-Spalte (B1)**: Status/Input-Renderer
-  - **Leer**: Graue Zelle → Nicht zum Drucken markiert
-  - **"1"**: Gelbe/orange Zelle → Zum Drucken markiert (wird gedruckt wenn B2="x")
-  - **"x"**: Grüne Zelle → Bereits gedruckt
-  - Inline-Editing: Benutzer kann "1", "x" oder leer eingeben
+        - **Leer**: Graue Zelle → Nicht zum Drucken markiert
+        - **"1"**: Gelbe/orange Zelle → Zum Drucken markiert (wird gedruckt wenn B2="x")
+        - **"x"**: Grüne Zelle → Bereits gedruckt
+        - Inline-Editing: Benutzer kann "1", "x" oder leer eingeben
 
 - **Artikelnummer (H+G Artikelnummer)** - Spalte C2:
-  - Hintergrundfarbe basierend auf ERP-Abgleich (wird durch Button "ERP-Abgleich" aktualisiert)
-  - **Grün** (#90EE90): Artikel existiert im ERP (entspricht Excel-Style "Gut")
-  - **Rot** (#FFB6C1): Artikel fehlt im ERP (entspricht Excel-Style "Schlecht")
-  - Status wird durch `POST /api/projects/{id}/check-all-articlenumbers` aktualisiert
+        - Hintergrundfarbe basierend auf ERP-Abgleich (wird durch Button "ERP-Abgleich" aktualisiert)
+        - **Grün** (#90EE90): Artikel existiert im ERP (entspricht Excel-Style "Gut")
+        - **Rot** (#FFB6C1): Artikel fehlt im ERP (entspricht Excel-Style "Schlecht")
+        - Status wird durch `POST /api/projects/{id}/check-all-articlenumbers` aktualisiert
 
 - **Editierbare Textfelder**:
-  - Inline-Editing aktiviert
-  - Max-Length Validierung (150 Zeichen)
-  - Visuelles Feedback bei Änderungen
+        - Inline-Editing aktiviert
+        - Max-Length Validierung (150 Zeichen)
+        - Visuelles Feedback bei Änderungen
 
 - **Checkbox-Spalten**:
-  - AG Grid Checkbox-Editor
-  - Wert: 1 = aktiv, 0 = inaktiv
+        - AG Grid Checkbox-Editor
+        - Wert: 1 = aktiv, 0 = inaktiv
 
 ### UI-Komponenten
 
 - **Projekt-Header**: Fixiert oberhalb der Tabelle
-  - AU-NR: `AU-2024-00571`
-  - Projektpfad: Hyperlink
-  - **Toolbar**:
-    - Import SOLIDWORKS
-    - **ERP-Abgleich** (prüft alle Artikelnummern in Spalte C2 gegen ERP-Datenbank)
-    - Sync ERP (Bestellungen synchronisieren)
-    - **Dokumente erstellen** (Hauptbutton: durchläuft alle Zeilen, generiert Dokumente wo Wert="1")
-    - Dokumente prüfen (Dateisystem-Check)
-    - PDF Drucken (Batch-Druck für markierte Zeilen)
-    - Export (Excel, CSV)
+        - AU-NR: `AU-2024-00571`
+        - Projektpfad: Hyperlink
+        - **Toolbar**:
+                - Import SOLIDWORKS
+                - **ERP-Abgleich** (prüft alle Artikelnummern in Spalte C2 gegen ERP-Datenbank)
+                - Sync ERP (Bestellungen synchronisieren)
+                - **Dokumente erstellen** (Hauptbutton: durchläuft alle Zeilen, generiert Dokumente wo Wert="1")
+                - Dokumente prüfen (Dateisystem-Check)
+                - PDF Drucken (Batch-Druck für markierte Zeilen)
+                - Export (Excel, CSV)
 
 - **Haupttabelle (AG Grid)**:
-  - Volle Breite und Höhe
-  - Horizontaler + vertikaler Scrollbalken
-  - Row Selection (Einzel- und Mehrfachauswahl)
+        - Volle Breite und Höhe
+        - Horizontaler + vertikaler Scrollbalken
+        - Row Selection (Einzel- und Mehrfachauswahl)
 
 - **Status-Bar**: Unterhalb der Tabelle
-  - Anzahl Zeilen
-  - Gefilterte Zeilen
-  - Letzte Aktualisierung
+        - Anzahl Zeilen
+        - Gefilterte Zeilen
+        - Letzte Aktualisierung
 
 - **Kontext-Menü**: Rechtsklick auf Zeile
-  - Dokumente prüfen
-  - Dokumente generieren
-  - ERP-Abgleich (Einzelprüfung)
-  - Zeile löschen
-  - In SOLIDWORKS öffnen
+        - Dokumente prüfen
+        - Dokumente generieren
+        - ERP-Abgleich (Einzelprüfung)
+        - Zeile löschen
+        - In SOLIDWORKS öffnen
 
 ## SOLIDWORKS-Connector (Windows Service)
 
@@ -687,8 +693,8 @@ def create_3d_documents(
 **API-Endpunkt**:
 
 - `POST /api/solidworks/create-3d-documents` - Erstellt 3D-Dokumente (STEP, X_T, STL)
-  - Request Body: `{ "filepath": "C:/Pfad/zu/Datei.SLDPRT", "step": true, "x_t": true, "stl": true }`
-  - Response: `{ "success": true, "created_files": ["file.stp", "file.x_t", "file.stl"] }`
+        - Request Body: `{ "filepath": "C:/Pfad/zu/Datei.SLDPRT", "step": true, "x_t": true, "stl": true }`
+        - Response: `{ "success": true, "created_files": ["file.stp", "file.x_t", "file.stl"] }`
 
 ## Backend-Implementierung: SOLIDWORKS-Import
 
