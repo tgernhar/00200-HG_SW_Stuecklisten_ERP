@@ -30,6 +30,26 @@ async def import_solidworks_assembly(
     3. Aggregiert Teile nach Name + Konfiguration (entspricht Main_SW_Import_To_Projectsheet)
     4. Speichert Artikel in Datenbank
     """
+    # #region agent log
+    # NDJSON debug log (repo root/.cursor/debug.log)
+    _repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    _debug_log_path = os.path.join(_repo_root, ".cursor", "debug.log")
+    try:
+        with open(_debug_log_path, "a", encoding="utf-8") as _f:
+            import time, json
+            _f.write(json.dumps({
+                "timestamp": int(time.time() * 1000),
+                "location": "backend/app/services/solidworks_service.py:import_solidworks_assembly",
+                "message": "ENTRY import_solidworks_assembly",
+                "data": {"project_id": project_id, "assembly_filepath": assembly_filepath},
+                "sessionId": "debug-session",
+                "runId": "run1",
+                "hypothesisId": "U1"
+            }) + "\n")
+    except Exception:
+        pass
+    # #endregion
+
     # 1. SOLIDWORKS-Connector aufrufen
     logger.info(f"Calling SOLIDWORKS-Connector with filepath: {assembly_filepath}")
     logger.info(f"SOLIDWORKS_CONNECTOR_URL: {settings.SOLIDWORKS_CONNECTOR_URL}")
@@ -100,6 +120,12 @@ async def import_solidworks_assembly(
     def _norm_prop_name(name: str) -> str:
         return (name or "").strip().lower().replace(" ", "_")
 
+    def _m_to_mm_int(val):
+        """SOLIDWORKS liefert Dimensionen typischerweise in Metern -> mm, ohne Nachkommastellen."""
+        if isinstance(val, (int, float)):
+            return int(round(float(val) * 1000.0))
+        return None
+
     for row in rows:
         if not isinstance(row, (list, tuple)) or len(row) < 14:
             continue
@@ -129,15 +155,43 @@ async def import_solidworks_assembly(
         # main part row
         if key not in aggregated:
             filename = os.path.splitext(os.path.basename(key[0]))[0] if key[0] else ""
+            x_mm = _m_to_mm_int(x_dim)
+            y_mm = _m_to_mm_int(y_dim)
+            z_mm = _m_to_mm_int(z_dim)
+
+            # #region agent log
+            try:
+                with open(_debug_log_path, "a", encoding="utf-8") as _f:
+                    import time, json
+                    _f.write(json.dumps({
+                        "timestamp": int(time.time() * 1000),
+                        "location": "backend/app/services/solidworks_service.py:dimension_convert",
+                        "message": "Converted dimensions m->mm (rounded int)",
+                        "data": {
+                            "part_path": key[0],
+                            "raw_m": {"x": x_dim, "y": y_dim, "z": z_dim},
+                            "mm": {"x": x_mm, "y": y_mm, "z": z_mm},
+                            "raw_weight": weight
+                        },
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "hypothesisId": "U2"
+                    }) + "\n")
+            except Exception:
+                pass
+            # #endregion
+
             aggregated[key] = {
                 "pos_nr": int(pos) if isinstance(pos, (int, float)) else None,
                 "benennung": str(partname) if partname is not None else filename,
                 "konfiguration": str(config) if config is not None else "",
                 "teilenummer": filename,
                 "menge": 1,
-                "laenge": float(x_dim) if isinstance(x_dim, (int, float)) else None,
-                "breite": float(y_dim) if isinstance(y_dim, (int, float)) else None,
-                "hoehe": float(z_dim) if isinstance(z_dim, (int, float)) else None,
+                # store/display in mm (integer values, but DB column is Float)
+                "laenge": float(x_mm) if x_mm is not None else None,
+                "breite": float(y_mm) if y_mm is not None else None,
+                "hoehe": float(z_mm) if z_mm is not None else None,
+                # weight expected in kg from connector; keep as-is (float)
                 "gewicht": float(weight) if isinstance(weight, (int, float)) else None,
                 "pfad": os.path.dirname(key[0]) if key[0] else None,
                 "sldasm_sldprt_pfad": key[0],
@@ -172,6 +226,22 @@ async def import_solidworks_assembly(
         created_articles.append(article)
 
     db.commit()
+    # #region agent log
+    try:
+        with open(_debug_log_path, "a", encoding="utf-8") as _f:
+            import time, json
+            _f.write(json.dumps({
+                "timestamp": int(time.time() * 1000),
+                "location": "backend/app/services/solidworks_service.py:import_solidworks_assembly",
+                "message": "EXIT import_solidworks_assembly committed",
+                "data": {"created": len(created_articles), "aggregated": len(aggregated), "rows": len(rows)},
+                "sessionId": "debug-session",
+                "runId": "run1",
+                "hypothesisId": "U3"
+            }) + "\n")
+    except Exception:
+        pass
+    # #endregion
     return {
         "success": True,
         "imported_count": len(created_articles),

@@ -9,6 +9,8 @@ import pythoncom
 import getpass
 import pywintypes
 import ctypes
+import json
+import time
 from typing import List, Dict, Any, Optional
 
 # Logger für SOLIDWORKS-Connector
@@ -295,21 +297,94 @@ class SolidWorksConnector:
                             z_dim = box[5] - box[2] if box else 0
                             
                             # Lese Gewicht
-                            weight = 0
-                            try:
-                                # Some installations/typelibs expose this differently; protect with fallback.
-                                mass_props = part_model.GetMassProperties2(0)
-                                weight = mass_props[0] if mass_props else 0
-                            except Exception as mass_err:
-                                connector_logger.error(f"Fehler bei GetMassProperties2: {mass_err}", exc_info=True)
+                            # Gewicht (kg): SOLIDWORKS COM APIs unterscheiden sich je nach Version/Typelib.
+                            # Wir probieren mehrere Varianten und loggen minimal nach NDJSON für Laufzeit-Evidence.
+                            weight = 0.0
+
+                            connector_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # .../solidworks-connector
+                            debug_log_file = os.path.join(connector_dir, "..", ".cursor", "debug.log")
+
+                            def _ndjson(hypothesis_id: str, location: str, message: str, data: dict):
                                 try:
-                                    # Fallback path recommended for COM interop stability
-                                    mp = part_model.Extension.CreateMassProperty()
-                                    # `Mass` is in kg (depending on settings); we treat it as weight proxy here.
-                                    weight = float(getattr(mp, "Mass", 0) or 0)
-                                except Exception as mp_err:
-                                    connector_logger.error(f"Fehler bei CreateMassProperty: {mp_err}", exc_info=True)
-                                    weight = 0
+                                    with open(debug_log_file, "a", encoding="utf-8") as f:
+                                        f.write(json.dumps({
+                                            "timestamp": int(time.time() * 1000),
+                                            "location": location,
+                                            "message": message,
+                                            "data": data,
+                                            "sessionId": "debug-session",
+                                            "runId": "run1",
+                                            "hypothesisId": hypothesis_id
+                                        }) + "\n")
+                                except Exception:
+                                    pass
+
+                            # #region agent log
+                            _ndjson("W1", "solidworks-connector/src/SolidWorksConnector.py:mass_entry", "Mass property attempts", {
+                                "part_path": part_path,
+                                "has_Extension": hasattr(part_model, "Extension"),
+                                "has_GetMassProperties2": hasattr(part_model, "GetMassProperties2"),
+                                "ext_has_GetMassProperties": hasattr(getattr(part_model, "Extension", None), "GetMassProperties") if hasattr(part_model, "Extension") else False,
+                                "ext_has_GetMassProperties2": hasattr(getattr(part_model, "Extension", None), "GetMassProperties2") if hasattr(part_model, "Extension") else False,
+                                "ext_has_CreateMassProperty": hasattr(getattr(part_model, "Extension", None), "CreateMassProperty") if hasattr(part_model, "Extension") else False,
+                            })
+                            # #endregion
+
+                            # Versuch 1: IModelDoc2.GetMassProperties2(0)
+                            try:
+                                mass_props = part_model.GetMassProperties2(0)
+                                weight = float(mass_props[0]) if mass_props and len(mass_props) > 0 else 0.0
+                                _ndjson("W2", "solidworks-connector/src/SolidWorksConnector.py:mass_try1", "GetMassProperties2(0) OK", {"mass_kg": weight})
+                            except Exception as e1:
+                                connector_logger.error(f"Fehler bei GetMassProperties2: {e1}", exc_info=True)
+                                _ndjson("W2", "solidworks-connector/src/SolidWorksConnector.py:mass_try1", "GetMassProperties2(0) FAIL", {"error": str(e1), "error_type": type(e1).__name__})
+
+                            # Versuch 2: IModelDoc2.GetMassProperties2(VARIANT VT_I4=0)
+                            if weight == 0.0:
+                                try:
+                                    opt = win32com.client.VARIANT(pythoncom.VT_I4, 0)
+                                    mass_props = part_model.GetMassProperties2(opt)
+                                    weight = float(mass_props[0]) if mass_props and len(mass_props) > 0 else 0.0
+                                    _ndjson("W3", "solidworks-connector/src/SolidWorksConnector.py:mass_try2", "GetMassProperties2(VT_I4=0) OK", {"mass_kg": weight})
+                                except Exception as e2:
+                                    connector_logger.error(f"Fehler bei GetMassProperties2(VARIANT): {e2}", exc_info=True)
+                                    _ndjson("W3", "solidworks-connector/src/SolidWorksConnector.py:mass_try2", "GetMassProperties2(VT_I4=0) FAIL", {"error": str(e2), "error_type": type(e2).__name__})
+
+                            # Versuch 3: IModelDocExtension.GetMassProperties(1) (typischer VBA-Pfad)
+                            if weight == 0.0:
+                                try:
+                                    ext = part_model.Extension
+                                    if hasattr(ext, "GetMassProperties"):
+                                        mp = ext.GetMassProperties(1)
+                                        weight = float(mp[0]) if mp and len(mp) > 0 else 0.0
+                                        _ndjson("W4", "solidworks-connector/src/SolidWorksConnector.py:mass_try3", "Extension.GetMassProperties(1) OK", {"mass_kg": weight})
+                                except Exception as e3:
+                                    connector_logger.error(f"Fehler bei Extension.GetMassProperties: {e3}", exc_info=True)
+                                    _ndjson("W4", "solidworks-connector/src/SolidWorksConnector.py:mass_try3", "Extension.GetMassProperties(1) FAIL", {"error": str(e3), "error_type": type(e3).__name__})
+
+                            # Versuch 4: IModelDocExtension.GetMassProperties2(0)
+                            if weight == 0.0:
+                                try:
+                                    ext = part_model.Extension
+                                    if hasattr(ext, "GetMassProperties2"):
+                                        mp = ext.GetMassProperties2(0)
+                                        weight = float(mp[0]) if mp and len(mp) > 0 else 0.0
+                                        _ndjson("W5", "solidworks-connector/src/SolidWorksConnector.py:mass_try4", "Extension.GetMassProperties2(0) OK", {"mass_kg": weight})
+                                except Exception as e4:
+                                    connector_logger.error(f"Fehler bei Extension.GetMassProperties2: {e4}", exc_info=True)
+                                    _ndjson("W5", "solidworks-connector/src/SolidWorksConnector.py:mass_try4", "Extension.GetMassProperties2(0) FAIL", {"error": str(e4), "error_type": type(e4).__name__})
+
+                            # Versuch 5: Extension.CreateMassProperty().Mass (wenn verfügbar)
+                            if weight == 0.0:
+                                try:
+                                    ext = part_model.Extension
+                                    if hasattr(ext, "CreateMassProperty"):
+                                        mp_obj = ext.CreateMassProperty()
+                                        weight = float(getattr(mp_obj, "Mass", 0) or 0)
+                                        _ndjson("W6", "solidworks-connector/src/SolidWorksConnector.py:mass_try5", "Extension.CreateMassProperty().Mass OK", {"mass_kg": weight})
+                                except Exception as e5:
+                                    connector_logger.error(f"Fehler bei CreateMassProperty: {e5}", exc_info=True)
+                                    _ndjson("W6", "solidworks-connector/src/SolidWorksConnector.py:mass_try5", "Extension.CreateMassProperty().Mass FAIL", {"error": str(e5), "error_type": type(e5).__name__})
                             
                             # Lese Drawing-Pfad (TODO: Implementierung)
                             drawing_path = ""
