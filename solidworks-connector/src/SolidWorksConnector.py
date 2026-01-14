@@ -211,9 +211,13 @@ class SolidWorksConnector:
         # OpenDoc6 signature expects Errors/Warnings as BYREF longs -> passing plain 0 can cause "Typenkonflikt".
         sw_errors = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
         sw_warnings = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
+        # SOLIDWORKS swDocumentTypes_e:
+        # - swDocPART = 1
+        # - swDocASSEMBLY = 2
+        # - swDocDRAWING = 3
         sw_model = self.sw_app.OpenDoc6(
             assembly_filepath,
-            3,  # swDocASSEMBLY
+            2,  # swDocASSEMBLY
             0,  # swOpenDocOptions_Silent
             "",
             sw_errors,
@@ -239,20 +243,43 @@ class SolidWorksConnector:
             
             for component in components:
                 # Prüfe ob Teil versteckt ist
-                is_hidden = component.IsSuppressed() or component.IsEnvelope()
+                # Some SOLIDWORKS COM properties may appear as either methods or boolean properties via pywin32.
+                # Runtime evidence: TypeError: 'bool' object is not callable when calling IsSuppressed().
+                def _get_bool_attr(obj, name: str) -> bool:
+                    val = getattr(obj, name, False)
+                    try:
+                        return bool(val()) if callable(val) else bool(val)
+                    except Exception:
+                        return bool(val)
+
+                # Similarly, some string-returning members may appear as methods or properties.
+                # Runtime evidence: TypeError: 'str' object is not callable (e.g. GetPathName).
+                def _get_str_attr(obj, name: str) -> str:
+                    val = getattr(obj, name, "")
+                    try:
+                        res = val() if callable(val) else val
+                    except Exception:
+                        res = val
+                    return "" if res is None else str(res)
+
+                is_suppressed = _get_bool_attr(component, "IsSuppressed")
+                is_envelope = _get_bool_attr(component, "IsEnvelope")
+                is_hidden = is_suppressed or is_envelope
                 
                 if not is_hidden:
                     # Lese Part/Assembly
-                    part_path = component.GetPathName()
-                    part_name = component.Name2
-                    config_name = component.ReferencedConfiguration
+                    part_path = _get_str_attr(component, "GetPathName")
+                    part_name = _get_str_attr(component, "Name2")
+                    config_name = _get_str_attr(component, "ReferencedConfiguration")
+                    if not part_path:
+                        continue
                     
                     # Öffne Part für Dimensions-Abfrage
                     part_errors = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
                     part_warnings = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
                     part_model = self.sw_app.OpenDoc6(
                         part_path,
-                        1 if part_path.endswith(".SLDPRT") else 3,
+                        1 if part_path.endswith(".SLDPRT") else 2,
                         0,
                         "",
                         part_errors,
@@ -268,8 +295,21 @@ class SolidWorksConnector:
                             z_dim = box[5] - box[2] if box else 0
                             
                             # Lese Gewicht
-                            mass_props = part_model.GetMassProperties2(0)
-                            weight = mass_props[0] if mass_props else 0
+                            weight = 0
+                            try:
+                                # Some installations/typelibs expose this differently; protect with fallback.
+                                mass_props = part_model.GetMassProperties2(0)
+                                weight = mass_props[0] if mass_props else 0
+                            except Exception as mass_err:
+                                connector_logger.error(f"Fehler bei GetMassProperties2: {mass_err}", exc_info=True)
+                                try:
+                                    # Fallback path recommended for COM interop stability
+                                    mp = part_model.Extension.CreateMassProperty()
+                                    # `Mass` is in kg (depending on settings); we treat it as weight proxy here.
+                                    weight = float(getattr(mp, "Mass", 0) or 0)
+                                except Exception as mp_err:
+                                    connector_logger.error(f"Fehler bei CreateMassProperty: {mp_err}", exc_info=True)
+                                    weight = 0
                             
                             # Lese Drawing-Pfad (TODO: Implementierung)
                             drawing_path = ""
@@ -360,7 +400,8 @@ class SolidWorksConnector:
         s_pathname = sw_filepath_with_documentname[:-7]  # Entferne ".SLDPRT" oder ".SLDASM"
         
         # Bestimme Dokumenttyp
-        doc_type = 1 if sw_filepath_with_documentname.endswith(".SLDPRT") else 3  # swDocPART oder swDocASSEMBLY
+        # SOLIDWORKS swDocumentTypes_e: PART=1, ASSEMBLY=2, DRAWING=3
+        doc_type = 1 if sw_filepath_with_documentname.endswith(".SLDPRT") else 2  # swDocPART oder swDocASSEMBLY
         
         # Öffne Dokument
         part_errors = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)

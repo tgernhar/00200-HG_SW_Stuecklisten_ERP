@@ -8,6 +8,7 @@ from app.core.config import settings
 import httpx
 import logging
 import os
+from collections import defaultdict
 
 logger = logging.getLogger(__name__)
 # Stelle sicher, dass der Logger die Handler vom Root-Logger erbt
@@ -30,13 +31,6 @@ async def import_solidworks_assembly(
     4. Speichert Artikel in Datenbank
     """
     # 1. SOLIDWORKS-Connector aufrufen
-    # Debug: Direktes File-Write zum Testen
-    import datetime
-    log_file = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'logs', f'backend_{datetime.datetime.now().strftime("%Y%m%d")}.log')
-    with open(log_file, 'a', encoding='utf-8') as f:
-        f.write(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - DIRECT WRITE - Calling SOLIDWORKS-Connector with filepath: {assembly_filepath}\n")
-        f.write(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - DIRECT WRITE - SOLIDWORKS_CONNECTOR_URL: {settings.SOLIDWORKS_CONNECTOR_URL}\n")
-    
     logger.info(f"Calling SOLIDWORKS-Connector with filepath: {assembly_filepath}")
     logger.info(f"SOLIDWORKS_CONNECTOR_URL: {settings.SOLIDWORKS_CONNECTOR_URL}")
     logger.info(f"Full URL: {settings.SOLIDWORKS_CONNECTOR_URL}/api/solidworks/get-all-parts-from-assembly")
@@ -46,12 +40,6 @@ async def import_solidworks_assembly(
         try:
             request_url = f"{settings.SOLIDWORKS_CONNECTOR_URL}/api/solidworks/get-all-parts-from-assembly"
             request_json = {"assembly_filepath": assembly_filepath}
-            
-            # Debug: Direktes File-Write
-            with open(log_file, 'a', encoding='utf-8') as f:
-                f.write(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - DIRECT WRITE - Sending POST request to: {request_url}\n")
-                f.write(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - DIRECT WRITE - Request body: {request_json}\n")
-            
             logger.info(f"Sending POST request to: {request_url}")
             logger.info(f"Request body: {request_json}")
             
@@ -60,21 +48,11 @@ async def import_solidworks_assembly(
                 json=request_json
             )
             
-            # Debug: Direktes File-Write
-            with open(log_file, 'a', encoding='utf-8') as f:
-                f.write(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - DIRECT WRITE - Response status: {response.status_code}\n")
-                f.write(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - DIRECT WRITE - Response text: {response.text[:500]}\n")
-            
             logger.info(f"SOLIDWORKS-Connector response status: {response.status_code}")
             logger.debug(f"SOLIDWORKS-Connector response headers: {dict(response.headers)}")
             
             if response.status_code != 200:
                 error_detail = response.text if response.text else "Keine Fehlermeldung"
-                
-                # Debug: Direktes File-Write
-                with open(log_file, 'a', encoding='utf-8') as f:
-                    f.write(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - DIRECT WRITE ERROR - SOLIDWORKS-Connector error: {error_detail}\n")
-                
                 logger.error(f"SOLIDWORKS-Connector error: {error_detail}")
                 try:
                     error_json = response.json()
@@ -83,12 +61,6 @@ async def import_solidworks_assembly(
                     pass
                 raise Exception(f"SOLIDWORKS-Connector Fehler: {response.status_code} - {error_detail}")
         except httpx.RequestError as e:
-            # Debug: Direktes File-Write
-            with open(log_file, 'a', encoding='utf-8') as f:
-                f.write(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - DIRECT WRITE ERROR - Request error: {e}\n")
-                import traceback
-                f.write(f"Traceback: {traceback.format_exc()}\n")
-            
             logger.error(f"SOLIDWORKS-Connector request error: {e}", exc_info=True)
             raise Exception(f"SOLIDWORKS-Connector Verbindungsfehler: {str(e)}")
         
@@ -96,50 +68,113 @@ async def import_solidworks_assembly(
         results = connector_data.get("results", [])
     
     # 2. Verarbeitung (entspricht Main_GET_ALL_FROM_SW)
-    articles_data = []
-    child = 0
-    begin_properties = 0
-    end_properties = 0
-    
-    # Konvertiere 2D-Array in strukturierte Daten
-    # results ist ein 2D-Array: results[column][row]
     if not results or len(results) == 0:
         return {
             "success": False,
             "error": "Keine Daten von SOLIDWORKS-Connector erhalten"
         }
-    
-    # TODO: Verarbeitung des 2D-Arrays implementieren
-    # Die Struktur ist: results[0][j] = Child, results[1][j] = Partname, etc.
-    
-    # 3. Aggregation (entspricht Main_SW_Import_To_Projectsheet)
-    # Gruppiere nach Name + Konfiguration und summiere Mengen
-    aggregated_articles = {}
-    
-    for article_data in articles_data:
-        key = f"{article_data.get('partname', '')} {article_data.get('konfiguration', '')}"
-        
-        if key not in aggregated_articles:
-            aggregated_articles[key] = article_data.copy()
-            aggregated_articles[key]["menge"] = 1
+
+    # results can be either:
+    # - row-major: List[List[Any]] where each row has ~14 fields
+    # - column-major legacy: List[List[Any]] with 14 columns -> transpose
+    rows = results
+    if isinstance(results, list) and len(results) == 14 and all(isinstance(col, list) for col in results):
+        # transpose columns -> rows
+        try:
+            rows = [list(r) for r in zip(*results)]
+        except Exception:
+            rows = results
+
+    # Clear existing articles for this project to make import idempotent
+    try:
+        db.query(Article).filter(Article.project_id == project_id).delete(synchronize_session=False)
+        db.commit()
+    except Exception as e:
+        logger.error(f"Failed clearing old articles for project {project_id}: {e}", exc_info=True)
+        db.rollback()
+
+    # Aggregate parts by (filepath, configuration)
+    aggregated = {}
+    props_by_key = defaultdict(dict)  # key -> {propName: propValue}
+
+    def _norm_prop_name(name: str) -> str:
+        return (name or "").strip().lower().replace(" ", "_")
+
+    for row in rows:
+        if not isinstance(row, (list, tuple)) or len(row) < 14:
+            continue
+
+        pos = row[0]
+        partname = row[1]
+        config = row[2]
+        prop_name = row[4]
+        prop_value = row[5]
+        x_dim = row[7]
+        y_dim = row[8]
+        z_dim = row[9]
+        weight = row[10]
+        part_path = row[11]
+        drawing_path = row[12]
+        exclude_flag = row[13]
+
+        key = (str(part_path or ""), str(config or ""))
+        if not key[0]:
+            continue
+
+        # property rows
+        if prop_name:
+            props_by_key[key][_norm_prop_name(str(prop_name))] = "" if prop_value is None else str(prop_value)
+            continue
+
+        # main part row
+        if key not in aggregated:
+            filename = os.path.splitext(os.path.basename(key[0]))[0] if key[0] else ""
+            aggregated[key] = {
+                "pos_nr": int(pos) if isinstance(pos, (int, float)) else None,
+                "benennung": str(partname) if partname is not None else filename,
+                "konfiguration": str(config) if config is not None else "",
+                "teilenummer": filename,
+                "menge": 1,
+                "laenge": float(x_dim) if isinstance(x_dim, (int, float)) else None,
+                "breite": float(y_dim) if isinstance(y_dim, (int, float)) else None,
+                "hoehe": float(z_dim) if isinstance(z_dim, (int, float)) else None,
+                "gewicht": float(weight) if isinstance(weight, (int, float)) else None,
+                "pfad": os.path.dirname(key[0]) if key[0] else None,
+                "sldasm_sldprt_pfad": key[0],
+                "slddrw_pfad": str(drawing_path) if drawing_path else None,
+                "in_stueckliste_anzeigen": False if exclude_flag else True,
+            }
         else:
-            aggregated_articles[key]["menge"] += 1
-    
-    # 4. Speicherung in Datenbank
+            aggregated[key]["menge"] += 1
+
+    # Map a few common custom properties into editable fields if present
+    prop_to_field = {
+        "werkstoff": "werkstoff",
+        "werkstoff_nr": "werkstoff_nr",
+        "oberflaeche": "oberflaeche",
+        "oberflächenschutz": "oberflaechenschutz",
+        "oberflaechenschutz": "oberflaechenschutz",
+        "farbe": "farbe",
+        "lieferzeit": "lieferzeit",
+        "abteilung_lieferant": "abteilung_lieferant",
+        "teiletyp_fertigungsplan": "teiletyp_fertigungsplan",
+        "hg_artikelnummer": "hg_artikelnummer",
+    }
+
     created_articles = []
-    for article_data in aggregated_articles.values():
-        article = Article(
-            project_id=project_id,
-            **article_data
-        )
+    for key, data in aggregated.items():
+        for prop_name, field in prop_to_field.items():
+            if prop_name in props_by_key.get(key, {}):
+                data[field] = props_by_key[key][prop_name]
+
+        article = Article(project_id=project_id, **data)
         db.add(article)
         created_articles.append(article)
-    
+
     db.commit()
-    
     return {
         "success": True,
         "imported_count": len(created_articles),
-        "total_parts_count": len(articles_data),
-        "aggregated_count": len(aggregated_articles)
+        "total_parts_count": len(rows),
+        "aggregated_count": len(aggregated),
     }
