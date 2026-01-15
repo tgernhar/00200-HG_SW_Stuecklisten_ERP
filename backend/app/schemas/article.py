@@ -70,6 +70,43 @@ class Article(ArticleBase):
         from_attributes = True
 
 
+# Response-Shape für das Frontend-Grid (mischt Artikel + Order + Dokument-Flags + Datei-Existenz)
+class ArticleGridRow(ArticleBase):
+    id: int
+    project_id: int
+
+    # Block A (aus Order, falls vorhanden)
+    hg_bnr: Optional[str] = None
+    bnr_status: Optional[str] = None
+    bnr_menge: Optional[int] = None
+    bestellkommentar: Optional[str] = None
+    hg_lt: Optional[str] = None
+    bestaetigter_lt: Optional[str] = None
+
+    # Block B (Flags: leer, "1", "x")
+    pdf_drucken: Optional[str] = None
+    pdf: Optional[str] = None
+    pdf_bestell_pdf: Optional[str] = None
+    dxf: Optional[str] = None
+    bestell_dxf: Optional[str] = None
+    step: Optional[str] = None
+    x_t: Optional[str] = None
+    stl: Optional[str] = None
+    bn_ab: Optional[str] = None
+
+    # Existence-only Spalten (nicht editierbar)
+    sw_part_asm: Optional[str] = None
+    sw_drw: Optional[str] = None
+    esp: Optional[str] = None
+
+    # Für PDF-Renderer
+    pdf_exists: Optional[bool] = None
+    pdf_path: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
 class ArticleBatchUpdate(BaseModel):
     article_ids: List[int]
     updates: ArticleUpdate

@@ -1,9 +1,9 @@
 /**
  * Article Grid Component (AG Grid)
  */
-import React, { useMemo, useCallback } from 'react'
+import React, { useMemo, useCallback, useEffect, useRef } from 'react'
 import { AgGridReact } from 'ag-grid-react'
-import { ColDef, ColGroupDef, ICellRendererParams } from 'ag-grid-community'
+import { ColDef, ColGroupDef, ICellRendererParams, GridReadyEvent, FirstDataRenderedEvent } from 'ag-grid-community'
 import 'ag-grid-community/styles/ag-grid.css'
 import 'ag-grid-community/styles/ag-theme-alpine.css'
 import { Article } from '../services/types'
@@ -15,6 +15,8 @@ interface ArticleGridProps {
 }
 
 export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, onCellValueChanged }) => {
+  const gridRef = useRef<AgGridReact<Article> | null>(null)
+
   // Document Status Cell Renderer
   const documentStatusCellRenderer = useCallback((params: ICellRendererParams) => {
     return React.createElement(DocumentStatusRenderer, {
@@ -85,13 +87,12 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, onCellValueC
     {
       headerName: 'Stücklisteninformationen',
       children: [
-        { field: 'pos_nr', headerName: 'Pos-Nr', width: 80, editable: false, pinned: 'left' },
+        { field: 'pos_nr', headerName: 'Pos-Nr', width: 80, editable: false },
         { 
           field: 'hg_artikelnummer', 
           headerName: 'H+G Artikelnummer', 
           width: 150, 
-          editable: false, 
-          pinned: 'left',
+          editable: false,
           cellRenderer: articleNumberCellRenderer
         },
         { field: 'benennung', headerName: 'BENENNUNG', width: 200, editable: false },
@@ -118,6 +119,39 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, onCellValueC
     }
   ], [])
 
+  // #region agent log
+  useEffect(() => {
+    // Log a light summary so we can verify the built bundle actually contains the new columnDefs order.
+    const topLevel = columnDefs.map((c: any) => ({
+      headerName: c.headerName,
+      field: c.field,
+      pinned: c.pinned,
+      hasChildren: Array.isArray(c.children),
+      childrenFields: Array.isArray(c.children) ? c.children.map((cc: any) => cc.field).filter(Boolean).slice(0, 5) : undefined
+    }))
+    fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ArticleGrid.tsx:coldefs',message:'columnDefs top-level summary',data:{topLevel},timestamp:Date.now(),sessionId:'debug-session',runId:'colfix1',hypothesisId:'C1'})}).catch(()=>{});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  // #endregion
+
+  const onGridReady = useCallback((e: GridReadyEvent) => {
+    // #region agent log
+    try {
+      const cols = e.columnApi.getAllDisplayedColumns().map(c => ({ colId: c.getColId(), pinned: c.getPinned() }))
+      fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ArticleGrid.tsx:onGridReady',message:'displayed columns (initial)',data:{cols:cols.slice(0,40)},timestamp:Date.now(),sessionId:'debug-session',runId:'colfix1',hypothesisId:'C2'})}).catch(()=>{});
+    } catch {}
+    // #endregion
+  }, [])
+
+  const onFirstDataRendered = useCallback((e: FirstDataRenderedEvent) => {
+    // #region agent log
+    try {
+      const cols = e.columnApi.getAllDisplayedColumns().map(c => ({ colId: c.getColId(), pinned: c.getPinned() }))
+      fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ArticleGrid.tsx:onFirstDataRendered',message:'displayed columns (after data)',data:{cols:cols.slice(0,40)},timestamp:Date.now(),sessionId:'debug-session',runId:'colfix1',hypothesisId:'C3'})}).catch(()=>{});
+    } catch {}
+    // #endregion
+  }, [])
+
   const defaultColDef = useMemo<ColDef>(() => ({
     resizable: true,
     sortable: true,
@@ -142,10 +176,13 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, onCellValueC
     <div style={{ width: '100%', height: '100%' }}>
       <div className="ag-theme-alpine" style={{ width: '100%', height: '100%' }}>
         <AgGridReact
+          ref={(r) => { gridRef.current = r }}
           rowData={articles}
           columnDefs={columnDefs}
           defaultColDef={defaultColDef}
           gridOptions={gridOptions}
+          onGridReady={onGridReady}
+          onFirstDataRendered={onFirstDataRendered}
         />
       </div>
       <style>{`

@@ -98,3 +98,43 @@ async def batch_print_pdf_endpoint(
         "skipped_count": len(result["skipped"]),
         "details": result
     }
+
+
+@router.post("/projects/{project_id}/check-documents-batch")
+async def check_documents_batch(project_id: int, db: Session = Depends(get_db)):
+    """Projektweite Dokumentprüfung (Dateisystem-Check)"""
+    from app.services.document_service import check_article_documents
+
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Projekt nicht gefunden")
+
+    articles = db.query(Article).filter(Article.project_id == project_id).all()
+
+    checked_articles = 0
+    checked_docs = 0
+    found_docs = 0
+    updated_flags_count = 0
+    failures = []
+
+    for article in articles:
+        try:
+            result = await check_article_documents(article.id, db)
+            checked_articles += 1
+            checked_list = result.get("checked", []) if isinstance(result, dict) else []
+            checked_docs += len(checked_list)
+            found_docs += sum(1 for d in checked_list if d.get("exists"))
+            updated_flags_count += len(result.get("updated_flags", [])) if isinstance(result, dict) else 0
+        except Exception as e:
+            failures.append({"article_id": article.id, "error": str(e)})
+
+    return {
+        "success": True,
+        "project_id": project_id,
+        "checked_articles": checked_articles,
+        "checked_documents": checked_docs,
+        "found_documents": found_docs,
+        "updated_flags": updated_flags_count,
+        "failed": failures,
+        "failed_count": len(failures),
+    }

@@ -1,7 +1,7 @@
 /**
  * Main App Component
  */
-import React, { useState, useEffect } from 'react'
+import React, { useState } from 'react'
 import { ProjectHeader } from './components/ProjectHeader'
 import { ArticleGrid } from './components/ArticleGrid'
 import { useArticles } from './hooks/useArticles'
@@ -10,43 +10,12 @@ import { Project, Article } from './services/types'
 import './App.css'
 
 function App() {
-  // #region agent log
-  useEffect(() => {
-    console.log('DEBUG: App component mounted, project:', project);
-    fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'App.tsx:12',message:'App component rendering',data:{timestamp:Date.now()},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch((err)=>{console.error('DEBUG: Log send failed:', err);});
-  }, []);
-  // #endregion
   const [project, setProject] = useState<Project | null>(null)
-  // #region agent log
-  useEffect(() => {
-    fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'App.tsx:16',message:'project state initialized',data:{project:project,isNull:project===null,type:typeof project},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-  }, [project]);
-  // #endregion
   const [auNr, setAuNr] = useState('')
   const [assemblyPath, setAssemblyPath] = useState('')
   const [isImporting, setIsImporting] = useState(false)
   const [importError, setImportError] = useState<string | null>(null)
   const { articles, loading, error, refetch } = useArticles(project?.id || null)
-
-  // #region agent log
-  useEffect(() => {
-    fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'App.tsx:19',message:'App component mounted',data:{project:project,windowLocation:window.location.href},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-  }, []);
-  
-  useEffect(() => {
-    const shouldShowForm = !project;
-    console.log('DEBUG: Render decision - project:', project, 'shouldShowForm:', shouldShowForm);
-    fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'App.tsx:176',message:'render decision',data:{project:project,shouldShowForm:shouldShowForm,projectIsNull:project===null,projectIsUndefined:project===undefined},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch((err)=>{console.error('DEBUG: Log send failed:', err);});
-    
-    if (shouldShowForm) {
-      console.log('DEBUG: Rendering form branch');
-      fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'App.tsx:182',message:'rendering form branch',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch((err)=>{console.error('DEBUG: Log send failed:', err);});
-    } else {
-      console.log('DEBUG: Rendering project view branch, project:', project);
-      fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'App.tsx:263',message:'rendering project view branch',data:{projectId:project?.id,projectAuNr:project?.au_nr},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch((err)=>{console.error('DEBUG: Log send failed:', err);});
-    }
-  }, [project]);
-  // #endregion
 
   const handleImportSolidworks = async () => {
     if (!project) return
@@ -105,7 +74,20 @@ function App() {
 
   const handleCheckDocuments = async () => {
     if (!project) return
-    alert('Dokumentprüfung noch nicht implementiert')
+    try {
+      const response = await api.post(`/projects/${project.id}/check-documents-batch`)
+      const { checked_articles, checked_documents, found_documents, failed_count } = response.data || {}
+      alert(
+        `Dokumentprüfung abgeschlossen:\n` +
+          `Artikel geprüft: ${checked_articles ?? '-'}\n` +
+          `Dokumente geprüft: ${checked_documents ?? '-'}\n` +
+          `Gefunden: ${found_documents ?? '-'}\n` +
+          `Fehler: ${failed_count ?? 0}`
+      )
+      refetch()
+    } catch (error: any) {
+      alert('Fehler bei der Dokumentprüfung: ' + (error.response?.data?.detail || error.message))
+    }
   }
 
   const handlePrintPDF = async () => {
@@ -162,41 +144,18 @@ function App() {
     setImportError(null)
     setIsImporting(true)
 
-    // #region agent log
-    console.log('DEBUG: Starting import - auNr:', auNr, 'assemblyPath:', assemblyPath, 'API URL:', api.defaults.baseURL);
-    fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'App.tsx:150',message:'handleStartImport called',data:{auNr:auNr,assemblyPath:assemblyPath,apiBaseURL:api.defaults.baseURL},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'IMPORT1'})}).catch((err)=>{console.error('DEBUG: Log send failed:', err);});
-    // #endregion
-
     try {
-      // #region agent log
-      console.log('DEBUG: Creating project...');
-      // #endregion
-      
       // 1. Projekt erstellen
       const projectResponse = await api.post('/projects', {
         au_nr: auNr.trim(),
         project_path: assemblyPath.trim()
       })
-      
-      // #region agent log
-      console.log('DEBUG: Project created:', projectResponse.data);
-      fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'App.tsx:172',message:'project created',data:{projectId:projectResponse.data?.id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'IMPORT3'})}).catch((err)=>{console.error('DEBUG: Log send failed:', err);});
-      // #endregion
-      
       const newProject = projectResponse.data
-
-      // #region agent log
-      console.log('DEBUG: Importing SolidWorks for project:', newProject.id);
-      // #endregion
 
       // 2. SolidWorks importieren
       await api.post(`/projects/${newProject.id}/import-solidworks`, null, {
         params: { assembly_filepath: assemblyPath.trim() }
       })
-
-      // #region agent log
-      console.log('DEBUG: SolidWorks import successful');
-      // #endregion
 
       // 3. Projekt laden und anzeigen
       setProject(newProject)
@@ -204,23 +163,13 @@ function App() {
       setAssemblyPath('')
       refetch()
     } catch (error: any) {
-      // #region agent log
-      console.error('DEBUG: Import error:', error);
-      console.error('DEBUG: Error response:', error.response);
-      console.error('DEBUG: Error message:', error.message);
-      console.error('DEBUG: Error code:', error.code);
-      fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'App.tsx:195',message:'import error',data:{errorMessage:error.message,errorCode:error.code,errorResponse:error.response?.data,statusCode:error.response?.status,apiBaseURL:api.defaults.baseURL},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'IMPORT6'})}).catch((err)=>{console.error('DEBUG: Log send failed:', err);});
-      // #endregion
-      
       // Extrahiere detaillierte Fehlermeldung
       let errorMessage = 'Unbekannter Fehler'
       if (error.response?.data) {
-        console.log('DEBUG: Error response data:', error.response.data)
         errorMessage = error.response.data.detail || error.response.data.message || JSON.stringify(error.response.data)
       } else {
         errorMessage = error.message || 'Unbekannter Fehler'
       }
-      console.log('DEBUG: Final error message:', errorMessage)
       setImportError(`Fehler beim Import: ${errorMessage}`)
       
       // Wenn Projekt erstellt wurde aber Import fehlgeschlagen ist, 

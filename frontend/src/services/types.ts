@@ -36,6 +36,32 @@ export interface Article {
   slddrw_pfad?: string
   in_stueckliste_anzeigen: boolean
   erp_exists?: boolean
+
+  // Block A: Bestellinformationen (aus Order)
+  hg_bnr?: string
+  bnr_status?: string
+  bnr_menge?: number
+  bestellkommentar?: string
+  hg_lt?: string
+  bestaetigter_lt?: string
+
+  // Block B: Dokument-Flags (leer | "1" | "x")
+  pdf_drucken?: string
+  pdf?: string
+  pdf_bestell_pdf?: string
+  dxf?: string
+  bestell_dxf?: string
+  sw_part_asm?: string
+  sw_drw?: string
+  step?: string
+  x_t?: string
+  stl?: string
+  esp?: string
+  bn_ab?: string
+
+  // Zusatzinfos für Renderer
+  pdf_exists?: boolean
+  pdf_path?: string
 }
 
 export interface Document {
