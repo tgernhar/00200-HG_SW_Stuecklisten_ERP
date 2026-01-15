@@ -9,6 +9,7 @@ from app.models.article import Article
 from app.models.project import Project
 from app.schemas.article import ArticleGridRow, ArticleCreate, ArticleUpdate, ArticleBatchUpdate
 from sqlalchemy.orm import joinedload
+import os
 
 router = APIRouter()
 
@@ -43,6 +44,12 @@ async def get_articles(project_id: int, db: Session = Depends(get_db)):
         # Dokument-Existenz aus documents Tabelle (wird von "Dokumente prüfen" gepflegt)
         docs = {d.document_type: d for d in (getattr(a, "documents", None) or [])}
         pdf_doc = docs.get("PDF")
+        pdf_bestell_pdf_doc = docs.get("Bestell_PDF")
+        dxf_doc = docs.get("DXF")
+        bestell_dxf_doc = docs.get("Bestell_DXF")
+        step_doc = docs.get("STEP")
+        x_t_doc = docs.get("X_T")
+        stl_doc = docs.get("STL")
         sw_part_asm_doc = docs.get("SW_Part_ASM")
         sw_drw_doc = docs.get("SW_DRW")
         esp_doc = docs.get("ESP")
@@ -52,6 +59,12 @@ async def get_articles(project_id: int, db: Session = Depends(get_db)):
 
         def _exists_to_x(doc):
             return "x" if (doc and getattr(doc, "exists", False)) else ""
+
+        def _doc_exists(doc):
+            return bool(getattr(doc, "exists", False)) if doc else None
+
+        def _doc_path(doc):
+            return getattr(doc, "file_path", None) if doc else None
 
         row = ArticleGridRow(
             # Article fields
@@ -108,6 +121,34 @@ async def get_articles(project_id: int, db: Session = Depends(get_db)):
             # PDF renderer helpers
             pdf_exists=getattr(pdf_doc, "exists", None) if pdf_doc else None,
             pdf_path=getattr(pdf_doc, "file_path", None) if pdf_doc else None,
+
+            # Exists/Path für alle Dokumenttypen
+            pdf_bestell_pdf_exists=_doc_exists(pdf_bestell_pdf_doc),
+            pdf_bestell_pdf_path=_doc_path(pdf_bestell_pdf_doc),
+
+            dxf_exists=_doc_exists(dxf_doc),
+            dxf_path=_doc_path(dxf_doc),
+
+            bestell_dxf_exists=_doc_exists(bestell_dxf_doc),
+            bestell_dxf_path=_doc_path(bestell_dxf_doc),
+
+            step_exists=_doc_exists(step_doc),
+            step_path=_doc_path(step_doc),
+
+            x_t_exists=_doc_exists(x_t_doc),
+            x_t_path=_doc_path(x_t_doc),
+
+            stl_exists=_doc_exists(stl_doc),
+            stl_path=_doc_path(stl_doc),
+
+            sw_part_asm_exists=_doc_exists(sw_part_asm_doc),
+            sw_part_asm_path=_doc_path(sw_part_asm_doc),
+
+            sw_drw_exists=_doc_exists(sw_drw_doc),
+            sw_drw_path=_doc_path(sw_drw_doc),
+
+            esp_exists=_doc_exists(esp_doc),
+            esp_path=_doc_path(esp_doc),
         )
 
         rows.append(row)

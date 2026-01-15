@@ -9,8 +9,6 @@ import pythoncom
 import getpass
 import pywintypes
 import ctypes
-import json
-import time
 from typing import List, Dict, Any, Optional
 
 # Logger für SOLIDWORKS-Connector
@@ -29,58 +27,36 @@ class SolidWorksConnector:
     def connect(self):
         """Verbindung zu SOLIDWORKS herstellen"""
         try:
-            # Debug: Direktes File-Write zum Testen
-            import datetime
-            connector_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            log_file = os.path.join(connector_dir, 'logs', f'solidworks_connector_{datetime.datetime.now().strftime("%Y%m%d")}.log')
-            with open(log_file, 'a', encoding='utf-8') as f:
-                f.write(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - DIRECT WRITE - Versuche Verbindung zu SOLIDWORKS herzustellen...\n")
-            
             # COM initialization is required in the current thread before any win32com calls.
             # Runtime evidence: (-2147221008, 'CoInitialize wurde nicht aufgerufen.')
             try:
                 pythoncom.CoInitialize()
                 self._com_initialized = True
             except Exception as ci_err:
-                # Still proceed to log and fail clearly if Dispatch fails
-                with open(log_file, 'a', encoding='utf-8') as f:
-                    f.write(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - DIRECT WRITE ERROR - CoInitialize failed: {ci_err}\n")
+                connector_logger.error(f"CoInitialize failed: {ci_err}", exc_info=True)
 
             self._owner_thread_id = threading.get_ident()
-            with open(log_file, 'a', encoding='utf-8') as f:
-                f.write(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - DIRECT WRITE - Thread ident: {self._owner_thread_id}\n")
-                f.write(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - DIRECT WRITE - PID: {os.getpid()} USER: {getpass.getuser()}\n")
-                # Session-ID ist wichtig (SOLIDWORKS läuft typischerweise in interaktiver User-Session, nicht Session 0)
+            connector_logger.info(f"Thread ident: {self._owner_thread_id} PID: {os.getpid()} USER: {getpass.getuser()}")
+            # Session-ID ist wichtig (SOLIDWORKS läuft typischerweise in interaktiver User-Session, nicht Session 0)
+            try:
+                session_id = ctypes.c_uint()
+                ctypes.windll.kernel32.ProcessIdToSessionId(os.getpid(), ctypes.byref(session_id))
                 try:
-                    session_id = ctypes.c_uint()
-                    ctypes.windll.kernel32.ProcessIdToSessionId(os.getpid(), ctypes.byref(session_id))
-                    f.write(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - DIRECT WRITE - SessionId: {session_id.value}\n")
-                    # Active console session (where the logged-in desktop is)
-                    try:
-                        active_console = ctypes.windll.kernel32.WTSGetActiveConsoleSessionId()
-                        f.write(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - DIRECT WRITE - ActiveConsoleSessionId: {active_console}\n")
-                    except Exception as ac_err:
-                        f.write(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - DIRECT WRITE ERROR - Could not get ActiveConsoleSessionId: {ac_err}\n")
-
-                    # HARD GUARD: If we are in Session 0, we are running as a Windows service.
-                    # SOLIDWORKS is an interactive desktop app and its COM server typically cannot be
-                    # started/controlled from Session 0. This matches runtime evidence:
-                    # - SessionId: 0
-                    # - hresult -2147024891 'Zugriff verweigert' / -2146959355 'Starten des Servers fehlgeschlagen'
-                    if session_id.value == 0:
-                        f.write(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - HINT - Connector läuft in Session 0 (Windows-Service). Bitte Connector in User-Session starten (kein Service) oder als Scheduled Task 'Nur ausführen, wenn Benutzer angemeldet ist'.\n")
-                        f.flush()
-                        msg = (
-                            "SOLIDWORKS-Connector läuft in Session 0 (Windows-Service). "
-                            "SOLIDWORKS COM ist in der Regel nur in der interaktiven User-Session verfügbar. "
-                            "Lösung: Service stoppen und Connector als User-Prozess starten (oder Scheduled Task: "
-                            "'Nur ausführen, wenn Benutzer angemeldet ist')."
-                        )
-                        connector_logger.error(msg)
-                        raise Exception(msg)
-                except Exception as sid_err:
-                    f.write(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - DIRECT WRITE ERROR - Could not get SessionId: {sid_err}\n")
-                f.flush()
+                    active_console = ctypes.windll.kernel32.WTSGetActiveConsoleSessionId()
+                except Exception:
+                    active_console = None
+                connector_logger.info(f"SessionId: {session_id.value} ActiveConsoleSessionId: {active_console}")
+                if session_id.value == 0:
+                    msg = (
+                        "SOLIDWORKS-Connector läuft in Session 0 (Windows-Service). "
+                        "SOLIDWORKS COM ist in der Regel nur in der interaktiven User-Session verfügbar. "
+                        "Lösung: Service stoppen und Connector als User-Prozess starten (oder Scheduled Task: "
+                        "'Nur ausführen, wenn Benutzer angemeldet ist')."
+                    )
+                    connector_logger.error(msg)
+                    raise Exception(msg)
+            except Exception as sid_err:
+                connector_logger.error(f"Could not get session information: {sid_err}", exc_info=True)
 
             connector_logger.info("Versuche Verbindung zu SOLIDWORKS herzustellen...")
             # Prefer attaching to an already running instance (common in user workflows).
@@ -102,44 +78,13 @@ class SolidWorksConnector:
                     connected_via = "DispatchEx(CLSCTX_LOCAL_SERVER)"
 
             self.sw_app.Visible = False
-            
-            with open(log_file, 'a', encoding='utf-8') as f:
-                f.write(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - DIRECT WRITE SUCCESS - Erfolgreich zu SOLIDWORKS verbunden\n")
-                f.write(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - DIRECT WRITE SUCCESS - Connected via: {connected_via}\n")
-                f.flush()
             connector_logger.info("Erfolgreich zu SOLIDWORKS verbunden")
+            connector_logger.info(f"Connected via: {connected_via}")
             return True
         except pywintypes.com_error as e:
-            import datetime
-            connector_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            log_file = os.path.join(connector_dir, 'logs', f'solidworks_connector_{datetime.datetime.now().strftime("%Y%m%d")}.log')
-            with open(log_file, 'a', encoding='utf-8') as f:
-                f.write(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - DIRECT WRITE ERROR - COM error connecting to SOLIDWORKS: {e}\n")
-                try:
-                    f.write(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - DIRECT WRITE ERROR - COM hresult: {getattr(e, 'hresult', None)}\n")
-                    f.write(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - DIRECT WRITE ERROR - COM excepinfo: {getattr(e, 'excepinfo', None)}\n")
-                except Exception:
-                    pass
-                # Helpful hint based on common HRESULTs we are seeing in logs
-                hresult = getattr(e, "hresult", None)
-                if hresult == -2146959355:
-                    f.write(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - HINT - 'Starten des Servers fehlgeschlagen': meist Service/Session-Problem (SOLIDWORKS in anderer User-Session).\n")
-                if hresult == -2147024891:
-                    f.write(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - HINT - 'Zugriff verweigert': oft UAC/Integrity-Mismatch (SOLIDWORKS als Admin, Connector nicht) oder DCOM Launch Permissions.\n")
-                import traceback
-                f.write(traceback.format_exc() + "\n")
-                f.flush()
             connector_logger.error(f"COM Fehler beim Verbinden zu SOLIDWORKS: {e}", exc_info=True)
             return False
         except Exception as e:
-            import datetime
-            connector_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            log_file = os.path.join(connector_dir, 'logs', f'solidworks_connector_{datetime.datetime.now().strftime("%Y%m%d")}.log')
-            with open(log_file, 'a', encoding='utf-8') as f:
-                f.write(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - DIRECT WRITE ERROR - Fehler beim Verbinden zu SOLIDWORKS: {e}\n")
-                import traceback
-                f.write(f"Traceback: {traceback.format_exc()}\n")
-                f.flush()
             connector_logger.error(f"Fehler beim Verbinden zu SOLIDWORKS: {e}", exc_info=True)
             return False
     
@@ -173,27 +118,11 @@ class SolidWorksConnector:
             - results[12][j] = Filepath Drawing
             - results[13][j] = Exclude from Boom Flag
         """
-        # Debug: Direktes File-Write zum Testen
-        import datetime
-        try:
-            connector_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            log_file = os.path.join(connector_dir, 'logs', f'solidworks_connector_{datetime.datetime.now().strftime("%Y%m%d")}.log')
-            with open(log_file, 'a', encoding='utf-8') as f:
-                f.write(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - DIRECT WRITE - get_all_parts_and_properties_from_assembly aufgerufen mit: {assembly_filepath}\n")
-                f.flush()  # Stelle sicher, dass die Daten sofort geschrieben werden
-        except Exception as write_error:
-            # Falls File-Write fehlschlägt, logge es
-            connector_logger.error(f"Fehler beim File-Write: {write_error}", exc_info=True)
-        
         connector_logger.info(f"get_all_parts_and_properties_from_assembly aufgerufen mit: {assembly_filepath}")
         
         if not self.sw_app:
-            with open(log_file, 'a', encoding='utf-8') as f:
-                f.write(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - DIRECT WRITE - SOLIDWORKS-Verbindung nicht vorhanden, versuche Verbindung...\n")
             connector_logger.info("SOLIDWORKS-Verbindung nicht vorhanden, versuche Verbindung...")
             if not self.connect():
-                with open(log_file, 'a', encoding='utf-8') as f:
-                    f.write(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - DIRECT WRITE ERROR - Konnte nicht zu SOLIDWORKS verbinden\n")
                 connector_logger.error("Konnte nicht zu SOLIDWORKS verbinden")
                 raise Exception("Konnte nicht zu SOLIDWORKS verbinden")
         
@@ -225,13 +154,7 @@ class SolidWorksConnector:
             sw_errors,
             sw_warnings
         )
-        try:
-            with open(log_file, 'a', encoding='utf-8') as f:
-                import datetime
-                f.write(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - DIRECT WRITE - OpenDoc6(ASM) errors={sw_errors.value} warnings={sw_warnings.value}\n")
-                f.flush()
-        except Exception:
-            pass
+        connector_logger.debug(f"OpenDoc6(ASM) errors={sw_errors.value} warnings={sw_warnings.value}")
         
         if not sw_model:
             raise Exception(f"Konnte Assembly nicht öffnen: {assembly_filepath}")
@@ -301,43 +224,12 @@ class SolidWorksConnector:
                             # Wir probieren mehrere Varianten und loggen minimal nach NDJSON für Laufzeit-Evidence.
                             weight = 0.0
 
-                            connector_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # .../solidworks-connector
-                            debug_log_file = os.path.join(connector_dir, "..", ".cursor", "debug.log")
-
-                            def _ndjson(hypothesis_id: str, location: str, message: str, data: dict):
-                                try:
-                                    with open(debug_log_file, "a", encoding="utf-8") as f:
-                                        f.write(json.dumps({
-                                            "timestamp": int(time.time() * 1000),
-                                            "location": location,
-                                            "message": message,
-                                            "data": data,
-                                            "sessionId": "debug-session",
-                                            "runId": "run1",
-                                            "hypothesisId": hypothesis_id
-                                        }) + "\n")
-                                except Exception:
-                                    pass
-
-                            # #region agent log
-                            _ndjson("W1", "solidworks-connector/src/SolidWorksConnector.py:mass_entry", "Mass property attempts", {
-                                "part_path": part_path,
-                                "has_Extension": hasattr(part_model, "Extension"),
-                                "has_GetMassProperties2": hasattr(part_model, "GetMassProperties2"),
-                                "ext_has_GetMassProperties": hasattr(getattr(part_model, "Extension", None), "GetMassProperties") if hasattr(part_model, "Extension") else False,
-                                "ext_has_GetMassProperties2": hasattr(getattr(part_model, "Extension", None), "GetMassProperties2") if hasattr(part_model, "Extension") else False,
-                                "ext_has_CreateMassProperty": hasattr(getattr(part_model, "Extension", None), "CreateMassProperty") if hasattr(part_model, "Extension") else False,
-                            })
-                            # #endregion
-
                             # Versuch 1: IModelDoc2.GetMassProperties2(0)
                             try:
                                 mass_props = part_model.GetMassProperties2(0)
                                 weight = float(mass_props[0]) if mass_props and len(mass_props) > 0 else 0.0
-                                _ndjson("W2", "solidworks-connector/src/SolidWorksConnector.py:mass_try1", "GetMassProperties2(0) OK", {"mass_kg": weight})
                             except Exception as e1:
                                 connector_logger.error(f"Fehler bei GetMassProperties2: {e1}", exc_info=True)
-                                _ndjson("W2", "solidworks-connector/src/SolidWorksConnector.py:mass_try1", "GetMassProperties2(0) FAIL", {"error": str(e1), "error_type": type(e1).__name__})
 
                             # Versuch 2: IModelDoc2.GetMassProperties2(VARIANT VT_I4=0)
                             if weight == 0.0:
@@ -345,10 +237,8 @@ class SolidWorksConnector:
                                     opt = win32com.client.VARIANT(pythoncom.VT_I4, 0)
                                     mass_props = part_model.GetMassProperties2(opt)
                                     weight = float(mass_props[0]) if mass_props and len(mass_props) > 0 else 0.0
-                                    _ndjson("W3", "solidworks-connector/src/SolidWorksConnector.py:mass_try2", "GetMassProperties2(VT_I4=0) OK", {"mass_kg": weight})
                                 except Exception as e2:
                                     connector_logger.error(f"Fehler bei GetMassProperties2(VARIANT): {e2}", exc_info=True)
-                                    _ndjson("W3", "solidworks-connector/src/SolidWorksConnector.py:mass_try2", "GetMassProperties2(VT_I4=0) FAIL", {"error": str(e2), "error_type": type(e2).__name__})
 
                             # Versuch 3: IModelDocExtension.GetMassProperties(1) (typischer VBA-Pfad)
                             if weight == 0.0:
@@ -364,10 +254,8 @@ class SolidWorksConnector:
                                             # Second try: 2 params (options, status/byref or config placeholder)
                                             mp = ext.GetMassProperties(1, 0)
                                         weight = float(mp[0]) if mp and len(mp) > 0 else 0.0
-                                        _ndjson("W4", "solidworks-connector/src/SolidWorksConnector.py:mass_try3", "Extension.GetMassProperties(...) OK", {"mass_kg": weight})
                                 except Exception as e3:
                                     connector_logger.error(f"Fehler bei Extension.GetMassProperties: {e3}", exc_info=True)
-                                    _ndjson("W4", "solidworks-connector/src/SolidWorksConnector.py:mass_try3", "Extension.GetMassProperties(1) FAIL", {"error": str(e3), "error_type": type(e3).__name__})
 
                             # Versuch 4: IModelDocExtension.GetMassProperties2(0)
                             if weight == 0.0:
@@ -384,10 +272,8 @@ class SolidWorksConnector:
                                             except Exception as _e_two:
                                                 mp = ext.GetMassProperties2(0, 0, 0)
                                         weight = float(mp[0]) if mp and len(mp) > 0 else 0.0
-                                        _ndjson("W5", "solidworks-connector/src/SolidWorksConnector.py:mass_try4", "Extension.GetMassProperties2(...) OK", {"mass_kg": weight})
                                 except Exception as e4:
                                     connector_logger.error(f"Fehler bei Extension.GetMassProperties2: {e4}", exc_info=True)
-                                    _ndjson("W5", "solidworks-connector/src/SolidWorksConnector.py:mass_try4", "Extension.GetMassProperties2(0) FAIL", {"error": str(e4), "error_type": type(e4).__name__})
 
                             # Versuch 5: Extension.CreateMassProperty().Mass (wenn verfügbar)
                             if weight == 0.0:
@@ -421,10 +307,8 @@ class SolidWorksConnector:
 
                                     if mp_obj is not None:
                                         weight = float(getattr(mp_obj, "Mass", 0) or 0)
-                                    _ndjson("W6", "solidworks-connector/src/SolidWorksConnector.py:mass_try5", "Extension.CreateMassProperty* attempt finished", {"mass_kg": weight, "mp_obj_type": type(mp_obj).__name__ if mp_obj is not None else None})
                                 except Exception as e5:
                                     connector_logger.error(f"Fehler bei CreateMassProperty: {e5}", exc_info=True)
-                                    _ndjson("W6", "solidworks-connector/src/SolidWorksConnector.py:mass_try5", "Extension.CreateMassProperty().Mass FAIL", {"error": str(e5), "error_type": type(e5).__name__})
                             
                             # Lese Drawing-Pfad (TODO: Implementierung)
                             drawing_path = ""

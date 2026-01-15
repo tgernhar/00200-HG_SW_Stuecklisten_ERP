@@ -103,6 +103,34 @@ class ArticleGridRow(ArticleBase):
     pdf_exists: Optional[bool] = None
     pdf_path: Optional[str] = None
 
+    # Existence/Path für alle Dokumenttypen (für Renderer in allen Spalten)
+    pdf_bestell_pdf_exists: Optional[bool] = None
+    pdf_bestell_pdf_path: Optional[str] = None
+
+    dxf_exists: Optional[bool] = None
+    dxf_path: Optional[str] = None
+
+    bestell_dxf_exists: Optional[bool] = None
+    bestell_dxf_path: Optional[str] = None
+
+    step_exists: Optional[bool] = None
+    step_path: Optional[str] = None
+
+    x_t_exists: Optional[bool] = None
+    x_t_path: Optional[str] = None
+
+    stl_exists: Optional[bool] = None
+    stl_path: Optional[str] = None
+
+    sw_part_asm_exists: Optional[bool] = None
+    sw_part_asm_path: Optional[str] = None
+
+    sw_drw_exists: Optional[bool] = None
+    sw_drw_path: Optional[str] = None
+
+    esp_exists: Optional[bool] = None
+    esp_path: Optional[str] = None
+
     class Config:
         from_attributes = True
 

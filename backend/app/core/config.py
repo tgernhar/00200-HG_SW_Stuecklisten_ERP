@@ -9,7 +9,9 @@ class Settings(BaseSettings):
     """Application settings from environment variables"""
     
     # Database
-    DATABASE_URL: str = "mysql+pymysql://user:password@localhost:3306/stuecklisten_erp"
+    # Default passend zu docker-compose.yml (mysql Port 3306 ist nach localhost gemappt).
+    # Kann jederzeit per Umgebungsvariable DATABASE_URL überschrieben werden.
+    DATABASE_URL: str = "mysql+pymysql://app_user:app_password@localhost:3306/stuecklisten_erp"
     
     # ERP Database
     ERP_DB_HOST: str = "10.233.159.44"

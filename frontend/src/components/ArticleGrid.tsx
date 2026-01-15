@@ -1,13 +1,14 @@
 /**
  * Article Grid Component (AG Grid)
  */
-import React, { useMemo, useCallback, useEffect, useRef } from 'react'
+import React, { useMemo, useCallback } from 'react'
 import { AgGridReact } from 'ag-grid-react'
-import { ColDef, ColGroupDef, ICellRendererParams, GridReadyEvent, FirstDataRenderedEvent } from 'ag-grid-community'
+import { ColDef, ColGroupDef, ICellRendererParams } from 'ag-grid-community'
 import 'ag-grid-community/styles/ag-grid.css'
 import 'ag-grid-community/styles/ag-theme-alpine.css'
 import { Article } from '../services/types'
 import { DocumentStatusRenderer } from './DocumentStatus'
+import api from '../services/api'
 
 interface ArticleGridProps {
   articles: Article[]
@@ -15,16 +16,26 @@ interface ArticleGridProps {
 }
 
 export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, onCellValueChanged }) => {
-  const gridRef = useRef<AgGridReact<Article> | null>(null)
-
-  // Document Status Cell Renderer
-  const documentStatusCellRenderer = useCallback((params: ICellRendererParams) => {
-    return React.createElement(DocumentStatusRenderer, {
-      value: params.value,
-      exists: params.data?.pdf_exists,
-      filePath: params.data?.pdf_path
-    })
-  }, [])
+  const apiBaseUrl = (api as any)?.defaults?.baseURL || ''
+  const makeDocRenderer = useCallback(
+    (opts: {
+      existsField?: keyof Article
+      pathField?: keyof Article
+      openMode?: 'openPdf' | 'openSwDir'
+    }) =>
+      (params: ICellRendererParams<Article>) => {
+        const data = params.data as any
+        return React.createElement(DocumentStatusRenderer, {
+          value: params.value as any,
+          exists: opts.existsField ? (data?.[opts.existsField] as boolean | undefined) : undefined,
+          filePath: opts.pathField ? (data?.[opts.pathField] as string | undefined) : undefined,
+          openMode: opts.openMode,
+          solidworksPath: data?.sldasm_sldprt_pfad,
+          apiBaseUrl
+        })
+      },
+    [apiBaseUrl]
+  )
 
   // Article Number Cell Renderer (für ERP-Abgleich-Farbe)
   const articleNumberCellRenderer = useCallback((params: ICellRendererParams) => {
@@ -66,20 +77,103 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, onCellValueC
         { 
           field: 'pdf', 
           headerName: 'PDF', 
-          width: 100, 
+          width: 65,
+          minWidth: 55,
+          maxWidth: 75,
           editable: true, 
           headerClass: 'rotated-header',
-          cellRenderer: documentStatusCellRenderer
+          cellRenderer: makeDocRenderer({ existsField: 'pdf_exists', pathField: 'pdf_path', openMode: 'openPdf' })
         },
-        { field: 'pdf_bestell_pdf', headerName: 'Bestell_PDF', width: 100, editable: true, headerClass: 'rotated-header' },
-        { field: 'dxf', headerName: 'DXF', width: 100, editable: true, headerClass: 'rotated-header' },
-        { field: 'bestell_dxf', headerName: 'Bestell_DXF', width: 100, editable: true, headerClass: 'rotated-header' },
-        { field: 'sw_part_asm', headerName: 'SW_Part_ASM', width: 100, editable: false, headerClass: 'rotated-header' },
-        { field: 'sw_drw', headerName: 'SW_DRW', width: 100, editable: false, headerClass: 'rotated-header' },
-        { field: 'step', headerName: 'STEP', width: 100, editable: true, headerClass: 'rotated-header' },
-        { field: 'x_t', headerName: 'X_T', width: 100, editable: true, headerClass: 'rotated-header' },
-        { field: 'stl', headerName: 'STL', width: 100, editable: true, headerClass: 'rotated-header' },
-        { field: 'esp', headerName: 'ESP', width: 100, editable: false, headerClass: 'rotated-header' },
+        {
+          field: 'pdf_bestell_pdf',
+          headerName: 'Bestell_PDF',
+          width: 65,
+          minWidth: 55,
+          maxWidth: 75,
+          editable: true,
+          headerClass: 'rotated-header',
+          cellRenderer: makeDocRenderer({ existsField: 'pdf_bestell_pdf_exists', pathField: 'pdf_bestell_pdf_path', openMode: 'openPdf' })
+        },
+        {
+          field: 'dxf',
+          headerName: 'DXF',
+          width: 65,
+          minWidth: 55,
+          maxWidth: 75,
+          editable: true,
+          headerClass: 'rotated-header',
+          cellRenderer: makeDocRenderer({ existsField: 'dxf_exists', pathField: 'dxf_path', openMode: 'openSwDir' })
+        },
+        {
+          field: 'bestell_dxf',
+          headerName: 'Bestell_DXF',
+          width: 65,
+          minWidth: 55,
+          maxWidth: 75,
+          editable: true,
+          headerClass: 'rotated-header',
+          cellRenderer: makeDocRenderer({ existsField: 'bestell_dxf_exists', pathField: 'bestell_dxf_path', openMode: 'openSwDir' })
+        },
+        {
+          field: 'sw_part_asm',
+          headerName: 'SW_Part_ASM',
+          width: 65,
+          minWidth: 55,
+          maxWidth: 75,
+          editable: false,
+          headerClass: 'rotated-header',
+          cellRenderer: makeDocRenderer({ existsField: 'sw_part_asm_exists', pathField: 'sw_part_asm_path', openMode: 'openSwDir' })
+        },
+        {
+          field: 'sw_drw',
+          headerName: 'SW_DRW',
+          width: 65,
+          minWidth: 55,
+          maxWidth: 75,
+          editable: false,
+          headerClass: 'rotated-header',
+          cellRenderer: makeDocRenderer({ existsField: 'sw_drw_exists', pathField: 'sw_drw_path', openMode: 'openSwDir' })
+        },
+        {
+          field: 'step',
+          headerName: 'STEP',
+          width: 65,
+          minWidth: 55,
+          maxWidth: 75,
+          editable: true,
+          headerClass: 'rotated-header',
+          cellRenderer: makeDocRenderer({ existsField: 'step_exists', pathField: 'step_path', openMode: 'openSwDir' })
+        },
+        {
+          field: 'x_t',
+          headerName: 'X_T',
+          width: 65,
+          minWidth: 55,
+          maxWidth: 75,
+          editable: true,
+          headerClass: 'rotated-header',
+          cellRenderer: makeDocRenderer({ existsField: 'x_t_exists', pathField: 'x_t_path', openMode: 'openSwDir' })
+        },
+        {
+          field: 'stl',
+          headerName: 'STL',
+          width: 65,
+          minWidth: 55,
+          maxWidth: 75,
+          editable: true,
+          headerClass: 'rotated-header',
+          cellRenderer: makeDocRenderer({ existsField: 'stl_exists', pathField: 'stl_path', openMode: 'openSwDir' })
+        },
+        {
+          field: 'esp',
+          headerName: 'ESP',
+          width: 65,
+          minWidth: 55,
+          maxWidth: 75,
+          editable: false,
+          headerClass: 'rotated-header',
+          cellRenderer: makeDocRenderer({ existsField: 'esp_exists', pathField: 'esp_path', openMode: 'openSwDir' })
+        },
         { field: 'bn_ab', headerName: 'BN-AB', width: 100, editable: true, headerClass: 'rotated-header' }
       ]
     },
@@ -119,39 +213,6 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, onCellValueC
     }
   ], [])
 
-  // #region agent log
-  useEffect(() => {
-    // Log a light summary so we can verify the built bundle actually contains the new columnDefs order.
-    const topLevel = columnDefs.map((c: any) => ({
-      headerName: c.headerName,
-      field: c.field,
-      pinned: c.pinned,
-      hasChildren: Array.isArray(c.children),
-      childrenFields: Array.isArray(c.children) ? c.children.map((cc: any) => cc.field).filter(Boolean).slice(0, 5) : undefined
-    }))
-    fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ArticleGrid.tsx:coldefs',message:'columnDefs top-level summary',data:{topLevel},timestamp:Date.now(),sessionId:'debug-session',runId:'colfix1',hypothesisId:'C1'})}).catch(()=>{});
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-  // #endregion
-
-  const onGridReady = useCallback((e: GridReadyEvent) => {
-    // #region agent log
-    try {
-      const cols = e.columnApi.getAllDisplayedColumns().map(c => ({ colId: c.getColId(), pinned: c.getPinned() }))
-      fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ArticleGrid.tsx:onGridReady',message:'displayed columns (initial)',data:{cols:cols.slice(0,40)},timestamp:Date.now(),sessionId:'debug-session',runId:'colfix1',hypothesisId:'C2'})}).catch(()=>{});
-    } catch {}
-    // #endregion
-  }, [])
-
-  const onFirstDataRendered = useCallback((e: FirstDataRenderedEvent) => {
-    // #region agent log
-    try {
-      const cols = e.columnApi.getAllDisplayedColumns().map(c => ({ colId: c.getColId(), pinned: c.getPinned() }))
-      fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ArticleGrid.tsx:onFirstDataRendered',message:'displayed columns (after data)',data:{cols:cols.slice(0,40)},timestamp:Date.now(),sessionId:'debug-session',runId:'colfix1',hypothesisId:'C3'})}).catch(()=>{});
-    } catch {}
-    // #endregion
-  }, [])
-
   const defaultColDef = useMemo<ColDef>(() => ({
     resizable: true,
     sortable: true,
@@ -176,13 +237,10 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, onCellValueC
     <div style={{ width: '100%', height: '100%' }}>
       <div className="ag-theme-alpine" style={{ width: '100%', height: '100%' }}>
         <AgGridReact
-          ref={(r) => { gridRef.current = r }}
           rowData={articles}
           columnDefs={columnDefs}
           defaultColDef={defaultColDef}
           gridOptions={gridOptions}
-          onGridReady={onGridReady}
-          onFirstDataRendered={onFirstDataRendered}
         />
       </div>
       <style>{`

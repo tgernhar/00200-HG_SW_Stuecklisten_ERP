@@ -88,40 +88,9 @@ async def health_check():
 
 @app.get("/test-log")
 async def test_log():
-    """Test-Endpoint zum Prüfen, ob File-Writes funktionieren"""
-    try:
-        # Debug: Direktes File-Write zum Testen
-        # NOTE: `datetime` is already imported above as `from datetime import datetime`
-        log_file = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-            'logs',
-            f'solidworks_connector_{datetime.now().strftime("%Y%m%d")}.log'
-        )
-        
-        test_message = f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - DIRECT WRITE TEST - Test-Log-Endpoint aufgerufen\n"
-        
-        try:
-            with open(log_file, 'a', encoding='utf-8') as f:
-                f.write(test_message)
-            return {
-                "status": "success",
-                "message": "Log geschrieben",
-                "log_file": log_file,
-                "test_message": test_message
-            }
-        except Exception as e:
-            return {
-                "status": "error",
-                "message": f"Fehler beim Schreiben: {e}",
-                "log_file": log_file,
-                "error_type": type(e).__name__
-            }
-    except Exception as e:
-        return {
-            "status": "error",
-            "message": f"Fehler: {e}",
-            "error_type": type(e).__name__
-        }
+    """Test-Endpoint (File-Logging ist über den Logger abgedeckt)."""
+    connector_logger.info("/test-log aufgerufen")
+    return {"status": "success", "message": "OK"}
 
 
 @app.post("/api/solidworks/get-all-parts-from-assembly")
@@ -130,16 +99,6 @@ async def get_all_parts_from_assembly(request: AssemblyRequest):
     Liest alle Teile und Properties aus Assembly
     """
     try:
-        # Debug: Direktes File-Write zum Testen
-        # NOTE: `datetime` is already imported above as `from datetime import datetime`
-        log_file = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-            'logs',
-            f'solidworks_connector_{datetime.now().strftime("%Y%m%d")}.log'
-        )
-        with open(log_file, 'a', encoding='utf-8') as f:
-            f.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - DIRECT WRITE - get-all-parts-from-assembly aufgerufen mit filepath: {request.assembly_filepath}\n")
-        
         connector_logger.info(f"get-all-parts-from-assembly aufgerufen mit filepath: {request.assembly_filepath}")
         connector = get_connector()
         connector_logger.info(f"Connector-Instanz erhalten, rufe get_all_parts_and_properties_from_assembly auf...")

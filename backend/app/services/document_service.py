@@ -2,12 +2,41 @@
 Document Service Layer
 """
 import os
+import ntpath
+import logging
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.models.article import Article
 from app.models.document import Document
 from app.models.document_flag import DocumentGenerationFlag
 
+logger = logging.getLogger(__name__)
+logger.propagate = True
+
+def _is_windows_path(p: str) -> bool:
+    return bool(p) and len(p) >= 3 and p[1] == ":" and (p[2] in ("\\", "/"))
+
+def _to_container_path(p: str) -> Optional[str]:
+    """
+    Mappt Windows-Pfad (C:\\Thomas\\Solidworks\\...) auf Docker-Mount (/mnt/solidworks/...)
+    """
+    if not p:
+        return None
+    p2 = p.replace("\\", "/")
+    prefix = "C:/Thomas/Solidworks/"
+    if p2.lower().startswith(prefix.lower()):
+        rest = p2[len(prefix):]
+        return f"/mnt/solidworks/{rest}"
+    return None
+
+def _dirname_any(p: str) -> str:
+    # Wenn Backend unter Linux läuft, muss Windows-Pfad mit ntpath zerlegt werden.
+    return ntpath.dirname(p) if _is_windows_path(p) else os.path.dirname(p)
+
+def _basename_noext_any(p: str) -> str:
+    if _is_windows_path(p):
+        return ntpath.splitext(ntpath.basename(p))[0]
+    return os.path.splitext(os.path.basename(p))[0]
 
 async def check_article_documents(article_id: int, db: Session) -> dict:
     """
@@ -27,8 +56,12 @@ async def check_article_documents(article_id: int, db: Session) -> dict:
     doc_types = ["PDF", "Bestell_PDF", "DXF", "Bestell_DXF", "STEP", "X_T", "STL", "SW_DRW", "SW_Part_ASM", "ESP"]
 
     sw_path = article.sldasm_sldprt_pfad or ""
-    base_dir = os.path.dirname(sw_path) if sw_path else (article.pfad or "")
-    base_name = os.path.splitext(os.path.basename(sw_path))[0] if sw_path else (article.teilenummer or "")
+    base_dir = _dirname_any(sw_path) if sw_path else (article.pfad or "")
+    base_name = _basename_noext_any(sw_path) if sw_path else (article.teilenummer or "")
+
+    # Docker/Linux: zusätzlich Mount-Pfad ableiten
+    sw_path_container = _to_container_path(sw_path) or ""
+    base_dir_container = _dirname_any(sw_path_container) if sw_path_container else ""
 
     def _exists_any(paths: List[str]) -> tuple[bool, Optional[str]]:
         for p in paths:
@@ -49,45 +82,92 @@ async def check_article_documents(article_id: int, db: Session) -> dict:
     for doc_type in doc_types:
         exists = False
         file_path: Optional[str] = None
+        candidates_dbg: List[str] = []
 
         if doc_type == "SW_Part_ASM":
-            exists, file_path = _exists_any([sw_path])
+            candidates_dbg = [sw_path, sw_path_container]
+            exists, file_path = _exists_any(candidates_dbg)
         elif doc_type == "SW_DRW":
             # Prefer explicit slddrw_pfad, otherwise derive from base_name
             candidates = []
             if article.slddrw_pfad:
                 candidates.append(article.slddrw_pfad)
-            if base_dir and base_name:
-                candidates.append(os.path.join(base_dir, f"{base_name}.SLDDRW"))
-                candidates.append(os.path.join(base_dir, f"{base_name}.slddrw"))
-            exists, file_path = _exists_any(candidates)
+            # Windows/Container beide Varianten prüfen
+            for d in [base_dir, base_dir_container]:
+                if d and base_name:
+                    candidates.append(os.path.join(d, f"{base_name}.SLDDRW"))
+                    candidates.append(os.path.join(d, f"{base_name}.slddrw"))
+            candidates_dbg = candidates
+            exists, file_path = _exists_any(candidates_dbg)
         else:
-            suffix = "_Bestell" if doc_type in ("Bestell_PDF", "Bestell_DXF") else ""
-            name = f"{base_name}{suffix}" if base_name else ""
+            # Bestell-Dateien: unterstütze sowohl _Bestell als auch " bestellversion" (wie im User-Beispiel)
+            suffixes = [""]
+            if doc_type in ("Bestell_PDF", "Bestell_DXF"):
+                suffixes = ["_Bestell", " bestellversion", " Bestellversion"]
+            names = [f"{base_name}{s}" for s in suffixes] if base_name else [""]
 
             if doc_type in ("PDF", "Bestell_PDF"):
-                candidates = [os.path.join(base_dir, f"{name}.pdf"), os.path.join(base_dir, f"{name}.PDF")]
-                exists, file_path = _exists_any(candidates)
+                cand = []
+                for d in [base_dir, base_dir_container]:
+                    for n in names:
+                        cand.extend([os.path.join(d, f"{n}.pdf"), os.path.join(d, f"{n}.PDF")])
+                candidates_dbg = cand
+                exists, file_path = _exists_any(candidates_dbg)
             elif doc_type in ("DXF", "Bestell_DXF"):
-                candidates = [os.path.join(base_dir, f"{name}.dxf"), os.path.join(base_dir, f"{name}.DXF")]
-                exists, file_path = _exists_any(candidates)
+                cand = []
+                for d in [base_dir, base_dir_container]:
+                    for n in names:
+                        cand.extend([os.path.join(d, f"{n}.dxf"), os.path.join(d, f"{n}.DXF")])
+                candidates_dbg = cand
+                exists, file_path = _exists_any(candidates_dbg)
             elif doc_type == "STEP":
-                candidates = [
-                    os.path.join(base_dir, f"{name}.stp"),
-                    os.path.join(base_dir, f"{name}.STP"),
-                    os.path.join(base_dir, f"{name}.step"),
-                    os.path.join(base_dir, f"{name}.STEP"),
-                ]
-                exists, file_path = _exists_any(candidates)
+                cand = []
+                for d in [base_dir, base_dir_container]:
+                    for n in names:
+                        cand.extend([
+                            os.path.join(d, f"{n}.stp"),
+                            os.path.join(d, f"{n}.STP"),
+                            os.path.join(d, f"{n}.step"),
+                            os.path.join(d, f"{n}.STEP"),
+                        ])
+                candidates_dbg = cand
+                exists, file_path = _exists_any(candidates_dbg)
             elif doc_type == "X_T":
-                candidates = [os.path.join(base_dir, f"{name}.x_t"), os.path.join(base_dir, f"{name}.X_T")]
-                exists, file_path = _exists_any(candidates)
+                cand = []
+                for d in [base_dir, base_dir_container]:
+                    for n in names:
+                        cand.extend([os.path.join(d, f"{n}.x_t"), os.path.join(d, f"{n}.X_T")])
+                candidates_dbg = cand
+                exists, file_path = _exists_any(candidates_dbg)
             elif doc_type == "STL":
-                candidates = [os.path.join(base_dir, f"{name}.stl"), os.path.join(base_dir, f"{name}.STL")]
-                exists, file_path = _exists_any(candidates)
+                # Erst exakte Namen versuchen, dann Fallback: irgendeine STL, die base_name enthält
+                cand = []
+                for d in [base_dir, base_dir_container]:
+                    for n in names:
+                        cand.extend([os.path.join(d, f"{n}.stl"), os.path.join(d, f"{n}.STL")])
+                candidates_dbg = cand
+                exists, file_path = _exists_any(candidates_dbg)
+                if (not exists) and base_name:
+                    for d in [base_dir, base_dir_container]:
+                        if not d or not os.path.exists(d):
+                            continue
+                        try:
+                            for fn in os.listdir(d):
+                                if fn.lower().endswith(".stl") and base_name.lower() in fn.lower():
+                                    fp = os.path.join(d, fn)
+                                    if os.path.exists(fp):
+                                        exists, file_path = True, fp
+                                        candidates_dbg.append(fp)
+                                        break
+                        except Exception:
+                            pass
             elif doc_type == "ESP":
-                candidates = [os.path.join(base_dir, f"{name}.esp"), os.path.join(base_dir, f"{name}.ESP")]
-                exists, file_path = _exists_any(candidates)
+                cand = []
+                for d in [base_dir, base_dir_container]:
+                    for n in names:
+                        cand.extend([os.path.join(d, f"{n}.esp"), os.path.join(d, f"{n}.ESP")])
+                candidates_dbg = cand
+                exists, file_path = _exists_any(candidates_dbg)
 
         # Update/create Document row
         doc = db.query(Document).filter(Document.article_id == article_id, Document.document_type == doc_type).first()

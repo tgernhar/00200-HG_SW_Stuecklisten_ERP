@@ -62,6 +62,33 @@ export interface Article {
   // Zusatzinfos für Renderer
   pdf_exists?: boolean
   pdf_path?: string
+
+  pdf_bestell_pdf_exists?: boolean
+  pdf_bestell_pdf_path?: string
+
+  dxf_exists?: boolean
+  dxf_path?: string
+
+  bestell_dxf_exists?: boolean
+  bestell_dxf_path?: string
+
+  step_exists?: boolean
+  step_path?: string
+
+  x_t_exists?: boolean
+  x_t_path?: string
+
+  stl_exists?: boolean
+  stl_path?: string
+
+  sw_part_asm_exists?: boolean
+  sw_part_asm_path?: string
+
+  sw_drw_exists?: boolean
+  sw_drw_path?: string
+
+  esp_exists?: boolean
+  esp_path?: string
 }
 
 export interface Document {

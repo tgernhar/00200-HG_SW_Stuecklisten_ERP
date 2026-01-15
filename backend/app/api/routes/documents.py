@@ -1,7 +1,8 @@
 """
 Document Routes
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.core.database import get_db
@@ -9,8 +10,34 @@ from app.models.article import Article
 from app.models.project import Project
 from app.models.document import Document
 from app.models.document_flag import DocumentGenerationFlag
+import logging
+import os
+import ntpath
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
+logger.propagate = True
+
+
+def _to_container_path(p: str) -> str:
+    """
+    Mappt Windows-Pfad (C:\\Thomas\\Solidworks\\...) auf Docker-Mount (/mnt/solidworks/...)
+    """
+    p2 = (p or "").replace("\\", "/")
+    prefix = "C:/Thomas/Solidworks/"
+    if p2.lower().startswith(prefix.lower()):
+        return "/mnt/solidworks/" + p2[len(prefix):]
+    return p or ""
+
+
+def _is_allowed_path(p: str) -> bool:
+    # Minimaler Schutz: nur PDFs unter dem gemounteten Root erlauben.
+    try:
+        abspath = os.path.abspath(p)
+        root = os.path.abspath("/mnt/solidworks")
+        return os.path.commonpath([abspath, root]) == root
+    except Exception:
+        return False
 
 
 @router.get("/articles/{article_id}/documents")
@@ -22,6 +49,28 @@ async def get_documents(article_id: int, db: Session = Depends(get_db)):
     
     documents = db.query(Document).filter(Document.article_id == article_id).all()
     return documents
+
+
+@router.get("/documents/open-pdf")
+async def open_pdf(path: str = Query(..., description="PDF-Dateipfad (im Container z.B. /mnt/solidworks/...)")):
+    """
+    Liefert eine PDF als HTTP-Response, damit Browser sie öffnen kann (file:// wird meist blockiert).
+    """
+    if not path:
+        raise HTTPException(status_code=400, detail="Pfad fehlt")
+
+    resolved = _to_container_path(path)
+    if not resolved.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Nur PDF-Dateien sind erlaubt")
+
+    resolved = os.path.normpath(resolved)
+    if not _is_allowed_path(resolved):
+        raise HTTPException(status_code=403, detail="Pfad nicht erlaubt")
+
+    if not os.path.exists(resolved):
+        raise HTTPException(status_code=404, detail="Datei nicht gefunden")
+
+    return FileResponse(resolved, media_type="application/pdf", filename=os.path.basename(resolved))
 
 
 @router.post("/articles/{article_id}/check-documents")

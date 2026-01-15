@@ -84,12 +84,6 @@ async def test_file_exists(filepath: str = Query(..., description="Pfad zur Date
 async def create_project(project: ProjectCreate, db: Session = Depends(get_db)):
     """Neues Projekt erstellen"""
     try:
-        # Debug: Direktes File-Write zum Testen
-        import datetime
-        log_file = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'logs', f'backend_{datetime.datetime.now().strftime("%Y%m%d")}.log')
-        with open(log_file, 'a', encoding='utf-8') as f:
-            f.write(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - DIRECT WRITE - create_project called with data: {project.dict()}\n")
-        
         logger.info(f"Creating project with data: {project.dict()}")
         
         # Prüfe ob Projekt mit dieser Auftragsnummer bereits existiert
@@ -148,12 +142,6 @@ async def import_solidworks(
     
     Entspricht VBA Main_Create_Projektsheet()
     """
-    # Debug: Direktes File-Write zum Testen
-    import datetime
-    log_file = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'logs', f'backend_{datetime.datetime.now().strftime("%Y%m%d")}.log')
-    with open(log_file, 'a', encoding='utf-8') as f:
-        f.write(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - DIRECT WRITE - import_solidworks called - project_id: {project_id}, assembly_filepath: {assembly_filepath}\n")
-    
     # Prüfe Query-Parameter direkt aus Request
     query_params = dict(request.query_params)
     logger.info(f"import_solidworks called - project_id: {project_id}")
