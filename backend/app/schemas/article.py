@@ -102,6 +102,7 @@ class ArticleGridRow(ArticleBase):
     # Für PDF-Renderer
     pdf_exists: Optional[bool] = None
     pdf_path: Optional[str] = None
+    pdf_format: Optional[str] = None
 
     # Existence/Path für alle Dokumenttypen (für Renderer in allen Spalten)
     pdf_bestell_pdf_exists: Optional[bool] = None

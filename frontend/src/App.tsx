@@ -90,25 +90,12 @@ function App() {
     }
   }
 
-  const handlePrintPDF = async () => {
+  const handlePrintPDFQueueMerged = () => {
     if (!project) return
-
-    const confirmed = window.confirm(
-      "Bitte vor der Verwendung eine PDF öffnen und den passenden Drucker " +
-      "und Druckeinstellungen wählen und Datei Drucken. " +
-      "Ist der Drucker korrekt gewählt? Falls Nein dies tun und die Funktion erneut ausführen"
-    )
-
-    if (!confirmed) return
-
-    try {
-      const response = await api.post(`/projects/${project.id}/batch-print-pdf`)
-      const { printed_count, failed_count, skipped_count } = response.data
-      alert(`PDF-Druck abgeschlossen: ${printed_count} gedruckt, ${failed_count} fehlgeschlagen, ${skipped_count} übersprungen`)
-      refetch()
-    } catch (error: any) {
-      alert('Fehler beim PDF-Druck: ' + error.message)
-    }
+    const apiBase = (api as any)?.defaults?.baseURL || 'http://localhost:8000/api'
+    const url = `${apiBase}/projects/${project.id}/print-pdf-queue-merged`
+    const win = window.open(url, '_blank')
+    if (!win) window.location.assign(url)
   }
 
   const handleExport = () => {
@@ -116,8 +103,37 @@ function App() {
   }
 
   const handleCellValueChanged = async (params: any) => {
-    // TODO: Implementiere Update-Logik
-    console.log('Cell value changed:', params)
+    try {
+      const field = params?.colDef?.field
+      const articleId = params?.data?.id
+      if (!field || !articleId) return
+
+      // Only persist document flag edits we support for now.
+      const allowedFields = new Set([
+        'pdf_drucken',
+        'pdf',
+        'pdf_bestell_pdf',
+        'dxf',
+        'bestell_dxf',
+        'step',
+        'x_t',
+        'stl',
+        'bn_ab'
+      ])
+
+      if (!allowedFields.has(field)) return
+
+      const newValue = (params.newValue ?? '') as string
+      await api.patch(`/articles/${articleId}/document-flags`, { [field]: newValue })
+      // Refresh so UI stays in sync with server-side logic
+      refetch()
+    } catch (error: any) {
+      // Revert on error
+      try {
+        params.node.setDataValue(params.colDef.field, params.oldValue)
+      } catch {}
+      alert('Fehler beim Speichern: ' + (error.response?.data?.detail || error.message))
+    }
   }
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -288,7 +304,7 @@ function App() {
             onSyncOrders={handleSyncOrders}
             onCreateDocuments={handleCreateDocuments}
             onCheckDocuments={handleCheckDocuments}
-            onPrintPDF={handlePrintPDF}
+            onPrintPDFQueueMerged={handlePrintPDFQueueMerged}
             onExport={handleExport}
           />
           <div style={{ height: 'calc(100vh - 200px)', width: '100%' }}>

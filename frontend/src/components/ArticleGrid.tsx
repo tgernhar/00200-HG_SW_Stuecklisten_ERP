@@ -74,6 +74,7 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, onCellValueC
       headerClass: 'rotated-header-group',
       children: [
         { field: 'pdf_drucken', headerName: 'PDF Drucken', width: 80, editable: true, headerClass: 'rotated-header' },
+        { field: 'pdf_format', headerName: 'PDF Format', width: 85, editable: false, headerClass: 'rotated-header' },
         { 
           field: 'pdf', 
           headerName: 'PDF', 

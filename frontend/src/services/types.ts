@@ -62,6 +62,7 @@ export interface Article {
   // Zusatzinfos für Renderer
   pdf_exists?: boolean
   pdf_path?: string
+  pdf_format?: string
 
   pdf_bestell_pdf_exists?: boolean
   pdf_bestell_pdf_path?: string

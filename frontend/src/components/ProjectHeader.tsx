@@ -11,7 +11,7 @@ interface ProjectHeaderProps {
   onSyncOrders: () => void
   onCreateDocuments: () => void
   onCheckDocuments: () => void
-  onPrintPDF: () => void
+  onPrintPDFQueueMerged: () => void
   onExport: () => void
 }
 
@@ -22,7 +22,7 @@ export const ProjectHeader: React.FC<ProjectHeaderProps> = ({
   onSyncOrders,
   onCreateDocuments,
   onCheckDocuments,
-  onPrintPDF,
+  onPrintPDFQueueMerged,
   onExport
 }) => {
   if (!project) {
@@ -51,7 +51,7 @@ export const ProjectHeader: React.FC<ProjectHeaderProps> = ({
           Dokumente erstellen
         </button>
         <button onClick={onCheckDocuments}>Dokumente prüfen</button>
-        <button onClick={onPrintPDF}>PDF Drucken</button>
+        <button onClick={onPrintPDFQueueMerged} style={{ fontWeight: 'bold' }}>PDF drucken</button>
         <button onClick={onExport}>Export</button>
       </div>
     </div>

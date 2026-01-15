@@ -3,15 +3,107 @@ Article Routes
 """
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 from app.core.database import get_db
 from app.models.article import Article
 from app.models.project import Project
+from app.models.document_flag import DocumentGenerationFlag
 from app.schemas.article import ArticleGridRow, ArticleCreate, ArticleUpdate, ArticleBatchUpdate
 from sqlalchemy.orm import joinedload
 import os
+from pydantic import BaseModel
+from pypdf import PdfReader
+import math
 
 router = APIRouter()
+
+def _to_container_path(p: str) -> str:
+    p2 = (p or "").replace("\\", "/")
+    prefix = "C:/Thomas/Solidworks/"
+    if p2.lower().startswith(prefix.lower()):
+        return "/mnt/solidworks/" + p2[len(prefix):]
+    return p or ""
+
+def _pdf_format_from_path(pdf_path: str) -> Optional[str]:
+    """
+    Determine ISO A-series format from PDF mediabox (page 1). Returns A0..A4, 'Custom', or None.
+    """
+    if not pdf_path:
+        return None
+    resolved = os.path.normpath(_to_container_path(pdf_path))
+    if not os.path.exists(resolved):
+        return None
+    try:
+        reader = PdfReader(resolved)
+        if not reader.pages:
+            return None
+        mb = reader.pages[0].mediabox
+        w_pt = float(mb.width)
+        h_pt = float(mb.height)
+        # pt -> mm
+        w_mm = w_pt * 25.4 / 72.0
+        h_mm = h_pt * 25.4 / 72.0
+        # normalize orientation
+        a = min(w_mm, h_mm)
+        b = max(w_mm, h_mm)
+        # allow small tolerance
+        tol = 6.0
+        sizes = {
+            "A4": (210.0, 297.0),
+            "A3": (297.0, 420.0),
+            "A2": (420.0, 594.0),
+            "A1": (594.0, 841.0),
+            "A0": (841.0, 1189.0),
+        }
+        for name, (sa, sb) in sizes.items():
+            if abs(a - sa) <= tol and abs(b - sb) <= tol:
+                return name
+        return "Custom"
+    except Exception:
+        return None
+
+
+class DocumentFlagsUpdate(BaseModel):
+    # Werte: "", "1", "x"
+    pdf_drucken: Optional[str] = None
+    pdf: Optional[str] = None
+    pdf_bestell_pdf: Optional[str] = None
+    dxf: Optional[str] = None
+    bestell_dxf: Optional[str] = None
+    step: Optional[str] = None
+    x_t: Optional[str] = None
+    stl: Optional[str] = None
+    bn_ab: Optional[str] = None
+
+
+@router.patch("/articles/{article_id}/document-flags")
+async def update_document_flags(article_id: int, payload: DocumentFlagsUpdate, db: Session = Depends(get_db)):
+    """
+    Update DocumentGenerationFlag row for an article (used by grid edits like 'PDF Drucken').
+    """
+    article = db.query(Article).filter(Article.id == article_id).first()
+    if not article:
+        raise HTTPException(status_code=404, detail="Artikel nicht gefunden")
+
+    flags = db.query(DocumentGenerationFlag).filter(DocumentGenerationFlag.article_id == article_id).first()
+    if not flags:
+        flags = DocumentGenerationFlag(article_id=article_id)
+        db.add(flags)
+        db.commit()
+        db.refresh(flags)
+
+    allowed = {"", "1", "x"}
+    update_data = payload.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        if value is None:
+            continue
+        if value not in allowed:
+            raise HTTPException(status_code=400, detail=f"Ungültiger Wert für {field}: {value!r}")
+        setattr(flags, field, value)
+
+    db.commit()
+    db.refresh(flags)
+    return {"success": True, "article_id": article_id, "flags": {k: getattr(flags, k) for k in update_data.keys()}}
 
 
 @router.get("/projects/{project_id}/articles", response_model=List[ArticleGridRow])
@@ -121,6 +213,7 @@ async def get_articles(project_id: int, db: Session = Depends(get_db)):
             # PDF renderer helpers
             pdf_exists=getattr(pdf_doc, "exists", None) if pdf_doc else None,
             pdf_path=getattr(pdf_doc, "file_path", None) if pdf_doc else None,
+            pdf_format=_pdf_format_from_path(getattr(pdf_doc, "file_path", None)) if (pdf_doc and getattr(pdf_doc, "exists", False) and getattr(pdf_doc, "file_path", None)) else None,
 
             # Exists/Path für alle Dokumenttypen
             pdf_bestell_pdf_exists=_doc_exists(pdf_bestell_pdf_doc),
