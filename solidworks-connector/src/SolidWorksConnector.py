@@ -9,6 +9,7 @@ import pythoncom
 import getpass
 import pywintypes
 import ctypes
+import winerror
 from typing import List, Dict, Any, Optional
 
 # Logger für SOLIDWORKS-Connector
@@ -442,3 +443,436 @@ class SolidWorksConnector:
             
         finally:
             self.sw_app.CloseDoc(sw_filepath_with_documentname)
+
+    def create_2d_documents(
+        self,
+        sw_drawing_path: str,
+        pdf: bool = False,
+        dxf: bool = False,
+        bestell_pdf: bool = False,
+        bestell_dxf: bool = False,
+        note_identifier: str = "Detailelement219@Blatt1",
+        note_type: str = "NOTE",
+        note_move_dx: float = 0.05,
+        note_select_x: float = 0.4085463729713,
+        note_select_y: float = 0.2481705436474,
+    ) -> Dict[str, Any]:
+        """
+        Erstellt 2D-Dokumente (PDF, DXF) aus einer SOLIDWORKS-Zeichnung (.SLDDRW).
+
+        Für Bestell-Varianten wird eine definierte Notiz temporär aus dem Drawing verschoben,
+        exportiert und anschließend wieder zurückgesetzt, so dass:
+        - sie nicht in Bestell-PDF/DXF erscheint
+        - sie weiterhin in normaler PDF/DXF erscheint
+        - keine dauerhafte Änderung am .SLDDRW bleibt
+
+        Returns:
+            dict: {success: bool, created_files: [str], warnings: [str]}
+        """
+        warnings: List[str] = []
+        created_files: List[str] = []
+
+        if not self.sw_app:
+            if not self.connect():
+                return {"success": False, "created_files": [], "warnings": ["Konnte nicht zu SOLIDWORKS verbinden"]}
+
+        # Defensive: ensure we do not use a COM object from a different thread
+        current_tid = threading.get_ident()
+        if self._owner_thread_id is not None and self._owner_thread_id != current_tid:
+            connector_logger.error(f"COM object thread mismatch: owner={self._owner_thread_id}, current={current_tid}")
+            return {
+                "success": False,
+                "created_files": [],
+                "warnings": ["Interner Fehler: SOLIDWORKS COM Objekt wurde in anderem Thread erstellt (Thread-Mismatch)"],
+            }
+
+        if not sw_drawing_path:
+            return {"success": False, "created_files": [], "warnings": ["Kein Zeichnungspfad angegeben"]}
+
+        if not os.path.exists(sw_drawing_path):
+            return {"success": False, "created_files": [], "warnings": [f"Zeichnung nicht gefunden: {sw_drawing_path}"]}
+
+        _, ext = os.path.splitext(sw_drawing_path)
+        if ext.lower() != ".slddrw":
+            return {"success": False, "created_files": [], "warnings": [f"Ungültige Zeichnung (erwartet .SLDDRW): {sw_drawing_path}"]}
+
+        base_path = os.path.splitext(sw_drawing_path)[0]
+
+        # Öffne Zeichnung
+        sw_errors = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
+        sw_warnings = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
+        sw_model = self.sw_app.OpenDoc6(
+            sw_drawing_path,
+            3,  # swDocDRAWING
+            0,  # swOpenDocOptions_Silent
+            "",
+            sw_errors,
+            sw_warnings,
+        )
+        connector_logger.debug(f"OpenDoc6(DRW) errors={sw_errors.value} warnings={sw_warnings.value}")
+
+        if not sw_model:
+            return {"success": False, "created_files": [], "warnings": [f"Konnte Zeichnung nicht öffnen: {sw_drawing_path}"]}
+
+        note_moved = False
+        note_hidden = False
+        note_ann_obj = None
+        note_deleted = False
+        try:
+            # Aktiviere Dokument (hilft teils bei SaveAs/Selection)
+            try:
+                self.sw_app.ActivateDoc(sw_drawing_path)
+            except Exception:
+                pass
+
+            sw_ext = sw_model.Extension
+
+            def _export_pdf(target_path: str) -> None:
+                try:
+                    export_data = None
+                    try:
+                        # swExportPdfData = 1 (swExportDataFileType_e)
+                        export_data = self.sw_app.GetExportFileData(1)
+                        # All sheets (best effort): swExportDataSheetsToExport_e.swExportData_ExportAllSheets = 1
+                        try:
+                            export_data.SetSheets(1, 1)
+                        except Exception:
+                            pass
+                    except Exception as e_ed:
+                        warnings.append(f"PDF Export-Optionen konnten nicht gesetzt werden: {e_ed}")
+                        export_data = None
+
+                    e = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
+                    w = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
+                    ok = sw_ext.SaveAs(target_path, 0, 0, export_data, e, w)
+                    if not ok:
+                        raise Exception(f"SaveAs returned False (errors={e.value}, warnings={w.value})")
+                except Exception as ex:
+                    raise Exception(f"PDF Export fehlgeschlagen ({target_path}): {ex}")
+
+            def _export_dxf(target_path: str) -> None:
+                try:
+                    # Normalize Windows path separators (we observed mixed / and \ in runtime)
+                    if _is_windows_path := (len(target_path) >= 3 and target_path[1] == ":" and target_path[2] in ("\\", "/")):
+                        target_path = target_path.replace("/", "\\")
+
+                    e = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
+                    w = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
+
+                    # Versuch 1: ModelDoc2.SaveAs2 (häufig stabiler als Extension.SaveAs für DXF)
+                    try:
+                        sw_model.SaveAs2(target_path, 0, True, False)
+                        ok = True
+                    except Exception as e1:
+                        # Versuch 2: Extension.SaveAs mit 'Missing' statt None (vermeidet Typenkonflikt)
+                        # pythoncom hat DISP_E_PARAMNOTFOUND nicht in allen Builds; winerror ist stabil.
+                        missing = win32com.client.VARIANT(pythoncom.VT_ERROR, getattr(winerror, "DISP_E_PARAMNOTFOUND", -2147352572))
+                        ok = sw_ext.SaveAs(target_path, 0, 0, missing, e, w)
+
+                    if not ok:
+                        raise Exception(f"SaveAs returned False (errors={e.value}, warnings={w.value})")
+                except Exception as ex:
+                    raise Exception(f"DXF Export fehlgeschlagen ({target_path}): {ex}")
+
+            # Normal-Exports (ohne Notiz-Manipulation)
+            if pdf:
+                out = f"{base_path}.pdf"
+                _export_pdf(out)
+                created_files.append(out)
+            if dxf:
+                out = f"{base_path}.dxf"
+                _export_dxf(out)
+                created_files.append(out)
+
+            # Bestell-Exports: Notiz temporär manipulieren
+            # WICHTIG: DXF scheint "Hidden/Off-sheet" teils dennoch zu exportieren.
+            # Daher nutzen wir für Bestell-DXF bevorzugt die robusteste Strategie:
+            # - Notiz selektieren -> löschen -> DXF exportieren -> Undo
+            # und manipulieren die Notiz dafür NICHT via Move/Visible.
+            if bestell_pdf or bestell_dxf:
+                try:
+                    # Select the note (best effort)
+                    selected = False
+
+                    def _select_note() -> tuple[bool, str]:
+                        """
+                        pywin32/SOLIDWORKS COM ist bei SelectByID2 sehr empfindlich bzgl. Parametertypen.
+                        Wir probieren mehrere Signaturen:
+                        - ohne Koordinaten (0,0,0) vs. mit VBA-Koordinaten
+                        - Callout als None vs. als COM-Missing vs. als VT_DISPATCH(None)
+                        """
+                        callout_none = None
+                        callout_missing = win32com.client.VARIANT(
+                            pythoncom.VT_ERROR, getattr(winerror, "DISP_E_PARAMNOTFOUND", -2147352572)
+                        )
+                        callout_dispatch_none = win32com.client.VARIANT(pythoncom.VT_DISPATCH, None)
+
+                        attempts = [
+                            ("xyz0_callout_none", 0.0, 0.0, 0.0, callout_none),
+                            ("xyz0_callout_missing", 0.0, 0.0, 0.0, callout_missing),
+                            ("xyz0_callout_dispatch_none", 0.0, 0.0, 0.0, callout_dispatch_none),
+                            ("vba_xyz_callout_none", float(note_select_x), float(note_select_y), 0.0, callout_none),
+                            ("vba_xyz_callout_missing", float(note_select_x), float(note_select_y), 0.0, callout_missing),
+                            ("vba_xyz_callout_dispatch_none", float(note_select_x), float(note_select_y), 0.0, callout_dispatch_none),
+                        ]
+
+                        last_err: str | None = None
+                        for name, x, y, z, callout in attempts:
+                            try:
+                                ok = bool(sw_ext.SelectByID2(note_identifier, note_type, x, y, z, False, 0, callout, 0))
+                                if ok:
+                                    return True, name
+                            except Exception as e_sel:
+                                last_err = str(e_sel)
+                                continue
+                        if last_err:
+                            warnings.append(f"Notiz-Selektion fehlgeschlagen ({note_identifier}): {last_err}")
+                        return False, "all_attempts_failed"
+
+                    selected, selected_via = _select_note()
+
+                    # For Bestell-PDF we still move/hide; for Bestell-DXF we prefer delete+undo.
+                    if selected and bestell_pdf:
+                        try:
+                            # Capture the selected object/annotation BEFORE clearing selection,
+                            # so we can toggle visibility even after ClearSelection2.
+                            try:
+                                sel_mgr = sw_model.SelectionManager
+                                sel_obj = sel_mgr.GetSelectedObject6(1, -1)
+                                # Try to get the IAnnotation object in multiple ways
+                                ann = None
+                                try:
+                                    ann = win32com.client.CastTo(sel_obj, "IAnnotation")
+                                except Exception:
+                                    ann = None
+                                if ann is None:
+                                    try:
+                                        ga = getattr(sel_obj, "GetAnnotation", None)
+                                        ann = ga() if callable(ga) else ga
+                                    except Exception:
+                                        ann = None
+                                note_ann_obj = ann or sel_obj
+                            except Exception as e_cap:
+                                warnings.append(f"Notiz-Objekt konnte nicht ermittelt werden ({note_identifier}): {e_cap}")
+
+                            # Move out of drawing (relative move). Different SW versions expose different signatures.
+                            moved_ok = False
+                            moved_via = None
+                            try:
+                                # Prefer VBA signature: MoveOrCopy Copy, Ncopy, KeepRelations, RotX, RotY, RotZ, TransX, TransY, TransZ
+                                sw_ext.MoveOrCopy(False, 1, False, 0, 0, 0, float(note_move_dx), 0.0, 0.0)
+                                moved_ok = True
+                                moved_via = "vba_9params"
+                            except Exception as e_mv1:
+                                try:
+                                    # Fallback: some typelibs accept shorter signature
+                                    sw_ext.MoveOrCopy(False, float(note_move_dx), 0.0, 0.0)
+                                    moved_ok = True
+                                    moved_via = "short_4params"
+                                except Exception as e_mv2:
+                                    warnings.append(f"Notiz konnte nicht verschoben werden ({note_identifier}): {e_mv1} / {e_mv2}")
+
+                            if not moved_ok:
+                                raise Exception("MoveOrCopy failed (all signatures)")
+                            note_moved = True
+                        except Exception as mv_err:
+                            warnings.append(f"Notiz konnte nicht verschoben werden ({note_identifier}): {mv_err}")
+                    elif not selected:
+                        warnings.append(f"Notiz nicht gefunden/selektierbar: {note_identifier}")
+
+                    def _set_note_visible(obj, visible: bool) -> tuple[bool, str]:
+                        """
+                        DXF-Export kann Text/Notizen auch dann noch ausgeben, wenn sie nur "vom Blatt weg" verschoben wurden.
+                        Daher versuchen wir für Bestell-DXF zusätzlich, die selektierte Notiz wirklich auszublenden.
+                        """
+                        if obj is None:
+                            return False, "No annotation object available"
+
+                        ann = obj
+
+                        # Versuch 1: Visible-Property
+                        try:
+                            setattr(ann, "Visible", bool(visible))
+                            return True, "annotation.Visible"
+                        except Exception:
+                            pass
+
+                        # Versuch 2: SetVisible2 (Signature variiert)
+                        try:
+                            m = getattr(ann, "SetVisible2", None)
+                            if callable(m):
+                                try:
+                                    m(bool(visible), 0)
+                                except Exception:
+                                    m(bool(visible), 1)
+                                return True, "annotation.SetVisible2"
+                        except Exception:
+                            pass
+
+                        # Versuch 3: SetVisible
+                        try:
+                            m = getattr(ann, "SetVisible", None)
+                            if callable(m):
+                                m(bool(visible))
+                                return True, "annotation.SetVisible"
+                        except Exception:
+                            pass
+
+                        return False, "No supported visibility API on annotation"
+
+                    def _delete_selected_note() -> tuple[bool, str]:
+                        """
+                        Fallback-Strategie für DXF: Notiz wirklich löschen (nicht nur ausblenden/verschieben),
+                        exportieren, dann Undo (oder spätestens Close ohne Speichern).
+                        """
+                        # Try ModelDoc2.EditDelete (common)
+                        try:
+                            sw_model.EditDelete()
+                            return True, "sw_model.EditDelete"
+                        except Exception as e1:
+                            pass
+
+                        # Try IModelDocExtension.DeleteSelection2
+                        try:
+                            # 0 = default options (best effort)
+                            ok = bool(sw_ext.DeleteSelection2(0))
+                            if ok:
+                                return True, "sw_ext.DeleteSelection2(0)"
+                            return False, "sw_ext.DeleteSelection2 returned False"
+                        except Exception as e2:
+                            return False, f"DeleteSelection2 failed: {e1} / {e2}"
+
+                    def _undo_last() -> tuple[bool, str]:
+                        try:
+                            sw_model.EditUndo2(1)
+                            return True, "sw_model.EditUndo2(1)"
+                        except Exception as e1:
+                            try:
+                                sw_model.EditUndo()
+                                return True, "sw_model.EditUndo"
+                            except Exception as e2:
+                                return False, f"Undo failed: {e1} / {e2}"
+                finally:
+                    try:
+                        sw_model.ClearSelection2(True)
+                    except Exception:
+                        pass
+
+                # Exporte erzeugen (auch wenn Notiz nicht verschoben werden konnte)
+                if bestell_pdf:
+                    out = f"{base_path} Bestellzng.pdf"
+                    _export_pdf(out)
+                    created_files.append(out)
+                if bestell_dxf:
+                    # Bestell-DXF: Notiz temporär löschen (robusteste Strategie) und Undo danach.
+                    if selected:
+                        try:
+                            # Reselect note to ensure delete acts on it
+                            # Using the already proven callout_dispatch_none path
+                            callout_dispatch_none = win32com.client.VARIANT(pythoncom.VT_DISPATCH, None)
+                            reselected = bool(sw_ext.SelectByID2(note_identifier, note_type, 0.0, 0.0, 0.0, False, 0, callout_dispatch_none, 0))
+
+                            if reselected:
+                                ok_del, del_via = _delete_selected_note()
+
+                                if ok_del:
+                                    note_deleted = True
+                                else:
+                                    warnings.append(f"Notiz konnte nicht gelöscht werden ({note_identifier}): {del_via}")
+                        finally:
+                            try:
+                                sw_model.ClearSelection2(True)
+                            except Exception:
+                                pass
+
+                    out = f"{base_path} Bestellzng.dxf"
+                    _export_dxf(out)
+                    created_files.append(out)
+
+                    # Undo delete after export (so drawing remains intact)
+                    if note_deleted:
+                        ok_undo, undo_via = _undo_last()
+
+                        if not ok_undo:
+                            warnings.append(f"Undo nach Notiz-Löschung fehlgeschlagen ({note_identifier}): {undo_via}")
+
+        finally:
+            # Notiz wieder zurücksetzen, falls verschoben (nur relevant für Bestell-PDF Strategie).
+            if note_moved:
+                try:
+                    sw_ext = sw_model.Extension
+                    selected = False
+                    selected_via = "restore_not_attempted"
+
+                    def _select_note_for_restore() -> tuple[bool, str]:
+                        callout_none = None
+                        callout_missing = win32com.client.VARIANT(
+                            pythoncom.VT_ERROR, getattr(winerror, "DISP_E_PARAMNOTFOUND", -2147352572)
+                        )
+                        callout_dispatch_none = win32com.client.VARIANT(pythoncom.VT_DISPATCH, None)
+
+                        attempts = [
+                            ("restore_xyz0_callout_dispatch_none", 0.0, 0.0, 0.0, callout_dispatch_none),
+                            ("restore_xyz0_callout_missing", 0.0, 0.0, 0.0, callout_missing),
+                            ("restore_vba_xyz_callout_dispatch_none", float(note_select_x), float(note_select_y), 0.0, callout_dispatch_none),
+                            ("restore_vba_xyz_callout_missing", float(note_select_x), float(note_select_y), 0.0, callout_missing),
+                        ]
+
+                        last_err: str | None = None
+                        for name, x, y, z, callout in attempts:
+                            try:
+                                ok = bool(sw_ext.SelectByID2(note_identifier, note_type, x, y, z, False, 0, callout, 0))
+                                if ok:
+                                    return True, name
+                            except Exception as e_sel:
+                                last_err = str(e_sel)
+                                continue
+                        if last_err:
+                            warnings.append(f"Notiz-Selektion für Restore fehlgeschlagen ({note_identifier}): {last_err}")
+                        return False, "restore_all_attempts_failed"
+
+                    selected, selected_via = _select_note_for_restore()
+
+                    if selected:
+                        try:
+                            # Restore visibility first (if we hid it for Bestell-DXF)
+                            if note_hidden:
+                                ok_show, show_via = _set_note_visible(note_ann_obj, True)
+                                if not ok_show:
+                                    warnings.append(f"Notiz konnte beim Restore nicht eingeblendet werden ({note_identifier}): {show_via}")
+
+                            restored_ok = False
+                            restored_via = None
+                            try:
+                                sw_ext.MoveOrCopy(False, 1, False, 0, 0, 0, float(-note_move_dx), 0.0, 0.0)
+                                restored_ok = True
+                                restored_via = "vba_9params"
+                            except Exception as e_r1:
+                                try:
+                                    sw_ext.MoveOrCopy(False, float(-note_move_dx), 0.0, 0.0)
+                                    restored_ok = True
+                                    restored_via = "short_4params"
+                                except Exception as e_r2:
+                                    warnings.append(f"Notiz-Restore fehlgeschlagen ({note_identifier}): {e_r1} / {e_r2}")
+
+                            if not restored_ok:
+                                raise Exception("Restore MoveOrCopy failed (all signatures)")
+                        except Exception as mv_err:
+                            warnings.append(f"Notiz-Restore fehlgeschlagen ({note_identifier}): {mv_err}")
+                    else:
+                        warnings.append(f"Notiz für Restore nicht selektierbar: {note_identifier}")
+                except Exception as restore_err:
+                    warnings.append(f"Notiz-Restore unerwartet fehlgeschlagen: {restore_err}")
+                finally:
+                    try:
+                        sw_model.ClearSelection2(True)
+                    except Exception:
+                        pass
+
+            try:
+                self.sw_app.CloseDoc(sw_drawing_path)
+            except Exception:
+                # Best effort close
+                pass
+
+        return {"success": True, "created_files": created_files, "warnings": warnings}

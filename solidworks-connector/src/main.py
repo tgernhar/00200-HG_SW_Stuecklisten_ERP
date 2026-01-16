@@ -77,6 +77,14 @@ class Create3DDocumentsRequest(BaseModel):
     stl: bool = False
 
 
+class Create2DDocumentsRequest(BaseModel):
+    filepath: str
+    pdf: bool = False
+    dxf: bool = False
+    bestell_pdf: bool = False
+    bestell_dxf: bool = False
+
+
 @app.get("/")
 async def root():
     return {"message": "SOLIDWORKS Connector API", "version": "1.0.0"}
@@ -146,6 +154,43 @@ async def create_3d_documents(request: Create3DDocumentsRequest):
         else:
             raise HTTPException(status_code=500, detail="Fehler beim Erstellen der 3D-Dokumente")
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/solidworks/create-2d-documents")
+async def create_2d_documents(request: Create2DDocumentsRequest):
+    """
+    Erstellt 2D-Dokumente (PDF, DXF) aus Zeichnung (.SLDDRW).
+
+    Für Bestell-Varianten wird intern eine definierte Notiz temporär verschoben,
+    exportiert und anschließend wieder zurückgesetzt.
+    """
+    try:
+        connector = get_connector()
+        result = connector.create_2d_documents(
+            request.filepath,
+            pdf=request.pdf,
+            dxf=request.dxf,
+            bestell_pdf=request.bestell_pdf,
+            bestell_dxf=request.bestell_dxf,
+        )
+
+        # Normalize response shape
+        success = bool(result.get("success"))
+        created_files = result.get("created_files", []) or []
+        warnings = result.get("warnings", []) or []
+
+        if not success:
+            raise HTTPException(status_code=500, detail="Fehler beim Erstellen der 2D-Dokumente")
+        return {
+            "success": True,
+            "created_files": created_files,
+            "warnings": warnings,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        connector_logger.error(f"Fehler in create-2d-documents: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -6,7 +6,7 @@ import { ProjectHeader } from './components/ProjectHeader'
 import { ArticleGrid } from './components/ArticleGrid'
 import { useArticles } from './hooks/useArticles'
 import api from './services/api'
-import { Project, Article } from './services/types'
+import { Project } from './services/types'
 import './App.css'
 
 function App() {
@@ -64,8 +64,17 @@ function App() {
 
     try {
       const response = await api.post(`/projects/${project.id}/generate-documents-batch`)
-      const { generated_count, failed_count } = response.data
-      alert(`Dokumente erstellt: ${generated_count} erfolgreich, ${failed_count} fehlgeschlagen`)
+
+      const generated_count =
+        (response as any)?.data?.generated_count ??
+        (Array.isArray((response as any)?.data?.generated) ? (response as any).data.generated.length : undefined)
+      const failed_count =
+        (response as any)?.data?.failed_count ??
+        (Array.isArray((response as any)?.data?.failed) ? (response as any).data.failed.length : undefined)
+
+      alert(
+        `Dokumente erstellt: ${generated_count ?? '-'} erfolgreich, ${failed_count ?? '-'} fehlgeschlagen`
+      )
       refetch()
     } catch (error: any) {
       alert('Fehler beim Erstellen der Dokumente: ' + error.message)
@@ -108,8 +117,8 @@ function App() {
       const articleId = params?.data?.id
       if (!field || !articleId) return
 
-      // Only persist document flag edits we support for now.
-      const allowedFields = new Set([
+      // Document-Flags: persist via dedicated endpoint
+      const documentFlagFields = new Set([
         'pdf_drucken',
         'pdf',
         'pdf_bestell_pdf',
@@ -121,12 +130,57 @@ function App() {
         'bn_ab'
       ])
 
-      if (!allowedFields.has(field)) return
+      // Artikel-Stammdaten (editierbare Spalten in Block C)
+      const articleFields = new Set([
+        'teiletyp_fertigungsplan',
+        'abteilung_lieferant',
+        'werkstoff',
+        'werkstoff_nr',
+        'oberflaeche',
+        'oberflaechenschutz',
+        'farbe',
+        'lieferzeit',
+        'laenge',
+        'breite',
+        'hoehe',
+        'gewicht',
+        'in_stueckliste_anzeigen'
+      ])
 
-      const newValue = (params.newValue ?? '') as string
-      await api.patch(`/articles/${articleId}/document-flags`, { [field]: newValue })
-      // Refresh so UI stays in sync with server-side logic
-      refetch()
+      const parseOptionalNumber = (v: any) => {
+        if (v === '' || v === null || v === undefined) return null
+        const n = typeof v === 'number' ? v : Number(String(v).replace(',', '.'))
+        return Number.isFinite(n) ? n : null
+      }
+
+      const parseBoolean = (v: any) => {
+        if (typeof v === 'boolean') return v
+        if (v === 'true') return true
+        if (v === 'false') return false
+        return !!v
+      }
+
+      if (documentFlagFields.has(field)) {
+        const newValue = (params.newValue ?? '') as string
+        await api.patch(`/articles/${articleId}/document-flags`, { [field]: newValue })
+        refetch()
+        return
+      }
+
+      if (articleFields.has(field)) {
+        let value: any = params.newValue
+        if (field === 'in_stueckliste_anzeigen') value = parseBoolean(value)
+        if (field === 'laenge' || field === 'breite' || field === 'hoehe' || field === 'gewicht') {
+          value = parseOptionalNumber(value)
+        }
+
+        await api.patch(`/articles/${articleId}`, { [field]: value })
+        refetch()
+        return
+      }
+
+      // Ignore edits on fields we don't persist
+      return
     } catch (error: any) {
       // Revert on error
       try {
@@ -308,14 +362,27 @@ function App() {
             onExport={handleExport}
           />
           <div style={{ height: 'calc(100vh - 200px)', width: '100%' }}>
-            {loading && <div>Lade Artikel...</div>}
             {error && <div style={{ color: 'red' }}>Fehler: {error}</div>}
-            {!loading && !error && (
+            <div style={{ position: 'relative', height: '100%' }}>
               <ArticleGrid 
                 articles={articles} 
                 onCellValueChanged={handleCellValueChanged}
               />
-            )}
+              {loading && (
+                <div style={{
+                  position: 'absolute',
+                  top: 8,
+                  right: 12,
+                  padding: '6px 10px',
+                  backgroundColor: 'rgba(255,255,255,0.85)',
+                  border: '1px solid #ddd',
+                  borderRadius: '4px',
+                  fontSize: '12px'
+                }}>
+                  Lade Artikel...
+                </div>
+              )}
+            </div>
           </div>
         </>
       )}

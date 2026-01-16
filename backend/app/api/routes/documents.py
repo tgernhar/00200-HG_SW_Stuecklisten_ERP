@@ -237,6 +237,7 @@ async def generate_documents_batch(
         raise HTTPException(status_code=404, detail="Projekt nicht gefunden")
     
     result = await batch_generate_documents(project_id, document_types, db)
+
     return result
 
 
