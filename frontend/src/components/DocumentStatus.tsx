@@ -36,31 +36,28 @@ async function fallbackCopy(text: string) {
 }
 
 export const DocumentStatusRenderer: React.FC<DocumentStatusProps> = ({ value, exists, filePath, openMode, solidworksPath, apiBaseUrl }) => {
-  const isOk = value === 'x' && exists
   const isCreate = value === '1'
+  const isPresent = !!exists && !isCreate
+
+  // UX:
+  // - "1" (gelb): Dokument erstellen
+  // - "x" (grün): Dokument vorhanden
+  // - "-" (rot): Dokument fehlt
+  const displayText = isCreate ? '1' : isPresent ? 'x' : '-'
 
   const getStyle = () => {
-    if (isOk) {
-      return { backgroundColor: '#90EE90', color: '#000' } // Grün
-    } else if (isCreate) {
+    if (isCreate) {
       return { backgroundColor: '#FFD700', color: '#000' } // Gelb/Orange
+    } else if (isPresent) {
+      return { backgroundColor: '#90EE90', color: '#000' } // Grün
     } else {
       return { backgroundColor: '#FFB6C1', color: '#000' } // Rot
     }
   }
 
-  const getIcon = () => {
-    if (isOk) {
-      return '✓'
-    } else if (isCreate) {
-      return '⚠'
-    } else {
-      return '✗'
-    }
-  }
-
   const handleClick = async () => {
-    if (!isOk) return
+    // Allow open only when document exists (green).
+    if (!exists) return
 
     // PDFs: open the file directly
     if (openMode === 'openPdf') {
@@ -92,34 +89,18 @@ export const DocumentStatusRenderer: React.FC<DocumentStatusProps> = ({ value, e
         ...getStyle(),
         padding: '2px',
         textAlign: 'center',
-        cursor: isOk ? 'pointer' : 'default',
+        cursor: exists ? 'pointer' : 'default',
         userSelect: 'none'
       }}
       title={
-        isOk
+        exists
           ? openMode === 'openPdf'
             ? (filePath || 'PDF öffnen')
             : (getDirFromPath(solidworksPath) || solidworksPath || 'Ordner öffnen')
           : ''
       }
     >
-      {(() => {
-        const icon = getIcon()
-        const text = isCreate ? '1' : '' // nie "x" neben dem grünen Haken anzeigen
-
-        // #region agent log
-        if (isOk || isCreate) {
-          fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'frontend/src/components/DocumentStatus.tsx:render',message:'doc status render',data:{value,exists,isOk,isCreate,icon,text},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'L1'})}).catch(()=>{});
-        }
-        // #endregion agent log
-
-        return (
-          <>
-            {icon}
-            {text ? ` ${text}` : ''}
-          </>
-        )
-      })()}
+      {displayText}
     </div>
   )
 }

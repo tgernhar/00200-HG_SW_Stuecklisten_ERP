@@ -164,7 +164,12 @@ function App() {
       }
 
       if (documentFlagFields.has(field)) {
-        const newValue = (params.newValue ?? '') as string
+        const raw = String(params.newValue ?? '')
+        const trimmed = raw.trim()
+        // "x" soll nicht manuell eingetragen werden; grün/rot kommt über Datei-Existenz.
+        // Erlaubt bleiben: "1" (Dokument erstellen) oder leer.
+        const lowered = trimmed.toLowerCase()
+        const newValue = (lowered === 'x' || trimmed === '-') ? '' : trimmed
         await api.patch(`/articles/${articleId}/document-flags`, { [field]: newValue })
         refetch()
         return

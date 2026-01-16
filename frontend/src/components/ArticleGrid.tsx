@@ -535,15 +535,15 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, onCellValueC
       <div style={{ display: 'flex', gap: '12px', alignItems: 'center', padding: '6px 8px', fontSize: '12px' }}>
         <span style={{ fontWeight: 700 }}>Legende Dokumentenstatus:</span>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ background: '#FFD700', border: '1px solid #d1b400', padding: '1px 6px', borderRadius: 3 }}>⚠ 1</span>
+          <span style={{ background: '#FFD700', border: '1px solid #d1b400', padding: '1px 6px', borderRadius: 3 }}>1</span>
           <span>Dokument erstellen</span>
         </span>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ background: '#FFB6C1', border: '1px solid #e59aa6', padding: '1px 6px', borderRadius: 3 }}>✗</span>
+          <span style={{ background: '#FFB6C1', border: '1px solid #e59aa6', padding: '1px 6px', borderRadius: 3 }}>-</span>
           <span>Dokument fehlt</span>
         </span>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ background: '#90EE90', border: '1px solid #6fd66f', padding: '1px 6px', borderRadius: 3 }}>✓</span>
+          <span style={{ background: '#90EE90', border: '1px solid #6fd66f', padding: '1px 6px', borderRadius: 3 }}>x</span>
           <span>Dokument vorhanden</span>
         </span>
       </div>

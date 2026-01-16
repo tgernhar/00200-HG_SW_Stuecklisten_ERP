@@ -42,9 +42,9 @@ Renderer‑Logik (vereinfacht):
 - **rot**: sonst
 
 ### Legende (Wert/Symbol)
-- **Wert = `1`**: Dokument erstellen (gelb, `⚠ 1`)
-- **Symbol = `✗`** (rot): Dokument fehlt
-- **Symbol = `✓`** (grün): Dokument vorhanden
+- **Wert = `1`** (gelb): Dokument erstellen
+- **Wert = `-`** (rot): Dokument fehlt
+- **Wert = `x`** (grün): Dokument vorhanden
 
 Klick‑Verhalten:
 - PDF/Bestell_PDF: öffnet die PDF über Backend‑HTTP (`/api/documents/open-pdf?path=...`)
