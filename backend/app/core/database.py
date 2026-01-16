@@ -40,7 +40,10 @@ def get_erp_db_connection():
         port=settings.ERP_DB_PORT,
         database=settings.ERP_DB_NAME,
         user=settings.ERP_DB_USER,
-        password=settings.ERP_DB_PASSWORD
+        password=settings.ERP_DB_PASSWORD,
+        # HUGWAWI läuft (laut Export) auf latin1; stelle saubere String-Decodierung sicher.
+        use_unicode=True,
+        charset="latin1",
     )
     
     return connection

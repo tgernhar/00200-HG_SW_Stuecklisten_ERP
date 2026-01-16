@@ -9,6 +9,7 @@ from app.models.project import Project
 from app.schemas.project import Project as ProjectSchema, ProjectCreate, ProjectUpdate
 import os
 import logging
+import ntpath
 
 # Logger wird von logging_config.py konfiguriert
 logger = logging.getLogger(__name__)
@@ -183,6 +184,12 @@ async def import_solidworks(
     
     # Prüfe ob wir in Docker laufen (cwd ist /app)
     is_docker = os.getcwd() == '/app' or os.path.exists('/.dockerenv')
+
+    # In Docker/Linux kann das Backend Windows-Laufwerke (z.B. G:\...) typischerweise NICHT direkt prüfen.
+    # Der SOLIDWORKS-Connector läuft aber auf Windows und kann den Pfad validieren/lesen.
+    # Windows drive path like C:\... or G:\... (works on Linux too)
+    is_windows_drive_path = bool(ntpath.splitdrive(normalized_path or "")[0]) and ntpath.isabs(normalized_path or "")
+    skip_fs_exists_check = bool(is_docker and is_windows_drive_path)
     
     # WICHTIG: Der SOLIDWORKS-Connector läuft auf Windows (nicht in Docker)
     # Daher müssen wir den Windows-Pfad beibehalten, auch wenn das Backend in Docker läuft
@@ -206,6 +213,8 @@ async def import_solidworks(
             docker_path = normalized_path.replace('C:\\', '/mnt/solidworks/').replace('\\', '/')
             debug_log(f"Docker detected, checking file via volume (fallback): {docker_path}")
             check_path = docker_path
+        # Wenn wir einen Docker-Pfad ableiten konnten, können wir die Existenz prüfen (optional).
+        skip_fs_exists_check = False
     else:
         # Ersetze forward slashes mit backslashes für Windows (nur wenn nicht in Docker)
         if not is_docker:
@@ -224,9 +233,14 @@ async def import_solidworks(
     # Verwende pathlib für bessere Pfad-Behandlung
     # Verwende check_path für die Existenz-Prüfung (kann Docker-Pfad sein)
     check_path_obj = pathlib.Path(check_path)
-    exists_os = os.path.exists(check_path)
-    exists_pathlib = check_path_obj.exists()
-    is_file = check_path_obj.is_file() if exists_pathlib else False
+    if skip_fs_exists_check:
+        exists_os = True
+        exists_pathlib = True
+        is_file = True
+    else:
+        exists_os = os.path.exists(check_path)
+        exists_pathlib = check_path_obj.exists()
+        is_file = check_path_obj.is_file() if exists_pathlib else False
     
     # Für den SOLIDWORKS-Connector verwenden wir normalized_path (Windows-Pfad)
     path_obj = pathlib.Path(normalized_path)
@@ -240,7 +254,7 @@ async def import_solidworks(
     debug_log(f"OS name: {os.name}")
     
     # Wenn die Datei nicht existiert, prüfe ob das Verzeichnis existiert
-    if not exists_os and not exists_pathlib:
+    if (not exists_os and not exists_pathlib) and (not skip_fs_exists_check):
         # Versuche auch den Original-Pfad
         if os.path.exists(assembly_filepath):
             normalized_path = assembly_filepath
@@ -283,6 +297,9 @@ async def import_solidworks(
                         status_code=400,
                         detail=f"Assembly-Datei existiert nicht: {normalized_path} (resolved: {resolved}, resolved exists: {resolved.exists()})"
                     )
+            except HTTPException:
+                # Nicht wrapen – Detail soll beim Client ankommen
+                raise
             except Exception as resolve_error:
                 import traceback
                 error_trace = traceback.format_exc()

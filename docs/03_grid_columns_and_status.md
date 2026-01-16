@@ -41,6 +41,11 @@ Renderer‑Logik (vereinfacht):
 - **gelb**: `value == '1'` (Neugenerierung/Druck anfordern)
 - **rot**: sonst
 
+### Legende (Wert/Symbol)
+- **Wert = `1`**: Dokument erstellen (gelb, `⚠ 1`)
+- **Symbol = `✗`** (rot): Dokument fehlt
+- **Symbol = `✓`** (grün): Dokument vorhanden
+
 Klick‑Verhalten:
 - PDF/Bestell_PDF: öffnet die PDF über Backend‑HTTP (`/api/documents/open-pdf?path=...`)
 - andere Dokumenttypen: öffnet den Ordnerpfad der SOLIDWORKS‑Datei (Best‑Effort, Browser‑Policy abhängig)

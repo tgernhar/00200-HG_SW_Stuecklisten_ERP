@@ -9,11 +9,26 @@ import httpx
 import logging
 import os
 from collections import defaultdict
+import ntpath
 
 logger = logging.getLogger(__name__)
 # Stelle sicher, dass der Logger die Handler vom Root-Logger erbt
 logger.propagate = True
 logger.setLevel(logging.DEBUG)  # Setze Level, damit alle Meldungen durchkommen
+
+def _basename_noext_any(p: str) -> str:
+    p = p or ""
+    # Windows drive path like C:\... or G:\... (works on Linux too)
+    if ntpath.splitdrive(p)[0]:
+        return ntpath.splitext(ntpath.basename(p))[0]
+    # Fallback: try POSIX style
+    return os.path.splitext(os.path.basename(p))[0]
+
+def _dirname_any(p: str) -> str:
+    p = p or ""
+    if ntpath.splitdrive(p)[0]:
+        return ntpath.dirname(p)
+    return os.path.dirname(p)
 
 
 async def import_solidworks_assembly(
@@ -134,7 +149,7 @@ async def import_solidworks_assembly(
 
         # main part row
         if key not in aggregated:
-            filename = os.path.splitext(os.path.basename(key[0]))[0] if key[0] else ""
+            filename = _basename_noext_any(key[0]) if key[0] else ""
             x_mm = _m_to_mm_int(x_dim)
             y_mm = _m_to_mm_int(y_dim)
             z_mm = _m_to_mm_int(z_dim)
@@ -151,7 +166,7 @@ async def import_solidworks_assembly(
                 "hoehe": float(z_mm) if z_mm is not None else None,
                 # weight expected in kg from connector; keep as-is (float)
                 "gewicht": float(weight) if isinstance(weight, (int, float)) else None,
-                "pfad": os.path.dirname(key[0]) if key[0] else None,
+                "pfad": _dirname_any(key[0]) if key[0] else None,
                 "sldasm_sldprt_pfad": key[0],
                 "slddrw_pfad": str(drawing_path) if drawing_path else None,
                 "in_stueckliste_anzeigen": False if exclude_flag else True,

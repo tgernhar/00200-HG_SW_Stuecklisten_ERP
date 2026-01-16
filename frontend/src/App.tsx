@@ -4,6 +4,7 @@
 import React, { useState } from 'react'
 import { ProjectHeader } from './components/ProjectHeader'
 import { ArticleGrid } from './components/ArticleGrid'
+import { OrdersDrawer } from './components/OrdersDrawer'
 import { useArticles } from './hooks/useArticles'
 import api from './services/api'
 import { Project } from './services/types'
@@ -16,6 +17,8 @@ function App() {
   const [isImporting, setIsImporting] = useState(false)
   const [importError, setImportError] = useState<string | null>(null)
   const { articles, loading, error, refetch } = useArticles(project?.id || null)
+  const [ordersArticleId, setOrdersArticleId] = useState<number | null>(null)
+  const [ordersArticleNumber, setOrdersArticleNumber] = useState<string | undefined>(undefined)
 
   const handleImportSolidworks = async () => {
     if (!project) return
@@ -188,6 +191,11 @@ function App() {
       } catch {}
       alert('Fehler beim Speichern: ' + (error.response?.data?.detail || error.message))
     }
+  }
+
+  const handleOpenOrders = (article: any) => {
+    setOrdersArticleId(article?.id ?? null)
+    setOrdersArticleNumber(article?.hg_artikelnummer)
   }
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -367,6 +375,7 @@ function App() {
               <ArticleGrid 
                 articles={articles} 
                 onCellValueChanged={handleCellValueChanged}
+                onOpenOrders={handleOpenOrders}
               />
               {loading && (
                 <div style={{
@@ -384,6 +393,11 @@ function App() {
               )}
             </div>
           </div>
+          <OrdersDrawer
+            articleId={ordersArticleId}
+            articleNumber={ordersArticleNumber}
+            onClose={() => setOrdersArticleId(null)}
+          />
         </>
       )}
     </div>

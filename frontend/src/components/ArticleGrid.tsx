@@ -13,9 +13,10 @@ import api from '../services/api'
 interface ArticleGridProps {
   articles: Article[]
   onCellValueChanged?: (params: any) => void
+  onOpenOrders?: (article: Article) => void
 }
 
-export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, onCellValueChanged }) => {
+export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, onCellValueChanged, onOpenOrders }) => {
   const apiBaseUrl = (api as any)?.defaults?.baseURL || ''
   const gridApiRef = useRef<any>(null)
   const gridColumnApiRef = useRef<any>(null)
@@ -208,7 +209,37 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, onCellValueC
         { field: 'bnr_menge', headerName: 'BNR-Menge', width: 90, editable: false },
         { field: 'bestellkommentar', headerName: 'Bestellkommentar', width: 200, editable: false },
         { field: 'hg_lt', headerName: 'HG-LT', width: 100, editable: false },
-        { field: 'bestaetigter_lt', headerName: 'Bestätigter LT', width: 120, editable: false }
+        { field: 'bestaetigter_lt', headerName: 'Bestätigter LT', width: 120, editable: false },
+        {
+          headerName: 'Bestellungen',
+          width: 110,
+          editable: false,
+          sortable: false,
+          filter: false,
+          cellRenderer: (params: ICellRendererParams<Article>) => {
+            const a = params.data
+            const disabled = !a || !onOpenOrders
+            return React.createElement(
+              'button',
+              {
+                disabled,
+                onClick: (e: any) => {
+                  e?.preventDefault?.()
+                  e?.stopPropagation?.()
+                  if (a && onOpenOrders) onOpenOrders(a)
+                },
+                style: {
+                  padding: '4px 8px',
+                  borderRadius: 6,
+                  border: '1px solid #ddd',
+                  background: disabled ? '#f3f3f3' : '#fff',
+                  cursor: disabled ? 'not-allowed' : 'pointer'
+                }
+              },
+              'Anzeigen'
+            )
+          }
+        }
       ]
     },
     // Block B: Dokumentstatus
@@ -355,7 +386,7 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, onCellValueC
         { field: 'in_stueckliste_anzeigen', headerName: 'In Stückliste anzeigen', width: 120, editable: true, cellRenderer: 'agCheckboxCellRenderer' }
       ]
     }
-  ], [articleNumberCellRenderer, makeDocRenderer, parseOptionalNumber])
+  ], [articleNumberCellRenderer, makeDocRenderer, parseOptionalNumber, onOpenOrders])
 
   const defaultColDef = useMemo<ColDef>(() => ({
     resizable: true,
@@ -501,6 +532,21 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, onCellValueC
 
   return (
     <div style={{ width: '100%', height: '100%' }} onKeyDownCapture={handleKeyDownCapture}>
+      <div style={{ display: 'flex', gap: '12px', alignItems: 'center', padding: '6px 8px', fontSize: '12px' }}>
+        <span style={{ fontWeight: 700 }}>Legende Dokumentenstatus:</span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ background: '#FFD700', border: '1px solid #d1b400', padding: '1px 6px', borderRadius: 3 }}>⚠ 1</span>
+          <span>Dokument erstellen</span>
+        </span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ background: '#FFB6C1', border: '1px solid #e59aa6', padding: '1px 6px', borderRadius: 3 }}>✗</span>
+          <span>Dokument fehlt</span>
+        </span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ background: '#90EE90', border: '1px solid #6fd66f', padding: '1px 6px', borderRadius: 3 }}>✓</span>
+          <span>Dokument vorhanden</span>
+        </span>
+      </div>
       <div className="ag-theme-alpine" style={{ width: '100%', height: '100%' }}>
         <AgGridReact
           rowData={articles}

@@ -85,6 +85,10 @@ class Create2DDocumentsRequest(BaseModel):
     bestell_dxf: bool = False
 
 
+class PathsExistRequest(BaseModel):
+    paths: List[str]
+
+
 @app.get("/")
 async def root():
     return {"message": "SOLIDWORKS Connector API", "version": "1.0.0"}
@@ -191,6 +195,32 @@ async def create_2d_documents(request: Create2DDocumentsRequest):
         raise
     except Exception as e:
         connector_logger.error(f"Fehler in create-2d-documents: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/solidworks/paths-exist")
+async def paths_exist(request: PathsExistRequest):
+    """
+    Prüft Dateiexistenz auf dem Windows-Host (wo der Connector läuft).
+    Wird vom Backend genutzt, wenn es in Docker/Linux läuft und Windows-Pfade (z.B. G:\\...) nicht gemountet sind.
+    """
+    try:
+        paths = request.paths or []
+        # Begrenze, um Missbrauch zu vermeiden (kein Security-Feature, nur Schutz).
+        if len(paths) > 500:
+            raise HTTPException(status_code=400, detail="Zu viele Pfade (max 500)")
+        result = {}
+        for p in paths:
+            # Keine Normalisierung erzwingen; os.path.exists kann Windows-Pfade direkt prüfen.
+            try:
+                result[str(p)] = bool(p) and os.path.exists(str(p))
+            except Exception:
+                result[str(p)] = False
+        return {"success": True, "exists": result, "count": len(result)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        connector_logger.error(f"Fehler in paths-exist: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -9,6 +9,7 @@ from typing import List, Optional
 from app.models.article import Article
 from app.models.document import Document
 from app.models.document_flag import DocumentGenerationFlag
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 logger.propagate = True
@@ -63,9 +64,80 @@ async def check_article_documents(article_id: int, db: Session) -> dict:
     sw_path_container = _to_container_path(sw_path) or ""
     base_dir_container = _dirname_any(sw_path_container) if sw_path_container else ""
 
-    def _exists_any(paths: List[str]) -> tuple[bool, Optional[str]]:
+    is_docker = bool(os.path.exists("/.dockerenv") or os.getcwd() == "/app")
+
+    async def _remote_exists_any(paths: List[str]) -> dict:
+        """
+        Fragt den SOLIDWORKS-Connector auf Windows, ob Pfade existieren.
+        Rückgabe: {path: bool}
+        """
+        try:
+            import httpx
+
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                base = (settings.SOLIDWORKS_CONNECTOR_URL or "").rstrip("/")
+                # Be robust regarding base URL prefixes (some setups may set base=/api or /api/solidworks)
+                candidates = []
+                if base.endswith("/api/solidworks"):
+                    candidates.append(f"{base}/paths-exist")
+                if base.endswith("/api"):
+                    candidates.append(f"{base}/solidworks/paths-exist")
+                # default expected
+                candidates.append(f"{base}/api/solidworks/paths-exist")
+                # very defensive fallback (in case base already includes /api/solidworks implicitly elsewhere)
+                candidates.append(f"{base}/paths-exist")
+
+                resp = None
+                for url in candidates:
+                    try:
+                        resp = await client.post(url, json={"paths": paths or []})
+                        if resp.status_code == 200:
+                            break
+                        # 404 likely means "old connector / wrong base", try next candidate
+                    except Exception as e:
+                        continue
+
+                if not resp or resp.status_code != 200:
+                    return {p: False for p in (paths or [])}
+                data = resp.json() if resp.content else {}
+                exists = (data or {}).get("exists") or {}
+                # Normalize keys to str
+                out = {}
+                for p in (paths or []):
+                    out[str(p)] = bool(exists.get(str(p)))
+                return out
+        except Exception as e:
+            return {p: False for p in (paths or [])}
+
+    async def _exists_any(paths: List[str]) -> tuple[bool, Optional[str]]:
+        """
+        Prüft zuerst lokal (Container), dann (in Docker) via SOLIDWORKS-Connector für Windows-Pfade,
+        die nicht gemountet sind (z.B. G:\\...).
+        """
+        if not paths:
+            return False, None
+
+        # 1) Local/container fast path
+        remaining_remote = []
         for p in paths:
-            if p and os.path.exists(p):
+            if not p:
+                continue
+            try:
+                if os.path.exists(p):
+                    return True, p
+            except Exception:
+                pass
+
+            # 2) In Docker: Windows drive/UNC paths können im Container nicht geprüft werden -> remote
+            if is_docker and _is_windows_path(p):
+                remaining_remote.append(p)
+
+        if not remaining_remote:
+            return False, None
+
+        remote_map = await _remote_exists_any(list(dict.fromkeys(remaining_remote)))
+        for p in remaining_remote:
+            if remote_map.get(str(p)):
                 return True, p
         return False, None
 
@@ -86,7 +158,7 @@ async def check_article_documents(article_id: int, db: Session) -> dict:
 
         if doc_type == "SW_Part_ASM":
             candidates_dbg = [sw_path, sw_path_container]
-            exists, file_path = _exists_any(candidates_dbg)
+            exists, file_path = await _exists_any(candidates_dbg)
         elif doc_type == "SW_DRW":
             # Prefer explicit slddrw_pfad, otherwise derive from base_name
             candidates = []
@@ -98,7 +170,7 @@ async def check_article_documents(article_id: int, db: Session) -> dict:
                     candidates.append(os.path.join(d, f"{base_name}.SLDDRW"))
                     candidates.append(os.path.join(d, f"{base_name}.slddrw"))
             candidates_dbg = candidates
-            exists, file_path = _exists_any(candidates_dbg)
+            exists, file_path = await _exists_any(candidates_dbg)
         else:
             # Bestell-Dateien: unterstütze sowohl _Bestell als auch " bestellversion" (wie im User-Beispiel)
             suffixes = [""]
@@ -112,14 +184,14 @@ async def check_article_documents(article_id: int, db: Session) -> dict:
                     for n in names:
                         cand.extend([os.path.join(d, f"{n}.pdf"), os.path.join(d, f"{n}.PDF")])
                 candidates_dbg = cand
-                exists, file_path = _exists_any(candidates_dbg)
+                exists, file_path = await _exists_any(candidates_dbg)
             elif doc_type in ("DXF", "Bestell_DXF"):
                 cand = []
                 for d in [base_dir, base_dir_container]:
                     for n in names:
                         cand.extend([os.path.join(d, f"{n}.dxf"), os.path.join(d, f"{n}.DXF")])
                 candidates_dbg = cand
-                exists, file_path = _exists_any(candidates_dbg)
+                exists, file_path = await _exists_any(candidates_dbg)
             elif doc_type == "STEP":
                 cand = []
                 for d in [base_dir, base_dir_container]:
@@ -131,14 +203,14 @@ async def check_article_documents(article_id: int, db: Session) -> dict:
                             os.path.join(d, f"{n}.STEP"),
                         ])
                 candidates_dbg = cand
-                exists, file_path = _exists_any(candidates_dbg)
+                exists, file_path = await _exists_any(candidates_dbg)
             elif doc_type == "X_T":
                 cand = []
                 for d in [base_dir, base_dir_container]:
                     for n in names:
                         cand.extend([os.path.join(d, f"{n}.x_t"), os.path.join(d, f"{n}.X_T")])
                 candidates_dbg = cand
-                exists, file_path = _exists_any(candidates_dbg)
+                exists, file_path = await _exists_any(candidates_dbg)
             elif doc_type == "STL":
                 # Erst exakte Namen versuchen, dann Fallback: irgendeine STL, die base_name enthält
                 cand = []
@@ -146,7 +218,7 @@ async def check_article_documents(article_id: int, db: Session) -> dict:
                     for n in names:
                         cand.extend([os.path.join(d, f"{n}.stl"), os.path.join(d, f"{n}.STL")])
                 candidates_dbg = cand
-                exists, file_path = _exists_any(candidates_dbg)
+                exists, file_path = await _exists_any(candidates_dbg)
                 if (not exists) and base_name:
                     for d in [base_dir, base_dir_container]:
                         if not d or not os.path.exists(d):
@@ -167,7 +239,7 @@ async def check_article_documents(article_id: int, db: Session) -> dict:
                     for n in names:
                         cand.extend([os.path.join(d, f"{n}.esp"), os.path.join(d, f"{n}.ESP")])
                 candidates_dbg = cand
-                exists, file_path = _exists_any(candidates_dbg)
+                exists, file_path = await _exists_any(candidates_dbg)
 
         # Update/create Document row
         doc = db.query(Document).filter(Document.article_id == article_id, Document.document_type == doc_type).first()

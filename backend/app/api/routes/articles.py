@@ -127,8 +127,19 @@ async def get_articles(project_id: int, db: Session = Depends(get_db)):
 
     rows: List[ArticleGridRow] = []
     for a in articles:
-        # Order: nehme erste (falls mehrere vorhanden)
-        order = a.orders[0] if getattr(a, "orders", None) else None
+        # Order: bei mehreren Orders wähle die "relevanteste" für die Grid-Anzeige (neueste nach Datum).
+        order = None
+        try:
+            orders_list = list(getattr(a, "orders", None) or [])
+            if orders_list:
+                from datetime import date as _date
+
+                def _order_date(o):
+                    return getattr(o, "bestaetigter_lt", None) or getattr(o, "hg_lt", None) or _date.min
+
+                order = max(orders_list, key=_order_date)
+        except Exception:
+            order = a.orders[0] if getattr(a, "orders", None) else None
 
         # Flags
         flags = getattr(a, "document_flags", None)
