@@ -106,7 +106,7 @@ async def test_log():
 
 
 @app.post("/api/solidworks/get-all-parts-from-assembly")
-async def get_all_parts_from_assembly(request: AssemblyRequest):
+def get_all_parts_from_assembly(request: AssemblyRequest):
     """
     Liest alle Teile und Properties aus Assembly
     """
@@ -128,7 +128,7 @@ async def get_all_parts_from_assembly(request: AssemblyRequest):
 
 
 @app.post("/api/solidworks/create-3d-documents")
-async def create_3d_documents(request: Create3DDocumentsRequest):
+def create_3d_documents(request: Create3DDocumentsRequest):
     """
     Erstellt 3D-Dokumente (STEP, X_T, STL)
     """
@@ -162,7 +162,7 @@ async def create_3d_documents(request: Create3DDocumentsRequest):
 
 
 @app.post("/api/solidworks/create-2d-documents")
-async def create_2d_documents(request: Create2DDocumentsRequest):
+def create_2d_documents(request: Create2DDocumentsRequest):
     """
     Erstellt 2D-Dokumente (PDF, DXF) aus Zeichnung (.SLDDRW).
 
@@ -199,7 +199,7 @@ async def create_2d_documents(request: Create2DDocumentsRequest):
 
 
 @app.post("/api/solidworks/paths-exist")
-async def paths_exist(request: PathsExistRequest):
+def paths_exist(request: PathsExistRequest):
     """
     Prüft Dateiexistenz auf dem Windows-Host (wo der Connector läuft).
     Wird vom Backend genutzt, wenn es in Docker/Linux läuft und Windows-Pfade (z.B. G:\\...) nicht gemountet sind.

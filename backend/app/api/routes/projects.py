@@ -313,4 +313,8 @@ async def import_solidworks(
     
     from app.services.solidworks_service import import_solidworks_assembly
     result = await import_solidworks_assembly(project_id, assembly_filepath, db)
+    # Wenn der Service einen "success": False liefert, sollte das im HTTP-Status sichtbar sein,
+    # sonst wirkt es im Frontend wie "hängt", weil Axios bei 200 nicht in den catch-Block geht.
+    if isinstance(result, dict) and result.get("success") is False:
+        raise HTTPException(status_code=502, detail=result.get("error") or "SOLIDWORKS-Import fehlgeschlagen")
     return result

@@ -27,13 +27,16 @@ function App() {
     if (!filepath) return
 
     try {
-      await api.post(`/projects/${project.id}/import-solidworks`, null, {
+      const resp = await api.post(`/projects/${project.id}/import-solidworks`, null, {
         params: { assembly_filepath: filepath }
       })
+      if (resp?.data?.success === false) {
+        throw new Error(resp?.data?.error || 'SOLIDWORKS-Import fehlgeschlagen')
+      }
       alert('Import erfolgreich!')
       refetch()
     } catch (error: any) {
-      alert('Fehler beim Import: ' + error.message)
+      alert('Fehler beim Import: ' + (error.response?.data?.detail || error.message))
     }
   }
 
@@ -236,9 +239,12 @@ function App() {
       const newProject = projectResponse.data
 
       // 2. SolidWorks importieren
-      await api.post(`/projects/${newProject.id}/import-solidworks`, null, {
+      const importResp = await api.post(`/projects/${newProject.id}/import-solidworks`, null, {
         params: { assembly_filepath: assemblyPath.trim() }
       })
+      if (importResp?.data?.success === false) {
+        throw new Error(importResp?.data?.error || 'SOLIDWORKS-Import fehlgeschlagen')
+      }
 
       // 3. Projekt laden und anzeigen
       setProject(newProject)

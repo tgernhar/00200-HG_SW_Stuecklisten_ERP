@@ -165,8 +165,93 @@ class SolidWorksConnector:
         
         try:
             # Traversiere Teilebaum
-            components = sw_model.GetComponents(True)  # True = alle Ebenen
-            
+            asm_doc = sw_model
+            try:
+                asm_doc = win32com.client.CastTo(sw_model, "AssemblyDoc")
+            except Exception:
+                asm_doc = sw_model
+
+            def _to_list_safe(x):
+                if x is None:
+                    return []
+                try:
+                    return list(x)
+                except Exception:
+                    return []
+
+            # NOTE: SOLIDWORKS API param semantics differ (top-level-only vs all-levels).
+            # We'll try multiple variants and fall back to root traversal if still empty.
+            components = []
+            raw_components = None
+            try:
+                raw_components = getattr(asm_doc, "GetComponents")(True)
+                components = _to_list_safe(raw_components)
+            except Exception:
+                components = []
+            if not components:
+                try:
+                    raw_components = getattr(asm_doc, "GetComponents")(False)
+                    components = _to_list_safe(raw_components)
+                except Exception:
+                    components = []
+
+            # If still empty, try resolving lightweight + rebuild and retry.
+            if not components:
+                try:
+                    if hasattr(asm_doc, "ResolveAllLightWeightComponents"):
+                        asm_doc.ResolveAllLightWeightComponents(True)
+                except Exception:
+                    pass
+                try:
+                    if hasattr(sw_model, "ForceRebuild3"):
+                        sw_model.ForceRebuild3(False)
+                except Exception:
+                    pass
+                try:
+                    # Retry after resolve/rebuild
+                    raw_components = getattr(asm_doc, "GetComponents")(False)
+                    components = _to_list_safe(raw_components)
+                except Exception:
+                    components = []
+
+            # Root-component traversal fallback (robust when GetComponents returns empty)
+            # Some environments return a SAFEARRAY with None placeholders (len>0 but all entries None).
+            components = [c for c in components if c is not None]
+            if not components:
+                try:
+                    root = None
+                    try:
+                        if hasattr(asm_doc, "GetRootComponent3"):
+                            root = asm_doc.GetRootComponent3(True)
+                    except Exception:
+                        root = None
+                    if root is None:
+                        try:
+                            cfg = sw_model.ConfigurationManager.ActiveConfiguration
+                            if cfg is not None and hasattr(cfg, "GetRootComponent3"):
+                                root = cfg.GetRootComponent3(True)
+                        except Exception:
+                            root = None
+
+                    def _walk(c):
+                        if c is None:
+                            return
+                        components.append(c)
+                        try:
+                            kids = getattr(c, "GetChildren", None)
+                            kids = kids() if callable(kids) else kids
+                        except Exception:
+                            kids = None
+                        for k in _to_list_safe(kids):
+                            _walk(k)
+
+                    if root is not None:
+                        _walk(root)
+                except Exception:
+                    pass
+
+            hidden_count = 0
+            missing_path_count = 0
             for component in components:
                 # Prüfe ob Teil versteckt ist
                 # Some SOLIDWORKS COM properties may appear as either methods or boolean properties via pywin32.
@@ -198,6 +283,7 @@ class SolidWorksConnector:
                     part_name = _get_str_attr(component, "Name2")
                     config_name = _get_str_attr(component, "ReferencedConfiguration")
                     if not part_path:
+                        missing_path_count += 1
                         continue
                     
                     # Öffne Part für Dimensions-Abfrage
@@ -215,10 +301,18 @@ class SolidWorksConnector:
                     if part_model:
                         try:
                             # Lese Dimensionen
-                            box = part_model.GetPartBox(True)
-                            x_dim = box[3] - box[0] if box else 0
-                            y_dim = box[4] - box[1] if box else 0
-                            z_dim = box[5] - box[2] if box else 0
+                            x_dim = 0
+                            y_dim = 0
+                            z_dim = 0
+                            try:
+                                # GetPartBox is only valid for PART documents in many SOLIDWORKS type libs.
+                                if str(part_path).upper().endswith(".SLDPRT") and hasattr(part_model, "GetPartBox"):
+                                    box = part_model.GetPartBox(True)
+                                    x_dim = box[3] - box[0] if box else 0
+                                    y_dim = box[4] - box[1] if box else 0
+                                    z_dim = box[5] - box[2] if box else 0
+                            except Exception as _e_box:
+                                connector_logger.error(f"Fehler bei GetPartBox ({part_path}): {_e_box}", exc_info=True)
                             
                             # Lese Gewicht
                             # Gewicht (kg): SOLIDWORKS COM APIs unterscheiden sich je nach Version/Typelib.
@@ -317,17 +411,146 @@ class SolidWorksConnector:
                             # Lese Custom Properties
                             properties = []
                             try:
-                                custom_props = part_model.Extension.CustomPropertyManager(config_name)
-                                prop_names = custom_props.GetNames()
-                                
-                                for prop_name in prop_names:
-                                    prop_value = custom_props.Get6(prop_name, False, "")[1]
-                                    properties.append({
-                                        "name": prop_name,
-                                        "value": prop_value
-                                    })
+                                # In SOLIDWORKS gibt es Config-spezifische UND globale Custom Properties.
+                                # Viele Projekte nutzen die globalen Properties (CustomPropertyManager("")),
+                                # daher lesen wir beide und mergen (Config überschreibt global).
+                                props_by_name = {}
+                                order = []
+
+                                def _collect_from_mgr(mgr_name: str):
+                                    mgr = part_model.Extension.CustomPropertyManager(mgr_name)
+                                    # Some pywin32 bindings expose GetNames as a property (tuple) instead of a callable method.
+                                    getnames = getattr(mgr, "GetNames", None)
+                                    try:
+                                        names = getnames() if callable(getnames) else getnames
+                                    except Exception as _e_getnames:
+                                        connector_logger.error(f"Fehler bei GetNames ({mgr_name}): {_e_getnames}", exc_info=True)
+                                        names = []
+                                    if names is None:
+                                        names = []
+                                    # Ensure iterable list of strings
+                                    try:
+                                        names_list = list(names)
+                                    except Exception:
+                                        names_list = []
+                                    # Log counts for runtime evidence
+                                    for pn in names_list:
+                                        try:
+                                            def _pick_str(x):
+                                                if x is None:
+                                                    return ""
+                                                if isinstance(x, bool):
+                                                    # Avoid treating COM success flags as values
+                                                    return ""
+                                                if isinstance(x, str):
+                                                    return x
+                                                if isinstance(x, (list, tuple)):
+                                                    # common COM pattern: (status, value) or (value, resolved, ...)
+                                                    if len(x) == 2 and isinstance(x[1], str):
+                                                        return x[1]
+                                                    for it in x:
+                                                        if isinstance(it, str) and it:
+                                                            return it
+                                                    return ""
+                                                return str(x)
+
+                                            # Prefer Get2/Get4/Get5/Get6 (COM out-params differ across bindings).
+                                            raw2 = raw4 = raw5 = raw6 = None
+                                            err2 = err4 = err5 = err6 = None
+                                            val = ""
+
+                                            # 1) Get2 (simple)
+                                            try:
+                                                if hasattr(mgr, "Get2"):
+                                                    try:
+                                                        # Many COM bindings require the out-param to be passed as an argument
+                                                        raw2 = mgr.Get2(str(pn), "")
+                                                    except Exception:
+                                                        raw2 = mgr.Get2(str(pn))
+                                                    val = _pick_str(raw2)
+                                            except Exception as _e2:
+                                                err2 = f"{type(_e2).__name__}: {_e2}"
+                                                raw2 = None
+
+                                            # 2) Get4 (raw/resolved out-params)
+                                            if not val:
+                                                try:
+                                                    if hasattr(mgr, "Get4"):
+                                                        get4_raw_val = None
+                                                        get4_res_val = None
+                                                        try:
+                                                            import pythoncom
+                                                            import win32com.client
+                                                            vt_bstr_byref = pythoncom.VT_BSTR | pythoncom.VT_BYREF
+                                                            v_raw = win32com.client.VARIANT(vt_bstr_byref, "")
+                                                            v_res = win32com.client.VARIANT(vt_bstr_byref, "")
+                                                            raw4 = mgr.Get4(str(pn), False, v_raw, v_res)
+                                                            # Prefer resolved if present
+                                                            get4_res_val = getattr(v_res, "value", None)
+                                                            get4_raw_val = getattr(v_raw, "value", None)
+                                                            val = _pick_str(get4_res_val) or _pick_str(get4_raw_val)
+                                                        except Exception:
+                                                            # Fallback: older wrappers may return a tuple directly
+                                                            raw4 = mgr.Get4(str(pn), False, "", "")
+                                                            val = _pick_str(raw4)
+                                                except Exception as _e4:
+                                                    err4 = f"{type(_e4).__name__}: {_e4}"
+                                                    raw4 = None
+
+                                            # 3) Get5 (some versions)
+                                            if not val:
+                                                try:
+                                                    if hasattr(mgr, "Get5"):
+                                                        raw5 = mgr.Get5(str(pn), False)
+                                                        val = _pick_str(raw5)
+                                                except Exception as _e5:
+                                                    err5 = f"{type(_e5).__name__}: {_e5}"
+                                                    raw5 = None
+
+                                            # 4) Get6 (raw/resolved/link out-params)
+                                            if not val:
+                                                try:
+                                                    if hasattr(mgr, "Get6"):
+                                                        get6_raw_val = None
+                                                        get6_res_val = None
+                                                        get6_link_val = None
+                                                        try:
+                                                            import pythoncom
+                                                            import win32com.client
+                                                            vt_bstr_byref = pythoncom.VT_BSTR | pythoncom.VT_BYREF
+                                                            vt_bool_byref = pythoncom.VT_BOOL | pythoncom.VT_BYREF
+                                                            v_raw = win32com.client.VARIANT(vt_bstr_byref, "")
+                                                            v_res = win32com.client.VARIANT(vt_bstr_byref, "")
+                                                            v_was = win32com.client.VARIANT(vt_bool_byref, False)
+                                                            v_link = win32com.client.VARIANT(vt_bstr_byref, "")
+                                                            raw6 = mgr.Get6(str(pn), False, v_raw, v_res, v_was, v_link)
+                                                            get6_res_val = getattr(v_res, "value", None)
+                                                            get6_raw_val = getattr(v_raw, "value", None)
+                                                            get6_link_val = getattr(v_link, "value", None)
+                                                            val = _pick_str(get6_res_val) or _pick_str(get6_raw_val)
+                                                        except Exception:
+                                                            raw6 = mgr.Get6(str(pn), False, "")
+                                                            val = _pick_str(raw6)
+                                                except Exception as _e6:
+                                                    err6 = f"{type(_e6).__name__}: {_e6}"
+                                                    raw6 = None
+
+                                            name_str = str(pn)
+                                            if name_str not in props_by_name:
+                                                order.append(name_str)
+                                            props_by_name[name_str] = str(val)
+                                        except Exception as _e_prop:
+                                            connector_logger.error(f"Fehler beim Lesen der Property '{pn}' ({mgr_name}): {_e_prop}", exc_info=True)
+
+                                # 1) Global zuerst, dann Config-spezifisch überschreibt
+                                _collect_from_mgr("")
+                                if config_name:
+                                    _collect_from_mgr(config_name)
+
+                                for name_str in order:
+                                    properties.append({"name": name_str, "value": props_by_name.get(name_str, "")})
                             except Exception as e:
-                                print(f"Fehler beim Lesen der Properties: {e}")
+                                connector_logger.error(f"Fehler beim Lesen der Properties: {e}", exc_info=True)
                             
                             # Füge Teil-Info hinzu
                             results.append([
@@ -370,6 +593,8 @@ class SolidWorksConnector:
                             self.sw_app.CloseDoc(part_path)
                     
                     child += 1
+                else:
+                    hidden_count += 1
         finally:
             self.sw_app.CloseDoc(assembly_filepath)
         

@@ -10,6 +10,11 @@ import logging
 import os
 from collections import defaultdict
 import ntpath
+import re
+import time
+import json
+import urllib.request
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 # Stelle sicher, dass der Logger die Handler vom Root-Logger erbt
@@ -29,6 +34,24 @@ def _dirname_any(p: str) -> str:
     if ntpath.splitdrive(p)[0]:
         return ntpath.dirname(p)
     return os.path.dirname(p)
+
+def _norm_prop_name(name: str) -> str:
+    """
+    Normalisierung an VBA/Realwelt angepasst:
+    - Umlaute -> ae/oe/ue/ss
+    - Sonderzeichen (+, -, Leerzeichen, /, etc.) -> _
+    - lower + underscore-collapsing
+    """
+    s = (name or "").strip()
+    s = (
+        s.replace("Ä", "Ae").replace("Ö", "Oe").replace("Ü", "Ue")
+        .replace("ä", "ae").replace("ö", "oe").replace("ü", "ue")
+        .replace("ß", "ss")
+    )
+    s = s.lower()
+    s = re.sub(r"[^a-z0-9]+", "_", s)
+    s = re.sub(r"_+", "_", s).strip("_")
+    return s
 
 
 async def import_solidworks_assembly(
@@ -112,8 +135,7 @@ async def import_solidworks_assembly(
     aggregated = {}
     props_by_key = defaultdict(dict)  # key -> {propName: propValue}
 
-    def _norm_prop_name(name: str) -> str:
-        return (name or "").strip().lower().replace(" ", "_")
+    # NOTE: _norm_prop_name ist oben definiert (VBA-kompatibler)
 
     def _m_to_mm_int(val):
         """SOLIDWORKS liefert Dimensionen typischerweise in Metern -> mm, ohne Nachkommastellen."""
@@ -144,7 +166,8 @@ async def import_solidworks_assembly(
 
         # property rows
         if prop_name:
-            props_by_key[key][_norm_prop_name(str(prop_name))] = "" if prop_value is None else str(prop_value)
+            prop_norm = _norm_prop_name(str(prop_name))
+            props_by_key[key][prop_norm] = "" if prop_value is None else str(prop_value)
             continue
 
         # main part row
@@ -174,18 +197,37 @@ async def import_solidworks_assembly(
         else:
             aggregated[key]["menge"] += 1
 
-    # Map a few common custom properties into editable fields if present
+    # Map VBA/Excel Custom Properties -> DB-Felder (nach normalisierten Namen)
     prop_to_field = {
-        "werkstoff": "werkstoff",
-        "werkstoff_nr": "werkstoff_nr",
-        "oberflaeche": "oberflaeche",
-        "oberflächenschutz": "oberflaechenschutz",
-        "oberflaechenschutz": "oberflaechenschutz",
-        "farbe": "farbe",
-        "lieferzeit": "lieferzeit",
-        "abteilung_lieferant": "abteilung_lieferant",
-        "teiletyp_fertigungsplan": "teiletyp_fertigungsplan",
+        # VBA: "H+G Artikelnummer"
+        "h_g_artikelnummer": "hg_artikelnummer",
+        # Variante ohne Leerzeichen: "H+GArtikelnummer"
+        "h_gartikelnummer": "hg_artikelnummer",
         "hg_artikelnummer": "hg_artikelnummer",
+        # VBA: "Teilenummer" (überschreibt filename-basierte Teilenummer)
+        "teilenummer": "teilenummer",
+        # VBA: "Material"
+        "material": "werkstoff",
+        "werkstoff": "werkstoff",
+        # VBA: "HUGWAWI - Abteilung"
+        "hugwawi_abteilung": "abteilung_lieferant",
+        "abteilung_lieferant": "abteilung_lieferant",
+        # VBA: "Werkstoffgruppe"
+        "werkstoffgruppe": "werkstoff_nr",
+        "werkstoff_nr": "werkstoff_nr",
+        # VBA: "Oberfläche_ZSB" / "Oberfläche"
+        "oberflaeche_zsb": "oberflaeche",
+        "oberflaeche": "oberflaeche",
+        "oberflaeche_zsb_": "oberflaeche",
+        # VBA: "Oberflächenschutz"
+        "oberflaechenschutz": "oberflaechenschutz",
+        # VBA: "Farbe"
+        "farbe": "farbe",
+        # VBA: "Lieferzeit" / "Lieferzeit - geschätzt"
+        "lieferzeit": "lieferzeit",
+        "lieferzeit_geschaetzt": "lieferzeit",
+        # Optional/Legacy
+        "teiletyp_fertigungsplan": "teiletyp_fertigungsplan",
     }
 
     created_articles = []
