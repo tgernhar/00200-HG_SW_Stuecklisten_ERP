@@ -1,7 +1,7 @@
 /**
  * Article Grid Component (AG Grid)
  */
-import React, { useMemo, useCallback, useRef, useState, useEffect } from 'react'
+import React, { useMemo, useCallback, useRef, useState, useEffect, useImperativeHandle, forwardRef } from 'react'
 import { AgGridReact } from 'ag-grid-react'
 import { ColDef, ColGroupDef, ICellRendererParams } from 'ag-grid-community'
 import 'ag-grid-community/styles/ag-grid.css'
@@ -114,9 +114,40 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
         allowTyping: true,
         filterList: true,
         highlightMatch: true,
-        cellHeight: 28
+        cellHeight: 28,
+        cellEditorPopup: true
       }
     }
+  }, [])
+
+  const SelectlistEditor = useMemo(() => {
+    return forwardRef<any, { value?: string; values?: string[]; colDef?: any }>((props, ref) => {
+      const [value, setValue] = useState<string>(props.value ?? '')
+      const values = Array.isArray(props.values) ? props.values : []
+      const listId = `selectlist-${props?.colDef?.field || 'value'}`
+
+      useImperativeHandle(ref, () => ({
+        getValue: () => value,
+        isPopup: () => true
+      }))
+
+      return (
+        <div style={{ padding: 6 }}>
+          <input
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            list={listId}
+            autoFocus
+            style={{ width: 220, padding: 6 }}
+          />
+          <datalist id={listId}>
+            {values.map((v) => (
+              <option key={v} value={v} />
+            ))}
+          </datalist>
+        </div>
+      )
+    })
   }, [])
 
   const deptValues = selectlists?.departments || []
@@ -165,19 +196,6 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
     api.setColumnsVisible(dokumentstatusFields, showDokumentstatus)
   }, [showDokumentstatus])
 
-  useEffect(() => {
-    // #region agent log
-    _agentLog('ArticleGrid.tsx:selectlists', 'sizes', {
-      departments: deptValues.length,
-      werkstoff: werkstoffValues.length,
-      werkstoff_nr: werkstoffNrValues.length,
-      oberflaeche: oberflaecheValues.length,
-      oberflaechenschutz: oberflaechenschutzValues.length,
-      farbe: farbeValues.length,
-      lieferzeit: lieferzeitValues.length
-    })
-    // #endregion agent log
-  }, [deptValues, werkstoffValues, werkstoffNrValues, oberflaecheValues, oberflaechenschutzValues, farbeValues, lieferzeitValues, _agentLog])
 
   const getDisplayedColumns = useCallback((gridApi: any) => {
     try {
@@ -519,13 +537,13 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
         { field: 'menge', headerName: 'Menge (SW)', width: 90, editable: false, hide: true },
         { field: 'p_menge', headerName: 'P-Menge', width: 90, editable: true, valueParser: (p) => parseOptionalInt(p.newValue) },
         { field: 'teiletyp_fertigungsplan', headerName: 'Teiletyp/Fertigungsplan', width: 180, editable: true, maxLength: 150 },
-        { field: 'abteilung_lieferant', headerName: 'Abteilung / Lieferant', width: 150, editable: true, maxLength: 150, cellEditor: 'agRichSelectCellEditor', cellEditorPopup: true, cellEditorParams: makeSelectEditorParams(deptValues) },
-        { field: 'werkstoff', headerName: 'Werkstoff-Nr.', width: 120, editable: true, maxLength: 150, cellEditor: 'agRichSelectCellEditor', cellEditorPopup: true, cellEditorParams: makeSelectEditorParams(werkstoffValues) },
-        { field: 'werkstoff_nr', headerName: 'Werkstoff', width: 120, editable: true, maxLength: 150, cellEditor: 'agRichSelectCellEditor', cellEditorPopup: true, cellEditorParams: makeSelectEditorParams(werkstoffNrValues) },
-        { field: 'oberflaeche', headerName: 'Oberfläche', width: 120, editable: true, maxLength: 150, cellEditor: 'agRichSelectCellEditor', cellEditorPopup: true, cellEditorParams: makeSelectEditorParams(oberflaecheValues) },
-        { field: 'oberflaechenschutz', headerName: 'Oberflächenschutz', width: 150, editable: true, maxLength: 150, cellEditor: 'agRichSelectCellEditor', cellEditorPopup: true, cellEditorParams: makeSelectEditorParams(oberflaechenschutzValues) },
-        { field: 'farbe', headerName: 'Farbe', width: 100, editable: true, maxLength: 150, cellEditor: 'agRichSelectCellEditor', cellEditorPopup: true, cellEditorParams: makeSelectEditorParams(farbeValues) },
-        { field: 'lieferzeit', headerName: 'Lieferzeit', width: 100, editable: true, maxLength: 150, cellEditor: 'agRichSelectCellEditor', cellEditorPopup: true, cellEditorParams: makeSelectEditorParams(lieferzeitValues) },
+        { field: 'abteilung_lieferant', headerName: 'Abteilung / Lieferant', width: 150, editable: true, maxLength: 150, cellEditor: SelectlistEditor, cellEditorParams: makeSelectEditorParams(deptValues), cellRenderer: (params: ICellRendererParams<Article>) => React.createElement('div', null, params.value ?? '') },
+        { field: 'werkstoff', headerName: 'Werkstoff-Nr.', width: 120, editable: true, maxLength: 150, cellEditor: SelectlistEditor, cellEditorParams: makeSelectEditorParams(werkstoffValues), cellRenderer: (params: ICellRendererParams<Article>) => React.createElement('div', null, params.value ?? '') },
+        { field: 'werkstoff_nr', headerName: 'Werkstoff', width: 120, editable: true, maxLength: 150, cellEditor: SelectlistEditor, cellEditorParams: makeSelectEditorParams(werkstoffNrValues), cellRenderer: (params: ICellRendererParams<Article>) => React.createElement('div', null, params.value ?? '') },
+        { field: 'oberflaeche', headerName: 'Oberfläche', width: 120, editable: true, maxLength: 150, cellEditor: SelectlistEditor, cellEditorParams: makeSelectEditorParams(oberflaecheValues), cellRenderer: (params: ICellRendererParams<Article>) => React.createElement('div', null, params.value ?? '') },
+        { field: 'oberflaechenschutz', headerName: 'Oberflächenschutz', width: 150, editable: true, maxLength: 150, cellEditor: SelectlistEditor, cellEditorParams: makeSelectEditorParams(oberflaechenschutzValues), cellRenderer: (params: ICellRendererParams<Article>) => React.createElement('div', null, params.value ?? '') },
+        { field: 'farbe', headerName: 'Farbe', width: 100, editable: true, maxLength: 150, cellEditor: SelectlistEditor, cellEditorParams: makeSelectEditorParams(farbeValues), cellRenderer: (params: ICellRendererParams<Article>) => React.createElement('div', null, params.value ?? '') },
+        { field: 'lieferzeit', headerName: 'Lieferzeit', width: 100, editable: true, maxLength: 150, cellEditor: SelectlistEditor, cellEditorParams: makeSelectEditorParams(lieferzeitValues), cellRenderer: (params: ICellRendererParams<Article>) => React.createElement('div', null, params.value ?? '') },
         { field: 'laenge', headerName: 'Länge', width: 100, editable: true, valueParser: (p) => parseOptionalNumber(p.newValue) },
         { field: 'breite', headerName: 'Breite', width: 100, editable: true, valueParser: (p) => parseOptionalNumber(p.newValue) },
         { field: 'hoehe', headerName: 'Höhe', width: 100, editable: true, valueParser: (p) => parseOptionalNumber(p.newValue) },
@@ -540,6 +558,7 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
     articleNumberCellRenderer,
     makeDocRenderer,
     makeSelectEditorParams,
+    SelectlistEditor,
     parseOptionalInt,
     parseOptionalNumber,
     onOpenOrders,
@@ -699,12 +718,6 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
         params?.columnApi?.setColumnsVisible?.(bestellinfoFields, showBestellinfo)
         params?.columnApi?.setColumnsVisible?.(dokumentstatusFields, showDokumentstatus)
       } catch {}
-      // #region agent log
-      _agentLog('ArticleGrid.tsx:gridReady', 'editor-check', {
-        hasRichSelect: !!(params?.api?.getCellEditorInstances?.()),
-        columns: (params?.columnApi?.getAllColumns?.() || []).length
-      })
-      // #endregion agent log
     }
   }
 

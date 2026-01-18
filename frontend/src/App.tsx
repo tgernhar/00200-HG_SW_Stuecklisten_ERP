@@ -96,21 +96,7 @@ function App() {
           19: toValues(w19),
           22: toValues(w22)
         })
-        // #region agent log
-        _log('App.tsx:selectlists', 'loaded', {
-          departments: deptItems.length,
-          v17: (w17?.data?.items || []).length,
-          v15: (w15?.data?.items || []).length,
-          v18: (w18?.data?.items || []).length,
-          v21: (w21?.data?.items || []).length,
-          v19: (w19?.data?.items || []).length,
-          v22: (w22?.data?.items || []).length
-        })
-        // #endregion agent log
-      } catch (e) {
-        // #region agent log
-        _log('App.tsx:selectlists', 'error', { message: (e as any)?.message || String(e) })
-        // #endregion agent log
+      } catch (e: any) {
         // still allow manual input
       }
     }

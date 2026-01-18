@@ -172,14 +172,58 @@ def list_selectlist_values(selectlist_id: int, db_connection) -> list[dict]:
     """
     Listet Selectlist-Werte aus HUGWAWI für eine gegebene selectlist (article_selectlist_value.value).
     """
+    # determine columns on article_selectlist and article_selectlist_value
+    meta = db_connection.cursor()
+    try:
+        meta.execute(
+            """
+            SELECT TABLE_NAME, COLUMN_NAME
+            FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME IN ('article_selectlist', 'article_selectlist_value')
+            """
+        )
+        rows = meta.fetchall() or []
+        selectlist_cols = [r[1] for r in rows if r and r[0] == 'article_selectlist']
+        value_cols = [r[1] for r in rows if r and r[0] == 'article_selectlist_value']
+    finally:
+        meta.close()
+
+    if "selectlist" in selectlist_cols:
+        filter_col = "selectlist"
+    elif "selectlist_id" in selectlist_cols:
+        filter_col = "selectlist_id"
+    elif "selectlistid" in selectlist_cols:
+        filter_col = "selectlistid"
+    elif "id" in selectlist_cols:
+        filter_col = "id"
+    else:
+        filter_col = None
+
+    if "article_selectlist_id" in value_cols:
+        fk_col = "article_selectlist_id"
+    elif "selectlist_id" in value_cols:
+        fk_col = "selectlist_id"
+    elif "selectlistid" in value_cols:
+        fk_col = "selectlistid"
+    elif "selectlist" in value_cols:
+        fk_col = "selectlist"
+    else:
+        fk_col = None
+
+    if not filter_col:
+        raise Exception(f"article_selectlist: keine passende Filter-Spalte gefunden; columns={selectlist_cols}")
+    if not fk_col:
+        raise Exception(f"article_selectlist_value: keine passende FK-Spalte gefunden; columns={value_cols}")
+
     cursor = db_connection.cursor(dictionary=True)
     try:
         cursor.execute(
-            """
+            f"""
             SELECT v.id, v.value
             FROM article_selectlist_value v
-            INNER JOIN article_selectlist s ON v.article_selectlist_id = s.id
-            WHERE s.selectlist = %s
+            INNER JOIN article_selectlist s ON v.{fk_col} = s.id
+            WHERE s.{filter_col} = %s
               AND v.value IS NOT NULL AND v.value <> ''
             ORDER BY v.value ASC
             """,
