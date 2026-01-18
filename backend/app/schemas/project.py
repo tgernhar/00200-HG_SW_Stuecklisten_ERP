@@ -7,7 +7,8 @@ from datetime import datetime
 
 
 class ProjectBase(BaseModel):
-    au_nr: str
+    artikel_nr: str
+    au_nr: Optional[str] = None
     project_path: Optional[str] = None
 
 
@@ -16,6 +17,7 @@ class ProjectCreate(ProjectBase):
 
 
 class ProjectUpdate(BaseModel):
+    artikel_nr: Optional[str] = None
     au_nr: Optional[str] = None
     project_path: Optional[str] = None
 

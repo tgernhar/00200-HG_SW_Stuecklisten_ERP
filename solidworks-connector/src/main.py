@@ -1,7 +1,9 @@
 """
 SOLIDWORKS Connector - FastAPI Server
 """
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import List, Optional, Dict
 from SolidWorksConnector import SolidWorksConnector
@@ -52,6 +54,49 @@ connector_logger.propagate = False  # Verhindere Propagation zum Root-Logger, da
 connector_logger.info(f"SOLIDWORKS-Connector-Logging initialisiert. Log-Datei: {log_file}")
 
 app = FastAPI(title="SOLIDWORKS Connector API", version="1.0.0")
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """
+    Instrumentation: macht 422 Ursachen sichtbar (Body/JSON/Form).
+    """
+    try:
+        body_bytes = await request.body()
+        body_preview = body_bytes[:1000].decode("utf-8", errors="replace") if body_bytes else ""
+    except Exception as e:
+        body_preview = f"<failed to read body: {type(e).__name__}>"
+
+    try:
+        connector_logger.warning(
+            f"422 RequestValidationError: errors={exc.errors()} body_preview={body_preview!r}"
+        )
+    except Exception:
+        pass
+
+    # region agent log
+    try:
+        import json, time
+        with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
+            _f.write(
+                json.dumps(
+                    {
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "hypothesisId": "H5",
+                        "location": "solidworks-connector/src/main.py:validation_exception_handler",
+                        "message": "422 validation error",
+                        "data": {"errors": exc.errors(), "body_preview": body_preview},
+                        "timestamp": int(time.time() * 1000),
+                    }
+                )
+                + "\n"
+            )
+    except Exception:
+        pass
+    # endregion agent log
+
+    return JSONResponse(status_code=422, content={"detail": exc.errors()})
 
 # IMPORTANT:
 # FastAPI request handlers may run in different threads. COM objects (SOLIDWORKS)

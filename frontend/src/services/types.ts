@@ -4,7 +4,8 @@
 
 export interface Project {
   id: number
-  au_nr: string
+  artikel_nr: string
+  au_nr?: string
   project_path?: string
   created_at: string
   updated_at?: string

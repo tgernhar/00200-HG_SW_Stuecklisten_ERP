@@ -11,7 +11,8 @@ class Project(Base):
     __tablename__ = "projects"
     
     id = Column(Integer, primary_key=True, index=True)
-    au_nr = Column(String(100), unique=True, index=True, nullable=False)
+    artikel_nr = Column(String(100), unique=True, index=True, nullable=False)
+    au_nr = Column(String(100), index=True, nullable=True)
     project_path = Column(String(500))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

@@ -128,7 +128,21 @@ async def get_articles(
         if len(boms) == 1:
             effective_bom_id = boms[0].id
         elif len(boms) == 0:
-            raise HTTPException(status_code=404, detail="Keine BOM für dieses Projekt gefunden")
+            # Legacy fallback: create a BOM and attach existing articles
+            try:
+                bom = Bom(project_id=project_id, hugwawi_order_name=project.au_nr)
+                db.add(bom)
+                db.commit()
+                db.refresh(bom)
+                db.query(Article).filter(
+                    Article.project_id == project_id,
+                    Article.bom_id.is_(None),
+                ).update({"bom_id": bom.id}, synchronize_session=False)
+                db.commit()
+                effective_bom_id = bom.id
+            except Exception as e:
+                db.rollback()
+                raise HTTPException(status_code=500, detail=f"Legacy-BOM konnte nicht erstellt werden: {e}")
         else:
             raise HTTPException(status_code=400, detail="Mehrere BOMs vorhanden. Bitte bom_id angeben.")
     else:
@@ -148,6 +162,33 @@ async def get_articles(
         .order_by(Article.pos_nr.asc(), Article.pos_sub.asc(), Article.id.asc())
         .all()
     )
+
+    # region agent log
+    try:
+        import json, time
+        with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
+            _f.write(
+                json.dumps(
+                    {
+                        "sessionId": "debug-session",
+                        "runId": "run4",
+                        "hypothesisId": "FETCH",
+                        "location": "backend/app/api/routes/articles.py:get_articles",
+                        "message": "queried",
+                        "data": {
+                            "project_id": project_id,
+                            "requested_bom_id": bom_id,
+                            "effective_bom_id": effective_bom_id,
+                            "count": len(articles),
+                        },
+                        "timestamp": int(time.time() * 1000),
+                    }
+                )
+                + "\n"
+            )
+    except Exception:
+        pass
+    # endregion agent log
 
     rows: List[ArticleGridRow] = []
     for a in articles:

@@ -24,6 +24,25 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, o
   const gridApiRef = useRef<any>(null)
   const gridColumnApiRef = useRef<any>(null)
   const [showHidden, setShowHidden] = useState(false)
+  // #region agent log
+  const _agentLog = useCallback((location: string, message: string, data: any) => {
+    try {
+      fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: 'debug-session',
+          runId: 'run3',
+          hypothesisId: 'UI_FILTER',
+          location,
+          message,
+          data,
+          timestamp: Date.now()
+        })
+      }).catch(() => {})
+    } catch {}
+  }, [])
+  // #endregion agent log
   const makeDocRenderer = useCallback(
     (opts: {
       existsField?: keyof Article
@@ -652,11 +671,21 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, o
     }
   }, [onAfterBulkUpdate])
 
+  // #region agent log
   const rowData = useMemo(() => {
     const list = Array.isArray(articles) ? articles : []
-    if (showHidden) return list
-    return list.filter(a => (a as any)?.in_stueckliste_anzeigen !== false)
-  }, [articles, showHidden])
+    const hiddenCount = list.filter((a: any) => a?.in_stueckliste_anzeigen === false).length
+    const out = showHidden ? list : list.filter(a => (a as any)?.in_stueckliste_anzeigen !== false)
+    _agentLog('ArticleGrid.tsx:rowData', 'computed', {
+      projectId,
+      showHidden,
+      total: list.length,
+      hiddenCount,
+      shown: out.length
+    })
+    return out
+  }, [articles, showHidden, projectId, _agentLog])
+  // #endregion agent log
 
   return (
     <div style={{ width: '100%', height: '100%' }} onKeyDownCapture={handleKeyDownCapture}>
@@ -701,7 +730,13 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, o
           <input
             type="checkbox"
             checked={showHidden}
-            onChange={(e) => setShowHidden(!!e.target.checked)}
+            onChange={(e) => {
+              const v = !!e.target.checked
+              setShowHidden(v)
+              // #region agent log
+              _agentLog('ArticleGrid.tsx:showHidden', 'toggle', { projectId, value: v })
+              // #endregion agent log
+            }}
           />
           Ausgeblendete anzeigen
         </label>

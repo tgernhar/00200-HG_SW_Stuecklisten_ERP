@@ -187,6 +187,23 @@ class SolidWorksConnector:
             - results[13][j] = Exclude from Boom Flag
         """
         connector_logger.info(f"get_all_parts_and_properties_from_assembly aufgerufen mit: {assembly_filepath}")
+        # region agent log
+        try:
+            import json, time
+            with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
+                _f.write(json.dumps({"sessionId":"debug-session","runId":"pre-fix","hypothesisId":"H1","location":"SolidWorksConnector.py:get_all_parts_and_properties_from_assembly","message":"enter","data":{"assembly_filepath":str(assembly_filepath or "")},"timestamp":int(time.time()*1000)}) + "\n")
+            try:
+                connector_logger.info("agent-log: wrote enter event to .cursor/debug.log")
+            except Exception:
+                pass
+        except Exception:
+            try:
+                import sys as _sys
+                connector_logger.warning(f"agent-log: FAILED writing enter event to .cursor/debug.log ({type(_sys.exc_info()[1]).__name__})")
+            except Exception:
+                pass
+            pass
+        # endregion agent log
 
         # Robustness: callers sometimes pass a directory instead of a .SLDASM file.
         # In that case, try to auto-pick a single .SLDASM in that directory.
@@ -256,14 +273,56 @@ class SolidWorksConnector:
         # - swDocPART = 1
         # - swDocASSEMBLY = 2
         # - swDocDRAWING = 3
-        sw_model = self.sw_app.OpenDoc6(
-            assembly_filepath,
-            2,  # swDocASSEMBLY
-            0,  # swOpenDocOptions_Silent
-            "",
-            sw_errors,
-            sw_warnings
-        )
+        try:
+            sw_model = self.sw_app.OpenDoc6(
+                assembly_filepath,
+                2,  # swDocASSEMBLY
+                0,  # swOpenDocOptions_Silent
+                "",
+                sw_errors,
+                sw_warnings
+            )
+        except Exception as e:
+            # #region agent log
+            try:
+                import json, time
+                with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
+                    _f.write(json.dumps({"sessionId":"debug-session","runId":"run7","hypothesisId":"COM_RPC","location":"SolidWorksConnector.py:OpenDoc6:asm","message":"error", "data":{"path":assembly_filepath,"err":str(e)}, "timestamp":int(time.time()*1000)}) + "\n")
+            except Exception:
+                pass
+            # #endregion agent log
+            # retry once after reconnect
+            try:
+                self.connect()
+            except Exception:
+                pass
+            try:
+                sw_model = self.sw_app.OpenDoc6(
+                    assembly_filepath,
+                    2,
+                    0,
+                    "",
+                    sw_errors,
+                    sw_warnings
+                )
+                # #region agent log
+                try:
+                    import json, time
+                    with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
+                        _f.write(json.dumps({"sessionId":"debug-session","runId":"run7","hypothesisId":"COM_RPC","location":"SolidWorksConnector.py:OpenDoc6:asm","message":"retry-ok", "data":{"path":assembly_filepath}, "timestamp":int(time.time()*1000)}) + "\n")
+                except Exception:
+                    pass
+                # #endregion agent log
+            except Exception as e2:
+                # #region agent log
+                try:
+                    import json, time
+                    with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
+                        _f.write(json.dumps({"sessionId":"debug-session","runId":"run7","hypothesisId":"COM_RPC","location":"SolidWorksConnector.py:OpenDoc6:asm","message":"retry-fail", "data":{"path":assembly_filepath,"err":str(e2)}, "timestamp":int(time.time()*1000)}) + "\n")
+                except Exception:
+                    pass
+                # #endregion agent log
+                raise
         connector_logger.debug(f"OpenDoc6(ASM) errors={sw_errors.value} warnings={sw_warnings.value}")
         
         if not sw_model:
@@ -593,6 +652,19 @@ class SolidWorksConnector:
                     # Damit kann das Backend deduplizieren und die Zeile wird sichtbar.
                     safe_name = (part_name or "").strip() or "UNKNOWN"
                     part_path = f"VIRTUAL:{safe_name}"
+                    # region agent log
+                    try:
+                        import json, time
+                        with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
+                            _f.write(json.dumps({"sessionId":"debug-session","runId":"pre-fix","hypothesisId":"H4","location":"SolidWorksConnector.py:missing_path_fallback","message":"using VIRTUAL path","data":{"part_name":safe_name,"config":str(config_name or ""),"virtual_path":part_path},"timestamp":int(time.time()*1000)}) + "\n")
+                    except Exception:
+                        try:
+                            import sys as _sys
+                            connector_logger.warning(f"agent-log: FAILED writing VIRTUAL fallback to .cursor/debug.log ({type(_sys.exc_info()[1]).__name__})")
+                        except Exception:
+                            pass
+                        pass
+                    # endregion agent log
 
                 # Öffne Part/Assembly für Dimensions-/Property-Abfrage (best effort)
                 x_dim = 0
@@ -635,91 +707,91 @@ class SolidWorksConnector:
                         # Wir probieren mehrere Varianten und loggen minimal nach NDJSON für Laufzeit-Evidence.
                         weight = 0.0
 
-                            # Versuch 1: IModelDoc2.GetMassProperties2(0)
+                        # Versuch 1: IModelDoc2.GetMassProperties2(0)
+                        try:
+                            mass_props = part_model.GetMassProperties2(0)
+                            weight = float(mass_props[0]) if mass_props and len(mass_props) > 0 else 0.0
+                        except Exception as e1:
+                            connector_logger.error(f"Fehler bei GetMassProperties2: {e1}", exc_info=True)
+
+                        # Versuch 2: IModelDoc2.GetMassProperties2(VARIANT VT_I4=0)
+                        if weight == 0.0:
                             try:
-                                mass_props = part_model.GetMassProperties2(0)
+                                opt = win32com.client.VARIANT(pythoncom.VT_I4, 0)
+                                mass_props = part_model.GetMassProperties2(opt)
                                 weight = float(mass_props[0]) if mass_props and len(mass_props) > 0 else 0.0
-                            except Exception as e1:
-                                connector_logger.error(f"Fehler bei GetMassProperties2: {e1}", exc_info=True)
+                            except Exception as e2:
+                                connector_logger.error(f"Fehler bei GetMassProperties2(VARIANT): {e2}", exc_info=True)
 
-                            # Versuch 2: IModelDoc2.GetMassProperties2(VARIANT VT_I4=0)
-                            if weight == 0.0:
-                                try:
-                                    opt = win32com.client.VARIANT(pythoncom.VT_I4, 0)
-                                    mass_props = part_model.GetMassProperties2(opt)
-                                    weight = float(mass_props[0]) if mass_props and len(mass_props) > 0 else 0.0
-                                except Exception as e2:
-                                    connector_logger.error(f"Fehler bei GetMassProperties2(VARIANT): {e2}", exc_info=True)
-
-                            # Versuch 3: IModelDocExtension.GetMassProperties(1) (typischer VBA-Pfad)
-                            if weight == 0.0:
-                                try:
-                                    ext = part_model.Extension
-                                    # Some typelibs require extra parameters (COM says: "Parameter nicht optional")
-                                    if hasattr(ext, "GetMassProperties"):
-                                        mp = None
-                                        # First try: VBA-style (1 param)
-                                        try:
-                                            mp = ext.GetMassProperties(1)
-                                        except Exception as _e_one:
-                                            # Second try: 2 params (options, status/byref or config placeholder)
-                                            mp = ext.GetMassProperties(1, 0)
-                                        weight = float(mp[0]) if mp and len(mp) > 0 else 0.0
-                                except Exception as e3:
-                                    connector_logger.error(f"Fehler bei Extension.GetMassProperties: {e3}", exc_info=True)
-
-                            # Versuch 4: IModelDocExtension.GetMassProperties2(0)
-                            if weight == 0.0:
-                                try:
-                                    ext = part_model.Extension
-                                    if hasattr(ext, "GetMassProperties2"):
-                                        mp = None
-                                        # Try common signatures: (options) or (options, status) or (options, config, status)
-                                        try:
-                                            mp = ext.GetMassProperties2(0)
-                                        except Exception as _e_one:
-                                            try:
-                                                mp = ext.GetMassProperties2(0, 0)
-                                            except Exception as _e_two:
-                                                mp = ext.GetMassProperties2(0, 0, 0)
-                                        weight = float(mp[0]) if mp and len(mp) > 0 else 0.0
-                                except Exception as e4:
-                                    connector_logger.error(f"Fehler bei Extension.GetMassProperties2: {e4}", exc_info=True)
-
-                            # Versuch 5: Extension.CreateMassProperty().Mass (wenn verfügbar)
-                            if weight == 0.0:
-                                try:
-                                    ext = part_model.Extension
-                                    mp_obj = None
-                                    # Prefer CastTo for correct typelib binding if available
+                        # Versuch 3: IModelDocExtension.GetMassProperties(1) (typischer VBA-Pfad)
+                        if weight == 0.0:
+                            try:
+                                ext = part_model.Extension
+                                # Some typelibs require extra parameters (COM says: "Parameter nicht optional")
+                                if hasattr(ext, "GetMassProperties"):
+                                    mp = None
+                                    # First try: VBA-style (1 param)
                                     try:
-                                        ext_typed = win32com.client.CastTo(ext, "IModelDocExtension")
-                                    except Exception:
-                                        ext_typed = ext
+                                        mp = ext.GetMassProperties(1)
+                                    except Exception as _e_one:
+                                        # Second try: 2 params (options, status/byref or config placeholder)
+                                        mp = ext.GetMassProperties(1, 0)
+                                    weight = float(mp[0]) if mp and len(mp) > 0 else 0.0
+                            except Exception as e3:
+                                connector_logger.error(f"Fehler bei Extension.GetMassProperties: {e3}", exc_info=True)
 
-                                    # Try: CreateMassProperty (call) -> CreateMassProperty2 (call) -> CreateMassProperty (property)
+                        # Versuch 4: IModelDocExtension.GetMassProperties2(0)
+                        if weight == 0.0:
+                            try:
+                                ext = part_model.Extension
+                                if hasattr(ext, "GetMassProperties2"):
+                                    mp = None
+                                    # Try common signatures: (options) or (options, status) or (options, config, status)
                                     try:
-                                        if hasattr(ext_typed, "CreateMassProperty"):
-                                            mp_obj = ext_typed.CreateMassProperty()
+                                        mp = ext.GetMassProperties2(0)
+                                    except Exception as _e_one:
+                                        try:
+                                            mp = ext.GetMassProperties2(0, 0)
+                                        except Exception as _e_two:
+                                            mp = ext.GetMassProperties2(0, 0, 0)
+                                    weight = float(mp[0]) if mp and len(mp) > 0 else 0.0
+                            except Exception as e4:
+                                connector_logger.error(f"Fehler bei Extension.GetMassProperties2: {e4}", exc_info=True)
+
+                        # Versuch 5: Extension.CreateMassProperty().Mass (wenn verfügbar)
+                        if weight == 0.0:
+                            try:
+                                ext = part_model.Extension
+                                mp_obj = None
+                                # Prefer CastTo for correct typelib binding if available
+                                try:
+                                    ext_typed = win32com.client.CastTo(ext, "IModelDocExtension")
+                                except Exception:
+                                    ext_typed = ext
+
+                                # Try: CreateMassProperty (call) -> CreateMassProperty2 (call) -> CreateMassProperty (property)
+                                try:
+                                    if hasattr(ext_typed, "CreateMassProperty"):
+                                        mp_obj = ext_typed.CreateMassProperty()
+                                except Exception:
+                                    pass
+                                if mp_obj is None:
+                                    try:
+                                        if hasattr(ext_typed, "CreateMassProperty2"):
+                                            mp_obj = ext_typed.CreateMassProperty2()
                                     except Exception:
                                         pass
-                                    if mp_obj is None:
-                                        try:
-                                            if hasattr(ext_typed, "CreateMassProperty2"):
-                                                mp_obj = ext_typed.CreateMassProperty2()
-                                        except Exception:
-                                            pass
-                                    if mp_obj is None:
-                                        # some bindings expose it as a property
-                                        try:
-                                            mp_obj = getattr(ext_typed, "CreateMassProperty")
-                                        except Exception:
-                                            mp_obj = None
+                                if mp_obj is None:
+                                    # some bindings expose it as a property
+                                    try:
+                                        mp_obj = getattr(ext_typed, "CreateMassProperty")
+                                    except Exception:
+                                        mp_obj = None
 
-                                    if mp_obj is not None:
-                                        weight = float(getattr(mp_obj, "Mass", 0) or 0)
-                                except Exception as e5:
-                                    connector_logger.error(f"Fehler bei CreateMassProperty: {e5}", exc_info=True)
+                                if mp_obj is not None:
+                                    weight = float(getattr(mp_obj, "Mass", 0) or 0)
+                            except Exception as e5:
+                                connector_logger.error(f"Fehler bei CreateMassProperty: {e5}", exc_info=True)
 
                         # Lese Custom Properties (global + config)
                         properties = _read_custom_properties(part_model, config_name)
@@ -777,6 +849,23 @@ class SolidWorksConnector:
             connector_logger.info(
                 f"Assembly scan done. hidden_count={hidden_count}, missing_path_count={missing_path_count}, total_components={len(components)}"
             )
+            # region agent log
+            try:
+                import json, time
+                with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
+                    _f.write(json.dumps({"sessionId":"debug-session","runId":"pre-fix","hypothesisId":"H4","location":"SolidWorksConnector.py:scan_summary","message":"scan finished","data":{"hidden_count":int(hidden_count or 0),"missing_path_count":int(missing_path_count or 0),"total_components":int(len(components) if components is not None else 0),"results_count":int(len(results) if results is not None else 0)},"timestamp":int(time.time()*1000)}) + "\n")
+                try:
+                    connector_logger.info("agent-log: wrote scan_summary to .cursor/debug.log")
+                except Exception:
+                    pass
+            except Exception:
+                try:
+                    import sys as _sys
+                    connector_logger.warning(f"agent-log: FAILED writing scan_summary to .cursor/debug.log ({type(_sys.exc_info()[1]).__name__})")
+                except Exception:
+                    pass
+                pass
+            # endregion agent log
         finally:
             try:
                 self._close_doc_best_effort(sw_model, assembly_filepath)

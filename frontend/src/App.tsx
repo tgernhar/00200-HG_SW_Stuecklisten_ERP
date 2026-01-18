@@ -1,7 +1,7 @@
 /**
  * Main App Component
  */
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { ProjectHeader } from './components/ProjectHeader'
 import { ArticleGrid } from './components/ArticleGrid'
 import { OrdersDrawer } from './components/OrdersDrawer'
@@ -12,6 +12,12 @@ import './App.css'
 
 function App() {
   const [project, setProject] = useState<Project | null>(null)
+  const [projects, setProjects] = useState<Project[]>([])
+  const [projectsSearch, setProjectsSearch] = useState('')
+  const [projectsLoading, setProjectsLoading] = useState(false)
+  const [projectsError, setProjectsError] = useState<string | null>(null)
+  const [lastProjectId, setLastProjectId] = useState<number | null>(null)
+  const [pendingAuNr, setPendingAuNr] = useState<string | null>(null)
   const [auNr, setAuNr] = useState('')
   const [assemblyPath, setAssemblyPath] = useState('')
   const [isImporting, setIsImporting] = useState(false)
@@ -33,6 +39,79 @@ function App() {
   const [bestellartikelSearch, setBestellartikelSearch] = useState('')
   const [selectedTemplateIds, setSelectedTemplateIds] = useState<Set<number>>(new Set())
 
+  // #region agent log
+  const _log = (location: string, message: string, data: any) => {
+    try {
+      fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: 'debug-session',
+          runId: 'run5',
+          hypothesisId: 'PROJECT_LOAD',
+          location,
+          message,
+          data,
+          timestamp: Date.now()
+        })
+      }).catch(() => {})
+    } catch {}
+  }
+  // #endregion agent log
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem('lastProjectId')
+      if (raw) setLastProjectId(Number(raw))
+    } catch {}
+  }, [])
+
+  const loadProjects = async () => {
+    setProjectsLoading(true)
+    setProjectsError(null)
+    // #region agent log
+    _log('App.tsx:loadProjects', 'request', {})
+    // #endregion agent log
+    try {
+      const resp = await api.get('/projects')
+      const list = (resp?.data || []) as Project[]
+      setProjects(list)
+      // #region agent log
+      _log('App.tsx:loadProjects', 'response', { count: list.length })
+      // #endregion agent log
+    } catch (e: any) {
+      const msg = e?.response?.data?.detail || e?.message || 'Fehler beim Laden'
+      setProjectsError(String(msg))
+      // #region agent log
+      _log('App.tsx:loadProjects', 'error', { message: String(msg), status: e?.response?.status })
+      // #endregion agent log
+    } finally {
+      setProjectsLoading(false)
+    }
+  }
+
+  const loadProjectByAu = async (au: string) => {
+    const q = (au || '').trim()
+    if (!q) return
+    // #region agent log
+    _log('App.tsx:loadProjectByAu', 'request', { au: q })
+    // #endregion agent log
+    try {
+      const resp = await api.get('/projects/by-au', { params: { au_nr: q } })
+      const p = resp?.data as Project
+      // #region agent log
+      _log('App.tsx:loadProjectByAu', 'response', { au: q, projectId: p?.id })
+      // #endregion agent log
+      await openProject(p)
+    } catch (e: any) {
+      const msg = e?.response?.data?.detail || e?.message || 'Projekt nicht gefunden'
+      // #region agent log
+      _log('App.tsx:loadProjectByAu', 'error', { au: q, message: msg, status: e?.response?.status })
+      // #endregion agent log
+      alert(String(msg))
+    }
+  }
+
   const refreshBoms = async (projectId: number) => {
     const resp = await api.get(`/projects/${projectId}/boms`)
     const items = (resp?.data?.items || []) as Bom[]
@@ -41,9 +120,30 @@ function App() {
     if (items.length && selectedBomId && !items.find((b) => b.id === selectedBomId)) setSelectedBomId(items[0].id)
   }
 
+  const openProject = async (p: Project) => {
+    setProject(p)
+    setAuNr('')
+    setAssemblyPath('')
+    try {
+      window.localStorage.setItem('lastProjectId', String(p.id))
+      setLastProjectId(p.id)
+    } catch {}
+    await refreshBoms(p.id)
+    refetch()
+    // #region agent log
+    _log('App.tsx:openProject', 'selected', { projectId: p.id })
+    // #endregion agent log
+  }
+
   const openHugwawiPickerForAu = async (au: string) => {
+    // #region agent log
+    _log('App.tsx:openHugwawiPickerForAu', 'request', { au })
+    // #endregion agent log
     const resp = await api.get(`/hugwawi/orders/${encodeURIComponent(au)}/articles`)
     const items = (resp?.data?.items || []) as HugwawiOrderArticleItem[]
+    // #region agent log
+    _log('App.tsx:openHugwawiPickerForAu', 'response', { au, count: items.length })
+    // #endregion agent log
     if (!items.length) {
       throw new Error('Keine Artikel für diesen Auftrag in HUGWAWI gefunden.')
     }
@@ -74,13 +174,15 @@ function App() {
   const handleImportSolidworks = async () => {
     if (!project) return
     
-    const filepath = prompt('Bitte geben Sie den Pfad zur SOLIDWORKS-Assembly ein:')
-    if (!filepath) return
-
+    // #region agent log
+    _log('App.tsx:handleImportSolidworks', 'start', { projectId: project.id, au_nr: project.au_nr })
+    // #endregion agent log
     try {
-      setAssemblyPath(filepath)
       await openHugwawiPickerForAu(project.au_nr)
     } catch (error: any) {
+      // #region agent log
+      _log('App.tsx:handleImportSolidworks', 'error', { message: error?.message || String(error) })
+      // #endregion agent log
       alert('Fehler: ' + (error.response?.data?.detail || error.message))
     }
   }
@@ -312,39 +414,11 @@ function App() {
       return
     }
 
-    if (!assemblyPath.trim()) {
-      setImportError('Bitte geben Sie den Pfad zur SolidWorks Assembly-Datei ein.')
-      return
-    }
-
     setImportError(null)
     setIsImporting(true)
 
     try {
-      // 1) Projekt erstellen (oder vorhandenes Projekt laden)
-      let newProject: Project | null = null
-      try {
-        const projectResponse = await api.post('/projects', {
-          au_nr: auNr.trim(),
-          project_path: assemblyPath.trim()
-        })
-        newProject = projectResponse.data
-      } catch (e: any) {
-        if (e?.response?.status === 400) {
-          const list = await api.get('/projects')
-          const found = (list.data || []).find((p: Project) => p.au_nr === auNr.trim())
-          if (!found) throw e
-          newProject = found
-        } else {
-          throw e
-        }
-      }
-
-      if (!newProject) throw new Error('Projekt konnte nicht geladen/erstellt werden')
-      setProject(newProject)
-      await refreshBoms(newProject.id)
-
-      // 2) HUGWAWI Artikel-Auswahl öffnen (Import wird nach Auswahl durchgeführt)
+      setPendingAuNr(auNr.trim())
       await openHugwawiPickerForAu(auNr.trim())
     } catch (error: any) {
       // Extrahiere detaillierte Fehlermeldung
@@ -422,15 +496,77 @@ function App() {
               <button onClick={() => setShowHugwawiPicker(false)}>Abbrechen</button>
               <button
                 style={{ fontWeight: 700 }}
-                disabled={!selectedHugwawiKey || !project}
+                disabled={!selectedHugwawiKey || (!project && !(pendingAuNr || auNr))}
                 onClick={async () => {
-                  if (!project || !selectedHugwawiKey) return
+                  // #region agent log
+                  _log('App.tsx:importModal', 'click', {
+                    selectedHugwawiKey,
+                    hasProject: !!project,
+                    pendingAuNr,
+                    auNr
+                  })
+                  // #endregion agent log
+                  if (!selectedHugwawiKey) {
+                    // #region agent log
+                    _log('App.tsx:importModal', 'blocked-no-selection', {})
+                    // #endregion agent log
+                    return
+                  }
                   const picked = (hugwawiItems || []).find((it) => `${it.hugwawi_order_id}:${it.hugwawi_order_article_id}` === selectedHugwawiKey)
                   if (!picked) return
                   try {
+                    // Wenn noch kein Projekt geladen ist: jetzt erstellen/öffnen
+                    let activeProject = project
+                    if (!activeProject) {
+                      const au = (pendingAuNr || auNr || '').trim()
+                      if (!au) throw new Error('Auftragsnummer fehlt')
+                      let newProject: Project | null = null
+                      try {
+                        const projectResponse = await api.post('/projects', {
+                          au_nr: au,
+                          project_path: assemblyPath.trim()
+                        })
+                        newProject = projectResponse.data
+                      } catch (e: any) {
+                        if (e?.response?.status === 400) {
+                          try {
+                            const byAu = await api.get('/projects/by-au', { params: { au_nr: au } })
+                            newProject = byAu.data
+                          } catch {
+                            const list = await api.get('/projects')
+                            const found = (list.data || []).find((p: Project) => p.au_nr === au)
+                            if (!found) throw e
+                            newProject = found
+                          }
+                        } else {
+                          throw e
+                        }
+                      }
+                      if (!newProject) throw new Error('Projekt konnte nicht geladen/erstellt werden')
+                      await openProject(newProject)
+                      activeProject = newProject
+                    }
+
+                    let path = assemblyPath.trim()
+                    if (!path) {
+                      const p = prompt('Bitte geben Sie den Pfad zur SOLIDWORKS-Assembly ein:')
+                      if (!p) return
+                      path = p.trim()
+                      setAssemblyPath(path)
+                    }
+
+                    // #region agent log
+                    _log('App.tsx:importModal', 'start', {
+                      projectId: activeProject.id,
+                      au_nr: activeProject.au_nr,
+                      hugwawi_order_id: picked.hugwawi_order_id,
+                      hugwawi_order_article_id: picked.hugwawi_order_article_id,
+                      assemblyPath: path
+                    })
+                    // #endregion agent log
                     let bomResp
                     try {
-                      bomResp = await api.post(`/projects/${project.id}/boms`, {
+                      bomResp = await api.post(`/projects/${activeProject.id}/boms`, {
                         hugwawi_order_id: picked.hugwawi_order_id,
                         hugwawi_order_name: picked.hugwawi_order_name,
                         hugwawi_order_article_id: picked.hugwawi_order_article_id,
@@ -441,7 +577,7 @@ function App() {
                       if (e?.response?.status === 409) {
                         const pw = prompt('Stückliste existiert bereits. Passwort zum Überschreiben (aktuell: 1):') || ''
                         if (!pw) return
-                        bomResp = await api.post(`/projects/${project.id}/boms`, {
+                        bomResp = await api.post(`/projects/${activeProject.id}/boms`, {
                           hugwawi_order_id: picked.hugwawi_order_id,
                           hugwawi_order_name: picked.hugwawi_order_name,
                           hugwawi_order_article_id: picked.hugwawi_order_article_id,
@@ -455,11 +591,19 @@ function App() {
                     }
 
                     const bom = (bomResp?.data?.bom || null) as Bom | null
-                    if (!bom) throw new Error('BOM konnte nicht erstellt werden')
+                    if (!bom || !bom.id) {
+                      throw new Error('BOM konnte nicht erstellt werden (keine ID)')
+                    }
+                    // #region agent log
+                    _log('App.tsx:importModal', 'bom-created', { bomId: bom.id })
+                    // #endregion agent log
 
                     try {
-                      const importResp = await api.post(`/projects/${project.id}/boms/${bom.id}/import-solidworks`, null, {
-                        params: { assembly_filepath: assemblyPath.trim() }
+                      // #region agent log
+                      _log('App.tsx:importModal', 'import-call', { bomId: bom.id, assemblyPath: path })
+                      // #endregion agent log
+                      const importResp = await api.post(`/projects/${activeProject.id}/boms/${bom.id}/import-solidworks`, null, {
+                        params: { assembly_filepath: path }
                       })
                       if (importResp?.data?.success === false) {
                         throw new Error(importResp?.data?.error || 'SOLIDWORKS-Import fehlgeschlagen')
@@ -468,8 +612,8 @@ function App() {
                       if (e?.response?.status === 409) {
                         const pw = prompt('Import existiert bereits. Passwort zum Überschreiben (aktuell: 1):') || ''
                         if (!pw) return
-                        const importResp = await api.post(`/projects/${project.id}/boms/${bom.id}/import-solidworks`, null, {
-                          params: { assembly_filepath: assemblyPath.trim(), overwrite_password: pw }
+                        const importResp = await api.post(`/projects/${activeProject.id}/boms/${bom.id}/import-solidworks`, null, {
+                          params: { assembly_filepath: path, overwrite_password: pw }
                         })
                         if (importResp?.data?.success === false) {
                           throw new Error(importResp?.data?.error || 'SOLIDWORKS-Import fehlgeschlagen')
@@ -480,18 +624,35 @@ function App() {
                     }
 
                     setShowHugwawiPicker(false)
-                    await refreshBoms(project.id)
+                    await refreshBoms(activeProject.id)
                     setSelectedBomId(bom.id)
                     setAuNr('')
                     refetch()
                     alert('Import erfolgreich!')
                   } catch (e: any) {
+                    // #region agent log
+                    _log('App.tsx:importModal', 'error', { message: e?.message || String(e), status: e?.response?.status, detail: e?.response?.data?.detail })
+                    // #endregion agent log
                     alert('Fehler: ' + (e?.response?.data?.detail || e?.message || String(e)))
                   }
                 }}
               >
                 Import starten
               </button>
+              {/* #region agent log */}
+              {(() => {
+                try {
+                  _log('App.tsx:importModal', 'button-state', {
+                    selectedHugwawiKey,
+                    hasProject: !!project,
+                    pendingAuNr,
+                    auNr,
+                    disabled: !selectedHugwawiKey || (!project && !(pendingAuNr || auNr))
+                  })
+                } catch {}
+                return null
+              })()}
+              {/* #endregion agent log */}
             </div>
           </div>
         </div>
@@ -594,6 +755,81 @@ function App() {
       )}
       {!project ? (
         <div style={{ padding: '40px', maxWidth: '600px', margin: '0 auto' }}>
+          <h2 style={{ marginBottom: '12px' }}>Projekt laden</h2>
+          <div style={{ marginBottom: '10px' }}>
+            <input
+              type="text"
+              value={projectsSearch}
+              onChange={(e) => setProjectsSearch(e.target.value)}
+              placeholder="Suchen (AU-Nr)..."
+              style={{ width: '100%', padding: '8px', border: '1px solid #ccc', borderRadius: '4px' }}
+            />
+          </div>
+          <div style={{ display: 'flex', gap: '10px', marginBottom: '10px' }}>
+            <button onClick={loadProjects} disabled={projectsLoading}>
+              {projectsLoading ? 'Lade...' : 'Projekte laden'}
+            </button>
+            <button onClick={() => loadProjectByAu(projectsSearch)} disabled={!projectsSearch.trim()}>
+              Projekt direkt laden
+            </button>
+            {lastProjectId && (
+              <button
+                onClick={async () => {
+                  // #region agent log
+                  _log('App.tsx:lastProject', 'click', { lastProjectId, projectsCount: projects.length })
+                  // #endregion agent log
+                  const p = projects.find((x) => x.id === lastProjectId)
+                  if (p) {
+                    // #region agent log
+                    _log('App.tsx:lastProject', 'found-in-list', { lastProjectId })
+                    // #endregion agent log
+                    await openProject(p)
+                  } else {
+                    // #region agent log
+                    _log('App.tsx:lastProject', 'not-found-in-list', { lastProjectId })
+                    // #endregion agent log
+                    await loadProjects()
+                    const again = projects.find((x) => x.id === lastProjectId)
+                    if (again) {
+                      // #region agent log
+                      _log('App.tsx:lastProject', 'found-after-reload', { lastProjectId })
+                      // #endregion agent log
+                      await openProject(again)
+                    } else {
+                      // #region agent log
+                      _log('App.tsx:lastProject', 'still-missing', { lastProjectId })
+                      // #endregion agent log
+                      if (pendingAuNr || auNr) {
+                        await loadProjectByAu((pendingAuNr || auNr) as string)
+                      }
+                    }
+                  }
+                }}
+              >
+                Letztes Projekt öffnen
+              </button>
+            )}
+          </div>
+          {projectsError && <div style={{ color: 'red', marginBottom: '8px' }}>{projectsError}</div>}
+          <div style={{ maxHeight: '200px', overflow: 'auto', border: '1px solid #eee', borderRadius: 4, marginBottom: '20px' }}>
+            {(projects || [])
+              .filter((p) => (p.au_nr || '').toLowerCase().includes(projectsSearch.toLowerCase().trim()))
+              .map((p) => (
+                <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 10px', borderBottom: '1px solid #f0f0f0' }}>
+                  <span>{p.au_nr}</span>
+                  <button
+                    onClick={async () => {
+                      // #region agent log
+                      _log('App.tsx:openProject', 'click', { projectId: p.id, au_nr: p.au_nr })
+                      // #endregion agent log
+                      await openProject(p)
+                    }}
+                  >
+                    Öffnen
+                  </button>
+                </div>
+              ))}
+          </div>
           <h2 style={{ marginBottom: '30px' }}>Neues Projekt importieren</h2>
           
           <div style={{ marginBottom: '20px' }}>

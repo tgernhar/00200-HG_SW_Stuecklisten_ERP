@@ -31,10 +31,77 @@ router = APIRouter()
 
 
 @router.get("/projects", response_model=List[ProjectSchema])
-async def get_projects(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    """Liste aller Projekte"""
-    projects = db.query(Project).offset(skip).limit(limit).all()
+async def get_projects(
+    skip: int = 0,
+    limit: int = 100,
+    au_nr: str | None = Query(default=None),
+    artikel_nr: str | None = Query(default=None),
+    db: Session = Depends(get_db)
+):
+    """Liste aller Projekte (optional nach AU-Nr filtern)"""
+    q = db.query(Project)
+    if au_nr:
+        q = q.filter(Project.au_nr == au_nr)
+    if artikel_nr:
+        q = q.filter(Project.artikel_nr == artikel_nr)
+    projects = q.offset(skip).limit(limit).all()
+    # region agent log
+    try:
+        import json, time
+        with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
+            _f.write(
+                json.dumps(
+                    {
+                        "sessionId": "debug-session",
+                        "runId": "run6",
+                        "hypothesisId": "PROJECT_LOAD",
+                        "location": "backend/app/api/routes/projects.py:get_projects",
+                        "message": "list",
+                        "data": {"skip": skip, "limit": limit, "count": len(projects)},
+                        "timestamp": int(time.time() * 1000),
+                    }
+                )
+                + "\n"
+            )
+    except Exception:
+        pass
+    # endregion agent log
     return projects
+
+
+@router.get("/projects/by-au", response_model=ProjectSchema)
+async def get_project_by_au(au_nr: str, db: Session = Depends(get_db)):
+    """Projekt per AU-Nr laden (erstes Ergebnis, falls mehrfach vorhanden)"""
+    project = (
+        db.query(Project)
+        .filter(Project.au_nr == au_nr)
+        .order_by(Project.id.desc())
+        .first()
+    )
+    if not project:
+        raise HTTPException(status_code=404, detail="Projekt nicht gefunden")
+    # region agent log
+    try:
+        import json, time
+        with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
+            _f.write(
+                json.dumps(
+                    {
+                        "sessionId": "debug-session",
+                        "runId": "run6",
+                        "hypothesisId": "PROJECT_LOAD",
+                        "location": "backend/app/api/routes/projects.py:get_project_by_au",
+                        "message": "found",
+                        "data": {"au_nr": au_nr, "project_id": project.id},
+                        "timestamp": int(time.time() * 1000),
+                    }
+                )
+                + "\n"
+            )
+    except Exception:
+        pass
+    # endregion agent log
+    return project
 
 
 @router.get("/projects/{project_id}", response_model=ProjectSchema)
@@ -91,13 +158,15 @@ async def create_project(project: ProjectCreate, db: Session = Depends(get_db)):
     try:
         logger.info(f"Creating project with data: {project.dict()}")
         
-        # Prüfe ob Projekt mit dieser Auftragsnummer bereits existiert
-        existing_project = db.query(Project).filter(Project.au_nr == project.au_nr).first()
+        # Prüfe ob Projekt mit dieser Artikelnummer bereits existiert
+        if not project.artikel_nr:
+            raise HTTPException(status_code=400, detail="Artikelnummer fehlt")
+        existing_project = db.query(Project).filter(Project.artikel_nr == project.artikel_nr).first()
         if existing_project:
-            logger.warning(f"Project with au_nr '{project.au_nr}' already exists, ID: {existing_project.id}")
+            logger.warning(f"Project with artikel_nr '{project.artikel_nr}' already exists, ID: {existing_project.id}")
             raise HTTPException(
                 status_code=400,
-                detail=f"Ein Projekt mit der Auftragsnummer '{project.au_nr}' existiert bereits (ID: {existing_project.id}). Bitte verwenden Sie eine andere Auftragsnummer oder löschen Sie das bestehende Projekt."
+                detail=f"Ein Projekt mit der Artikelnummer '{project.artikel_nr}' existiert bereits (ID: {existing_project.id}). Bitte verwenden Sie eine andere Artikelnummer oder löschen Sie das bestehende Projekt."
             )
         
         db_project = Project(**project.dict())
@@ -126,7 +195,7 @@ async def create_project(project: ProjectCreate, db: Session = Depends(get_db)):
         if isinstance(e, IntegrityError) and "Duplicate entry" in str(e):
             raise HTTPException(
                 status_code=400,
-                detail=f"Ein Projekt mit der Auftragsnummer '{project.au_nr}' existiert bereits. Bitte verwenden Sie eine andere Auftragsnummer."
+                detail=f"Ein Projekt mit der Artikelnummer '{project.artikel_nr}' existiert bereits. Bitte verwenden Sie eine andere Artikelnummer."
             )
         
         raise HTTPException(
@@ -441,6 +510,33 @@ async def import_solidworks_into_bom(
 
     if not assembly_filepath:
         raise HTTPException(status_code=400, detail="Assembly-Filepath fehlt")
+
+    # region agent log
+    try:
+        import json, time
+        with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
+            _f.write(
+                json.dumps(
+                    {
+                        "sessionId": "debug-session",
+                        "runId": "run5",
+                        "hypothesisId": "IMPORT_FLOW",
+                        "location": "backend/app/api/routes/projects.py:import_solidworks_into_bom",
+                        "message": "entry",
+                        "data": {
+                            "project_id": project_id,
+                            "bom_id": bom_id,
+                            "assembly_filepath": assembly_filepath,
+                            "overwrite_password_set": bool(overwrite_password),
+                        },
+                        "timestamp": int(time.time() * 1000),
+                    }
+                )
+                + "\n"
+            )
+    except Exception:
+        pass
+    # endregion agent log
 
     # Guard: only allow overwrite with password
     existing_count = db.query(Article).filter(Article.bom_id == bom_id).count()
