@@ -394,6 +394,17 @@ async def sync_project_orders(project_id: int, db: Session, bom_id: int | None =
             import json, time
             row_articlenr = [(r.get("Artikelnr") or "").strip() for r in rows]
             missing_in_project = [a for a in row_articlenr if a and a not in set(articlenumbers)]
+            # count per articlenr in ERP rows
+            counts = {}
+            for a in row_articlenr:
+                if not a:
+                    continue
+                counts[a] = counts.get(a, 0) + 1
+            top_counts = sorted(counts.items(), key=lambda x: x[1], reverse=True)[:5]
+            debug_top_articlenr_counts = top_counts
+            debug_rows_total = len(rows)
+            debug_rows_with_articlenr = sum(1 for a in row_articlenr if a)
+            debug_rows_without_articlenr = sum(1 for a in row_articlenr if not a)
             with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
                 _f.write(json.dumps({
                     "sessionId": "debug-session",
@@ -405,11 +416,12 @@ async def sync_project_orders(project_id: int, db: Session, bom_id: int | None =
                         "au_reference": auftrag_name,
                         "project_id": project_id,
                         "project_articlenumbers": len(articlenumbers),
-                        "rows_total": len(rows),
-                        "rows_with_articlenr": sum(1 for a in row_articlenr if a),
-                        "rows_without_articlenr": sum(1 for a in row_articlenr if not a),
+                        "rows_total": debug_rows_total,
+                        "rows_with_articlenr": debug_rows_with_articlenr,
+                        "rows_without_articlenr": debug_rows_without_articlenr,
                         "missing_in_project_count": len(missing_in_project),
-                        "missing_sample": missing_in_project[:5]
+                        "missing_sample": missing_in_project[:5],
+                        "top_articlenr_counts": top_counts
                     },
                     "timestamp": int(time.time() * 1000)
                 }) + "\n")
@@ -480,6 +492,11 @@ async def sync_project_orders(project_id: int, db: Session, bom_id: int | None =
         totals = {"total_orders": None, "no_articlenr": None}
         missing_articlenr_count = None
         missing_articlenr_sample = []
+        debug_top_articlenr_counts = []
+        debug_no_art_rows_sample = []
+        debug_rows_total = None
+        debug_rows_with_articlenr = None
+        debug_rows_without_articlenr = None
         # #region agent log
         try:
             cursor = erp_connection.cursor(dictionary=True)
@@ -737,6 +754,35 @@ async def sync_project_orders(project_id: int, db: Session, bom_id: int | None =
             cursor.close()
             # region agent log
             try:
+                sample = []
+                for r in no_art_rows[:5]:
+                    sample.append({
+                        "Auftrag": r.get("Auftrag"),
+                        "Artikelnr": r.get("Artikelnr"),
+                        "Menge": r.get("Menge"),
+                        "Status": r.get("Status"),
+                    })
+                debug_no_art_rows_sample = sample
+                with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
+                    _f.write(
+                        json.dumps(
+                            {
+                                "sessionId": "debug-session",
+                                "runId": "run9",
+                                "hypothesisId": "NO_ART_ROWS",
+                                "location": "backend/app/services/erp_service.py:sync_project_orders",
+                                "message": "no_art_rows_sample",
+                                "data": {"project_id": project_id, "count": no_art_rows_count, "sample": sample},
+                                "timestamp": int(time.time() * 1000),
+                            }
+                        )
+                        + "\n"
+                    )
+            except Exception:
+                pass
+            # endregion agent log
+            # region agent log
+            try:
                 with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
                     _f.write(
                         json.dumps(
@@ -940,4 +986,9 @@ async def sync_project_orders(project_id: int, db: Session, bom_id: int | None =
         "debug_missing_articlenr_sample": missing_articlenr_sample,
         "debug_bom_id_used": bom_id,
         "debug_project_bom_ids": project_bom_ids,
+        "debug_top_articlenr_counts": debug_top_articlenr_counts,
+        "debug_no_art_rows_sample": debug_no_art_rows_sample,
+        "debug_rows_total": debug_rows_total,
+        "debug_rows_with_articlenr": debug_rows_with_articlenr,
+        "debug_rows_without_articlenr": debug_rows_without_articlenr,
     }
