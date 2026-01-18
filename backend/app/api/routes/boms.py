@@ -9,6 +9,8 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db, get_erp_db_connection
 from app.models.bom import Bom
 from app.models.article import Article
+from app.models.document_flag import DocumentGenerationFlag
+from app.models.document import Document
 
 router = APIRouter()
 
@@ -118,6 +120,32 @@ async def create_bestellartikel(bom_id: int, payload: CreateBestellartikelReques
             db.add(a)
             db.flush()  # assign id
             created_ids.append(a.id)
+
+            # Dokument-Flags vom Quellartikel übernehmen
+            src_flags = getattr(src, "document_flags", None)
+            if src_flags:
+                db.add(DocumentGenerationFlag(
+                    article_id=a.id,
+                    pdf_drucken=src_flags.pdf_drucken or "",
+                    pdf=src_flags.pdf or "",
+                    pdf_bestell_pdf=src_flags.pdf_bestell_pdf or "",
+                    dxf=src_flags.dxf or "",
+                    bestell_dxf=src_flags.bestell_dxf or "",
+                    step=src_flags.step or "",
+                    x_t=src_flags.x_t or "",
+                    stl=src_flags.stl or "",
+                    bn_ab=src_flags.bn_ab or "",
+                ))
+
+            # Dokument-Links (documents) vom Quellartikel übernehmen
+            for doc in (getattr(src, "documents", None) or []):
+                db.add(Document(
+                    article_id=a.id,
+                    document_type=doc.document_type,
+                    file_path=doc.file_path,
+                    exists=doc.exists,
+                    generated_at=doc.generated_at,
+                ))
 
         max_sub_by_pos[base_pos] = next_sub
 

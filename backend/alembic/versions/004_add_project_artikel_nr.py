@@ -15,14 +15,36 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # Add artikel_nr column (nullable for backfill)
-    op.add_column("projects", sa.Column("artikel_nr", sa.String(length=100), nullable=True))
-
-    # Drop unique index on au_nr, recreate non-unique
-    op.drop_index("ix_projects_au_nr", table_name="projects")
-    op.create_index("ix_projects_au_nr", "projects", ["au_nr"], unique=False)
-
     bind = op.get_bind()
+
+    # Add artikel_nr column (nullable for backfill) if missing
+    col_exists = bind.execute(
+        sa.text(
+            """
+            SELECT COUNT(*) FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'projects'
+              AND COLUMN_NAME = 'artikel_nr'
+            """
+        )
+    ).scalar()
+    if not col_exists:
+        op.add_column("projects", sa.Column("artikel_nr", sa.String(length=100), nullable=True))
+
+    # Drop unique index on au_nr, recreate non-unique if needed
+    idx_exists = bind.execute(
+        sa.text(
+            """
+            SELECT COUNT(*) FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'projects'
+              AND INDEX_NAME = 'ix_projects_au_nr'
+            """
+        )
+    ).scalar()
+    if idx_exists:
+        op.drop_index("ix_projects_au_nr", table_name="projects")
+    op.create_index("ix_projects_au_nr", "projects", ["au_nr"], unique=False)
 
     # 1) Backfill from first BOM (hugwawi_articlenumber)
     bind.execute(
@@ -73,9 +95,36 @@ def upgrade() -> None:
         )
     )
 
+    # 4) Deduplicate artikel_nr values before unique index
+    bind.execute(
+        sa.text(
+            """
+            UPDATE projects p
+            JOIN (
+                SELECT artikel_nr
+                FROM projects
+                GROUP BY artikel_nr
+                HAVING COUNT(*) > 1
+            ) d ON p.artikel_nr = d.artikel_nr
+            SET p.artikel_nr = CONCAT(p.artikel_nr, '_', p.id)
+            """
+        )
+    )
+
     # Make artikel_nr non-nullable and unique
     op.alter_column("projects", "artikel_nr", existing_type=sa.String(length=100), nullable=False)
-    op.create_index("ix_projects_artikel_nr", "projects", ["artikel_nr"], unique=True)
+    idx_artikel_exists = bind.execute(
+        sa.text(
+            """
+            SELECT COUNT(*) FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'projects'
+              AND INDEX_NAME = 'ix_projects_artikel_nr'
+            """
+        )
+    ).scalar()
+    if not idx_artikel_exists:
+        op.create_index("ix_projects_artikel_nr", "projects", ["artikel_nr"], unique=True)
 
 
 def downgrade() -> None:

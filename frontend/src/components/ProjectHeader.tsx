@@ -75,14 +75,14 @@ export const ProjectHeader: React.FC<ProjectHeaderProps> = ({
         <button onClick={onCreateBestellartikel} style={{ fontWeight: 'bold' }}>
           Bestellartikel erstellen
         </button>
-        <button onClick={onCheckERP}>ERP-Abgleich</button>
-        <button onClick={onSyncOrders}>Sync ERP</button>
+        <button onClick={onCheckERP}>Artikel-Sync</button>
+        <button onClick={onSyncOrders}>BN-Sync</button>
         <button onClick={onCreateDocuments} style={{ fontWeight: 'bold' }}>
           Dokumente erstellen
         </button>
         <button onClick={onCheckDocuments}>Dokumente prüfen</button>
         <button onClick={onPrintPDFQueueMerged} style={{ fontWeight: 'bold' }}>PDF drucken</button>
-        <button onClick={onExport}>Export</button>
+        <button onClick={onExport}>ERP-Artikel-Export</button>
       </div>
     </div>
   )

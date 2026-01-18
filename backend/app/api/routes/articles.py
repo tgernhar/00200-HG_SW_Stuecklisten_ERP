@@ -192,19 +192,84 @@ async def get_articles(
 
     rows: List[ArticleGridRow] = []
     for a in articles:
-        # Order: bei mehreren Orders wähle die "relevanteste" für die Grid-Anzeige (neueste nach Datum).
+        # Order: erste Bestellung verwenden; bei mehreren Bestellungen Anzahl anzeigen
         order = None
+        orders_list = list(getattr(a, "orders", None) or [])
         try:
-            orders_list = list(getattr(a, "orders", None) or [])
-            if orders_list:
-                from datetime import date as _date
-
-                def _order_date(o):
-                    return getattr(o, "bestaetigter_lt", None) or getattr(o, "hg_lt", None) or _date.min
-
-                order = max(orders_list, key=_order_date)
+            orders_list = sorted(orders_list, key=lambda o: (o.id or 0))
         except Exception:
-            order = a.orders[0] if getattr(a, "orders", None) else None
+            pass
+        if orders_list:
+            order = orders_list[0]
+        order_count = len(orders_list)
+        order_sum = None
+        if order_count:
+            try:
+                order_sum = sum(int(getattr(o, "bnr_menge", 0) or 0) for o in orders_list)
+            except Exception:
+                order_sum = None
+        def _date_to_str(v):
+            try:
+                from datetime import date as _date, datetime as _dt
+                if isinstance(v, _dt):
+                    return v.date().isoformat()
+                if isinstance(v, _date):
+                    return v.isoformat()
+            except Exception:
+                pass
+            if v is None:
+                return None
+            return str(v)
+        # #region agent log
+        if order_count:
+            try:
+                import json, time
+                with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
+                    _f.write(json.dumps({
+                        "sessionId": "debug-session",
+                        "runId": "bn-sync-2",
+                        "hypothesisId": "BN_GRID_MAP",
+                        "location": "backend/app/api/routes/articles.py:get_articles",
+                        "message": "display-values",
+                        "data": {
+                            "article_id": a.id,
+                            "order_count": order_count,
+                            "display_hg_bnr": (str(order_count) if order_count > 1 else (getattr(order, "hg_bnr", None) if order else None)),
+                            "display_bnr_status": ("-" if order_count > 1 else (getattr(order, "bnr_status", None) if order else None)),
+                            "display_bnr_menge": (order_sum if order_count > 1 else (getattr(order, "bnr_menge", None) if order else None)),
+                            "display_bestellkommentar": ("-" if order_count > 1 else (getattr(order, "bestellkommentar", None) if order else None)),
+                            "display_hg_lt": ("-" if order_count > 1 else _date_to_str(getattr(order, "hg_lt", None) if order else None)),
+                            "display_bestaetigter_lt": ("-" if order_count > 1 else _date_to_str(getattr(order, "bestaetigter_lt", None) if order else None))
+                        },
+                        "timestamp": int(time.time() * 1000)
+                    }) + "\n")
+            except Exception:
+                pass
+        # #endregion agent log
+        # #region agent log
+        try:
+            import json, time
+            with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
+                _f.write(json.dumps({
+                    "sessionId": "debug-session",
+                    "runId": "bn-sync-1",
+                    "hypothesisId": "BN_GRID_MAP",
+                    "location": "backend/app/api/routes/articles.py:get_articles",
+                    "message": "order-aggregate",
+                    "data": {
+                        "article_id": a.id,
+                        "order_count": order_count,
+                        "first_hg_bnr": getattr(order, "hg_bnr", None) if order else None,
+                        "first_status": getattr(order, "bnr_status", None) if order else None,
+                        "first_menge": getattr(order, "bnr_menge", None) if order else None,
+                        "first_lt": getattr(order, "hg_lt", None) if order else None,
+                        "first_lt_bestaetigt": getattr(order, "bestaetigter_lt", None) if order else None
+                    },
+                    "timestamp": int(time.time() * 1000)
+                }) + "\n")
+        except Exception:
+            pass
+        # #endregion agent log
 
         # Flags
         flags = getattr(a, "document_flags", None)
@@ -269,12 +334,12 @@ async def get_articles(
             erp_exists=a.erp_exists,
 
             # Block A
-            hg_bnr=getattr(order, "hg_bnr", None) if order else None,
-            bnr_status=getattr(order, "bnr_status", None) if order else None,
-            bnr_menge=getattr(order, "bnr_menge", None) if order else None,
-            bestellkommentar=getattr(order, "bestellkommentar", None) if order else None,
-            hg_lt=getattr(order, "hg_lt", None) if order else None,
-            bestaetigter_lt=getattr(order, "bestaetigter_lt", None) if order else None,
+            hg_bnr=(str(order_count) if order_count > 1 else (getattr(order, "hg_bnr", None) if order else None)),
+            bnr_status=("-" if order_count > 1 else (getattr(order, "bnr_status", None) if order else None)),
+            bnr_menge=(order_sum if order_count > 1 else (getattr(order, "bnr_menge", None) if order else None)),
+            bestellkommentar=("-" if order_count > 1 else (getattr(order, "bestellkommentar", None) if order else None)),
+            hg_lt=("-" if order_count > 1 else _date_to_str(getattr(order, "hg_lt", None) if order else None)),
+            bestaetigter_lt=("-" if order_count > 1 else _date_to_str(getattr(order, "bestaetigter_lt", None) if order else None)),
 
             # Block B flags
             pdf_drucken=_flag_or_empty(getattr(flags, "pdf_drucken", "")) if flags else "",

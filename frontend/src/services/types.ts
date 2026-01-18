@@ -37,6 +37,7 @@ export interface HugwawiBestellartikelTemplate {
   hugwawi_article_id: number
   hugwawi_articlenumber: string
   hugwawi_description?: string
+  customtext1?: string
   customtext2?: string
   customtext3?: string
 }

@@ -437,8 +437,12 @@ async def create_or_get_bom(project_id: int, payload: dict, db: Session = Depend
     hugwawi_articlenumber = payload.get("hugwawi_articlenumber")
     overwrite_password = payload.get("overwrite_password")
 
-    if not all([hugwawi_order_id, hugwawi_order_name, hugwawi_order_article_id, hugwawi_article_id, hugwawi_articlenumber]):
+    if not all([hugwawi_order_id, hugwawi_order_name, hugwawi_articlenumber]):
         raise HTTPException(status_code=400, detail="Ungültiger Payload (fehlende HUGWAWI IDs/Felder)")
+
+    # Für manuelle Artikelnummer: order_article_id kann fehlen -> setze auf -1 als Platzhalter
+    if hugwawi_order_article_id is None:
+        hugwawi_order_article_id = -1
 
     bom = (
         db.query(Bom)
@@ -474,7 +478,7 @@ async def create_or_get_bom(project_id: int, payload: dict, db: Session = Depend
         hugwawi_order_id=int(hugwawi_order_id),
         hugwawi_order_name=str(hugwawi_order_name),
         hugwawi_order_article_id=int(hugwawi_order_article_id),
-        hugwawi_article_id=int(hugwawi_article_id),
+        hugwawi_article_id=int(hugwawi_article_id) if hugwawi_article_id is not None else None,
         hugwawi_articlenumber=str(hugwawi_articlenumber),
     )
     db.add(bom)

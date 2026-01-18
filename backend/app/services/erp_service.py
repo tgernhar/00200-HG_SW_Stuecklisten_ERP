@@ -106,10 +106,12 @@ def list_bestellartikel_templates(db_connection) -> list[dict]:
                 id AS hugwawi_article_id,
                 articlenumber AS hugwawi_articlenumber,
                 description AS hugwawi_description,
+                customtext1 AS customtext1,
                 customtext2 AS customtext2,
                 customtext3 AS customtext3
             FROM article
             WHERE articlenumber LIKE '099900-%'
+              AND customtext1 = 'Externe_Arbeitsgänge'
             ORDER BY articlenumber ASC
             """
         )
@@ -134,6 +136,7 @@ def get_bestellartikel_templates_by_ids(template_ids: list[int], db_connection) 
                 id AS hugwawi_article_id,
                 articlenumber AS hugwawi_articlenumber,
                 description AS hugwawi_description,
+                customtext1 AS customtext1,
                 customtext2 AS customtext2,
                 customtext3 AS customtext3
             FROM article
@@ -274,10 +277,15 @@ async def sync_project_orders(project_id: int, db: Session) -> dict:
         query = f"""
             SELECT
                 ordertable.name AS Auftrag,
+                order_article.position AS Pos,
                 article.articlenumber AS Artikelnr,
                 article_status.name AS Status,
+                article.description AS Beschreibung,
+                article.sparepart AS Teilenummer,
                 order_article_ref.batchsize AS Menge,
-                ordertable.altText AS AltText,
+                order_article.deliverynote AS Lieferschein,
+                order_article.deliveredon AS Lieferdatum,
+                ordertable.text AS OrderText,
                 ordertable.date1 AS LtHg,
                 ordertable.date2 AS LtBestaetigt
             FROM ordertable
@@ -286,7 +294,7 @@ async def sync_project_orders(project_id: int, db: Session) -> dict:
             INNER JOIN article ON order_article.articleid = article.id
             INNER JOIN article_status ON order_article.articlestatus = article_status.id
             WHERE
-                ordertable.name = %s
+                ordertable.reference = %s
                 AND article.articlenumber IN ({placeholders})
         """
 
@@ -335,7 +343,7 @@ async def sync_project_orders(project_id: int, db: Session) -> dict:
                         hg_bnr=r.get("Auftrag"),
                         bnr_status=r.get("Status"),
                         bnr_menge=_to_int(r.get("Menge")),
-                        bestellkommentar=r.get("AltText"),
+                        bestellkommentar=r.get("OrderText"),
                         hg_lt=_to_date(r.get("LtHg")),
                         bestaetigter_lt=_to_date(r.get("LtBestaetigt")),
                     )
@@ -344,6 +352,7 @@ async def sync_project_orders(project_id: int, db: Session) -> dict:
                     synced.append({"article_id": aid, "articlenumber": articlenr})
             except Exception as e:
                 failed.append({"reason": str(e), "row": r})
+
 
         db.commit()
     finally:

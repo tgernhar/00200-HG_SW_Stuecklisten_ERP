@@ -19,6 +19,7 @@ function App() {
   const [lastProjectId, setLastProjectId] = useState<number | null>(null)
   const [pendingAuNr, setPendingAuNr] = useState<string | null>(null)
   const [auNr, setAuNr] = useState('')
+  const [manualArtikelNr, setManualArtikelNr] = useState('')
   const [assemblyPath, setAssemblyPath] = useState('')
   const [isImporting, setIsImporting] = useState(false)
   const [importError, setImportError] = useState<string | null>(null)
@@ -66,14 +67,14 @@ function App() {
     } catch {}
   }, [])
 
-  const loadProjects = async () => {
+  const loadProjects = async (params?: { au_nr?: string; artikel_nr?: string }) => {
     setProjectsLoading(true)
     setProjectsError(null)
     // #region agent log
     _log('App.tsx:loadProjects', 'request', {})
     // #endregion agent log
     try {
-      const resp = await api.get('/projects')
+      const resp = await api.get('/projects', { params })
       const list = (resp?.data || []) as Project[]
       setProjects(list)
       // #region agent log
@@ -90,25 +91,43 @@ function App() {
     }
   }
 
-  const loadProjectByAu = async (au: string) => {
+  const loadProjectsByAu = async (au: string) => {
     const q = (au || '').trim()
     if (!q) return
     // #region agent log
-    _log('App.tsx:loadProjectByAu', 'request', { au: q })
+    _log('App.tsx:loadProjectsByAu', 'request', { au: q })
     // #endregion agent log
     try {
-      const resp = await api.get('/projects/by-au', { params: { au_nr: q } })
-      const p = resp?.data as Project
-      // #region agent log
-      _log('App.tsx:loadProjectByAu', 'response', { au: q, projectId: p?.id })
-      // #endregion agent log
-      await openProject(p)
+      await loadProjects({ au_nr: q })
     } catch (e: any) {
       const msg = e?.response?.data?.detail || e?.message || 'Projekt nicht gefunden'
       // #region agent log
-      _log('App.tsx:loadProjectByAu', 'error', { au: q, message: msg, status: e?.response?.status })
+      _log('App.tsx:loadProjectsByAu', 'error', { au: q, message: msg, status: e?.response?.status })
       // #endregion agent log
       alert(String(msg))
+    }
+  }
+
+  const loadProjectByArtikelNr = async (artikelNr: string) => {
+    const q = (artikelNr || '').trim()
+    if (!q) return null
+    // #region agent log
+    _log('App.tsx:loadProjectByArtikelNr', 'request', { artikelNr: q })
+    // #endregion agent log
+    try {
+      const resp = await api.get('/projects', { params: { artikel_nr: q } })
+      const list = (resp?.data || []) as Project[]
+      const p = list[0] || null
+      // #region agent log
+      _log('App.tsx:loadProjectByArtikelNr', 'response', { artikelNr: q, projectId: p?.id })
+      // #endregion agent log
+      return p
+    } catch (e: any) {
+      const msg = e?.response?.data?.detail || e?.message || 'Projekt nicht gefunden'
+      // #region agent log
+      _log('App.tsx:loadProjectByArtikelNr', 'error', { artikelNr: q, message: msg, status: e?.response?.status })
+      // #endregion agent log
+      return null
     }
   }
 
@@ -150,6 +169,7 @@ function App() {
     setHugwawiItems(items)
     setHugwawiSearch('')
     setSelectedHugwawiKey(null)
+    setManualArtikelNr('')
     setShowHugwawiPicker(true)
   }
 
@@ -193,10 +213,10 @@ function App() {
     try {
       const response = await api.post(`/projects/${project.id}/check-all-articlenumbers`)
       const { exists_count, not_exists_count, total_checked } = response.data
-      alert(`ERP-Abgleich abgeschlossen: ${total_checked} geprüft, ${exists_count} vorhanden, ${not_exists_count} fehlen`)
+      alert(`Artikel-Sync abgeschlossen: ${total_checked} geprüft, ${exists_count} vorhanden, ${not_exists_count} fehlen`)
       refetch()
     } catch (error: any) {
-      alert('Fehler beim ERP-Abgleich: ' + error.message)
+      alert('Fehler beim Artikel-Sync: ' + error.message)
     }
   }
 
@@ -464,6 +484,27 @@ function App() {
               />
             </div>
             <div style={{ border: '1px solid #ddd', borderRadius: 6 }}>
+              <div style={{ padding: '8px 10px', borderBottom: '1px solid #eee' }}>
+                <label style={{ display: 'flex', gap: 10, cursor: 'pointer', alignItems: 'center' }}>
+                  <input
+                    type="radio"
+                    name="hugwawiPick"
+                    checked={selectedHugwawiKey === 'manual'}
+                    onChange={() => setSelectedHugwawiKey('manual')}
+                  />
+                  <div style={{ fontWeight: 600 }}>Neue Artikelnummer von Hand eingeben</div>
+                </label>
+                {selectedHugwawiKey === 'manual' && (
+                  <div style={{ marginTop: 8 }}>
+                    <input
+                      value={manualArtikelNr}
+                      onChange={(e) => setManualArtikelNr(e.target.value)}
+                      placeholder="Artikelnummer eingeben..."
+                      style={{ width: '100%', padding: 8, border: '1px solid #ccc', borderRadius: 6 }}
+                    />
+                  </div>
+                )}
+              </div>
               {(hugwawiItems || [])
                 .filter((it) => {
                   const q = (hugwawiSearch || '').toLowerCase().trim()
@@ -496,7 +537,11 @@ function App() {
               <button onClick={() => setShowHugwawiPicker(false)}>Abbrechen</button>
               <button
                 style={{ fontWeight: 700 }}
-                disabled={!selectedHugwawiKey || (!project && !(pendingAuNr || auNr))}
+                disabled={
+                  !selectedHugwawiKey ||
+                  (selectedHugwawiKey === 'manual' && !manualArtikelNr.trim()) ||
+                  (!project && !(pendingAuNr || auNr))
+                }
                 onClick={async () => {
                   // #region agent log
                   _log('App.tsx:importModal', 'click', {
@@ -512,7 +557,22 @@ function App() {
                     // #endregion agent log
                     return
                   }
-                  const picked = (hugwawiItems || []).find((it) => `${it.hugwawi_order_id}:${it.hugwawi_order_article_id}` === selectedHugwawiKey)
+                  let picked = (hugwawiItems || []).find(
+                    (it) => `${it.hugwawi_order_id}:${it.hugwawi_order_article_id}` === selectedHugwawiKey
+                  )
+                  if (selectedHugwawiKey === 'manual') {
+                    const base = (hugwawiItems || [])[0]
+                    const manualNr = manualArtikelNr.trim()
+                    if (!manualNr) throw new Error('Artikelnummer fehlt')
+                    if (!base) throw new Error('Auftrag nicht gefunden')
+                    picked = {
+                      ...base,
+                      hugwawi_order_article_id: -1,
+                      hugwawi_article_id: undefined,
+                      hugwawi_articlenumber: manualNr,
+                      hugwawi_description: 'Manuell'
+                    }
+                  }
                   if (!picked) return
                   try {
                     // Wenn noch kein Projekt geladen ist: jetzt erstellen/öffnen
@@ -521,8 +581,11 @@ function App() {
                       const au = (pendingAuNr || auNr || '').trim()
                       if (!au) throw new Error('Auftragsnummer fehlt')
                       let newProject: Project | null = null
+                      const artikelNr = (picked.hugwawi_articlenumber || '').trim()
+                      if (!artikelNr) throw new Error('Artikelnummer fehlt')
                       try {
                         const projectResponse = await api.post('/projects', {
+                          artikel_nr: artikelNr,
                           au_nr: au,
                           project_path: assemblyPath.trim()
                         })
@@ -530,11 +593,11 @@ function App() {
                       } catch (e: any) {
                         if (e?.response?.status === 400) {
                           try {
-                            const byAu = await api.get('/projects/by-au', { params: { au_nr: au } })
-                            newProject = byAu.data
+                            const byArtikel = await loadProjectByArtikelNr(artikelNr)
+                            newProject = byArtikel
                           } catch {
-                            const list = await api.get('/projects')
-                            const found = (list.data || []).find((p: Project) => p.au_nr === au)
+                            const list = await api.get('/projects', { params: { artikel_nr: artikelNr } })
+                            const found = (list.data || [])[0] as Project | undefined
                             if (!found) throw e
                             newProject = found
                           }
@@ -647,7 +710,10 @@ function App() {
                     hasProject: !!project,
                     pendingAuNr,
                     auNr,
-                    disabled: !selectedHugwawiKey || (!project && !(pendingAuNr || auNr))
+                    disabled:
+                      !selectedHugwawiKey ||
+                      (selectedHugwawiKey === 'manual' && !manualArtikelNr.trim()) ||
+                      (!project && !(pendingAuNr || auNr))
                   })
                 } catch {}
                 return null
@@ -683,6 +749,40 @@ function App() {
                 style={{ width: '100%', padding: 8, border: '1px solid #ccc', borderRadius: 6 }}
               />
             </div>
+            {Array.from(selectedTemplateIds).length > 0 && (
+              <div style={{ border: '1px solid #ddd', borderRadius: 6, marginBottom: 10 }}>
+                <div style={{ padding: '6px 10px', fontWeight: 600, background: '#fafafa', borderBottom: '1px solid #eee' }}>
+                  Ausgewählte Arbeitsgänge
+                </div>
+                {(bestellartikelTemplates || [])
+                  .filter((t) => selectedTemplateIds.has(t.hugwawi_article_id))
+                  .map((t) => (
+                    <label
+                      key={`selected-${t.hugwawi_article_id}`}
+                      style={{ display: 'flex', gap: 10, padding: '6px 10px', borderBottom: '1px solid #eee', cursor: 'pointer' }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={true}
+                        onChange={() => {
+                          setSelectedTemplateIds((prev) => {
+                            const next = new Set(prev)
+                            next.delete(t.hugwawi_article_id)
+                            return next
+                          })
+                        }}
+                      />
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 20 }}>
+                          <div style={{ fontWeight: 600 }}>{t.customtext2 || t.hugwawi_articlenumber}</div>
+                          <div style={{ fontFamily: 'monospace', color: '#444' }}>{t.customtext3 || ''}</div>
+                        </div>
+                        <div style={{ fontSize: 12, color: '#666' }}>{t.hugwawi_description || ''}</div>
+                      </div>
+                    </label>
+                  ))}
+              </div>
+            )}
             <div style={{ border: '1px solid #ddd', borderRadius: 6 }}>
               {(bestellartikelTemplates || [])
                 .filter((t) => {
@@ -761,7 +861,7 @@ function App() {
               type="text"
               value={projectsSearch}
               onChange={(e) => setProjectsSearch(e.target.value)}
-              placeholder="Suchen (AU-Nr)..."
+              placeholder="Suchen (AU-Nr / Artikelnummer)..."
               style={{ width: '100%', padding: '8px', border: '1px solid #ccc', borderRadius: '4px' }}
             />
           </div>
@@ -769,8 +869,8 @@ function App() {
             <button onClick={loadProjects} disabled={projectsLoading}>
               {projectsLoading ? 'Lade...' : 'Projekte laden'}
             </button>
-            <button onClick={() => loadProjectByAu(projectsSearch)} disabled={!projectsSearch.trim()}>
-              Projekt direkt laden
+            <button onClick={() => loadProjectsByAu(projectsSearch)} disabled={!projectsSearch.trim()}>
+              Projekte nach AU laden
             </button>
             {lastProjectId && (
               <button
@@ -800,7 +900,7 @@ function App() {
                       _log('App.tsx:lastProject', 'still-missing', { lastProjectId })
                       // #endregion agent log
                       if (pendingAuNr || auNr) {
-                        await loadProjectByAu((pendingAuNr || auNr) as string)
+                        await loadProjectsByAu((pendingAuNr || auNr) as string)
                       }
                     }
                   }
@@ -813,10 +913,20 @@ function App() {
           {projectsError && <div style={{ color: 'red', marginBottom: '8px' }}>{projectsError}</div>}
           <div style={{ maxHeight: '200px', overflow: 'auto', border: '1px solid #eee', borderRadius: 4, marginBottom: '20px' }}>
             {(projects || [])
-              .filter((p) => (p.au_nr || '').toLowerCase().includes(projectsSearch.toLowerCase().trim()))
+              .filter((p) => {
+                const q = projectsSearch.toLowerCase().trim()
+                if (!q) return true
+                return (
+                  (p.au_nr || '').toLowerCase().includes(q) ||
+                  (p.artikel_nr || '').toLowerCase().includes(q)
+                )
+              })
               .map((p) => (
                 <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 10px', borderBottom: '1px solid #f0f0f0' }}>
-                  <span>{p.au_nr}</span>
+                  <span>
+                    <strong>{p.artikel_nr}</strong>
+                    {p.au_nr ? `  · AU ${p.au_nr}` : ''}
+                  </span>
                   <button
                     onClick={async () => {
                       // #region agent log
