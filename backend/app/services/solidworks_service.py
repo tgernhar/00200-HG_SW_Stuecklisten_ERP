@@ -216,38 +216,7 @@ async def import_solidworks_assembly(
         # Initialize/Reset Produktionsmenge (P-Menge) from SOLIDWORKS-Menge on every import
         d["p_menge"] = int(d.get("menge") or 0)
 
-    # Map VBA/Excel Custom Properties -> DB-Felder (nach normalisierten Namen)
-    prop_to_field = {
-        # VBA: "H+G Artikelnummer"
-        "h_g_artikelnummer": "hg_artikelnummer",
-        # Variante ohne Leerzeichen: "H+GArtikelnummer"
-        "h_gartikelnummer": "hg_artikelnummer",
-        "hg_artikelnummer": "hg_artikelnummer",
-        # VBA: "Teilenummer" (überschreibt filename-basierte Teilenummer)
-        "teilenummer": "teilenummer",
-        # VBA: "Material"
-        "material": "werkstoff",
-        "werkstoff": "werkstoff",
-        # VBA: "HUGWAWI - Abteilung"
-        "hugwawi_abteilung": "abteilung_lieferant",
-        "abteilung_lieferant": "abteilung_lieferant",
-        # VBA: "Werkstoffgruppe"
-        "werkstoffgruppe": "werkstoff_nr",
-        "werkstoff_nr": "werkstoff_nr",
-        # VBA: "Oberfläche_ZSB" / "Oberfläche"
-        "oberflaeche_zsb": "oberflaeche",
-        "oberflaeche": "oberflaeche",
-        "oberflaeche_zsb_": "oberflaeche",
-        # VBA: "Oberflächenschutz"
-        "oberflaechenschutz": "oberflaechenschutz",
-        # VBA: "Farbe"
-        "farbe": "farbe",
-        # VBA: "Lieferzeit" / "Lieferzeit - geschätzt"
-        "lieferzeit": "lieferzeit",
-        "lieferzeit_geschaetzt": "lieferzeit",
-        # Optional/Legacy
-        "teiletyp_fertigungsplan": "teiletyp_fertigungsplan",
-    }
+    from app.services.solidworks_property_mapping import SW_PROP_NORMALIZED_TO_FIELD as prop_to_field
 
     created_articles = []
     for key, data in aggregated.items():

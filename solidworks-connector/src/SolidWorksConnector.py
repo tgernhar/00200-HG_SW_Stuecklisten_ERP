@@ -807,12 +807,39 @@ class SolidWorksConnector:
         failed = []
 
         def _try_set(mgr, name: str, value: str) -> bool:
+            def _readback(mgr2, n: str) -> str:
+                try:
+                    if hasattr(mgr2, "Get4"):
+                        try:
+                            vt_bstr_byref = pythoncom.VT_BSTR | pythoncom.VT_BYREF
+                            v_raw = win32com.client.VARIANT(vt_bstr_byref, "")
+                            v_res = win32com.client.VARIANT(vt_bstr_byref, "")
+                            mgr2.Get4(str(n), False, v_raw, v_res)
+                            raw = (getattr(v_raw, "value", None) or "").strip()
+                            res = (getattr(v_res, "value", None) or "").strip()
+                            return res or raw
+                        except Exception:
+                            pass
+                    if hasattr(mgr2, "Get2"):
+                        try:
+                            r2 = mgr2.Get2(str(n), "")
+                        except Exception:
+                            r2 = mgr2.Get2(str(n))
+                        return (str(r2) if r2 is not None else "").strip()
+                except Exception:
+                    return ""
+                return ""
+
             # Prefer Set2 (update existing), fallback to Add3 (create)
             try:
                 if hasattr(mgr, "Set2"):
                     ok = mgr.Set2(name, value)
                     if bool(ok):
-                        return True
+                        # Some SOLIDWORKS bindings return success even if nothing changed/created.
+                        # Verify by reading back; if empty, continue with Add* fallback.
+                        rb = _readback(mgr, name)
+                        if rb != "":
+                            return True
             except Exception:
                 pass
 
@@ -824,11 +851,11 @@ class SolidWorksConnector:
                     try:
                         # (Name, Type, Value, Options)
                         mgr.Add3(name, info_type, value, 0)
-                        return True
+                        return _readback(mgr, name) != ""
                     except Exception:
                         # some versions require different options
                         mgr.Add3(name, info_type, value, 2)
-                        return True
+                        return _readback(mgr, name) != ""
             except Exception:
                 pass
 
@@ -836,7 +863,7 @@ class SolidWorksConnector:
             try:
                 if hasattr(mgr, "Add2"):
                     mgr.Add2(name, info_type, value)
-                    return True
+                    return _readback(mgr, name) != ""
             except Exception:
                 pass
 

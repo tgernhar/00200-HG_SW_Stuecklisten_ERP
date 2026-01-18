@@ -379,20 +379,24 @@ async def push_solidworks(
                 if vv is not None:
                     props[name] = vv
 
-            _put("H+G Artikelnummer", a.hg_artikelnummer)
-            _put("Teilenummer", a.teilenummer)
-            _put("Material", a.werkstoff)
-            _put("Werkstoffgruppe", a.werkstoff_nr)
-            _put("HUGWAWI - Abteilung", a.abteilung_lieferant)
-            # Oberfläche: ZSB-Regel
-            if is_sldasm:
-                _put("Oberfläche_ZSB", a.oberflaeche)
-            else:
-                _put("Oberfläche", a.oberflaeche)
-            _put("Oberflächenschutz", a.oberflaechenschutz)
-            _put("Farbe", a.farbe)
-            _put("Lieferzeit - geschätzt", a.lieferzeit)
-            _put("Teiletyp Fertigungsplan", a.teiletyp_fertigungsplan)
+            # Zentrales Mapping: Import-Felder == Push-Felder (Single-Source-of-Truth)
+            from app.services.solidworks_property_mapping import get_sw_prop_name_for_field
+            for field in (
+                "hg_artikelnummer",
+                "teilenummer",
+                "werkstoff",
+                "werkstoff_nr",
+                "abteilung_lieferant",
+                "oberflaeche",
+                "oberflaechenschutz",
+                "farbe",
+                "lieferzeit",
+                "teiletyp_fertigungsplan",
+            ):
+                sw_name = get_sw_prop_name_for_field(field, is_sldasm=is_sldasm)
+                if not sw_name:
+                    continue
+                _put(sw_name, getattr(a, field, None))
 
             req = {
                 "filepath": filepath,
@@ -413,6 +417,21 @@ async def push_solidworks(
             data = resp.json() if resp.content else {}
             if not data.get("success", False):
                 failed.append({"article_id": a.id, "reason": data.get("error") or "Unbekannter Fehler"})
+                continue
+
+            result = data.get("result") if isinstance(data, dict) else None
+            failed_count = (result or {}).get("failed_count") if isinstance(result, dict) else None
+            failed_list = (result or {}).get("failed") if isinstance(result, dict) else None
+
+            # Treat per-property failures as a failed update for this article (otherwise issues are silent).
+            if isinstance(failed_count, int) and failed_count > 0:
+                failed.append(
+                    {
+                        "article_id": a.id,
+                        "reason": "Einige Properties konnten nicht geschrieben werden",
+                        "failed": failed_list,
+                    }
+                )
                 continue
 
             updated.append(a.id)
