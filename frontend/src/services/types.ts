@@ -80,6 +80,7 @@ export interface Article {
   bestellkommentar?: string
   hg_lt?: string
   bestaetigter_lt?: string
+  order_count?: number
 
   // Block B: Dokument-Flags (leer | "1" | "x")
   pdf_drucken?: string

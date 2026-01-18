@@ -17,6 +17,7 @@ interface ProjectHeaderProps {
   onCheckDocuments: () => void
   onPrintPDFQueueMerged: () => void
   onExport: () => void
+  onGoHome: () => void
 }
 
 export const ProjectHeader: React.FC<ProjectHeaderProps> = ({
@@ -31,7 +32,8 @@ export const ProjectHeader: React.FC<ProjectHeaderProps> = ({
   onCreateDocuments,
   onCheckDocuments,
   onPrintPDFQueueMerged,
-  onExport
+  onExport,
+  onGoHome
 }) => {
   if (!project) {
     return <div>Kein Projekt ausgewählt</div>
@@ -71,6 +73,7 @@ export const ProjectHeader: React.FC<ProjectHeaderProps> = ({
         </select>
       </div>
       <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+        <button onClick={onGoHome}>Zur Startseite</button>
         <button onClick={onImportSolidworks}>Import SOLIDWORKS</button>
         <button onClick={onCreateBestellartikel} style={{ fontWeight: 'bold' }}>
           Bestellartikel erstellen

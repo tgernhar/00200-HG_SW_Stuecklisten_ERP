@@ -371,11 +371,11 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
           filter: false,
           cellRenderer: (params: ICellRendererParams<Article>) => {
             const a = params.data
-            const disabled = !a || !onOpenOrders
+            const hasOrders = !!(a && (a as any).order_count && (a as any).order_count > 0)
+            if (!hasOrders || !onOpenOrders) return null
             return React.createElement(
               'button',
               {
-                disabled,
                 onClick: (e: any) => {
                   e?.preventDefault?.()
                   e?.stopPropagation?.()
@@ -387,8 +387,8 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
                   lineHeight: '12px',
                   borderRadius: 6,
                   border: '1px solid #ddd',
-                  background: disabled ? '#f3f3f3' : '#fff',
-                  cursor: disabled ? 'not-allowed' : 'pointer'
+                  background: '#fff',
+                  cursor: 'pointer'
                 }
               },
               'Anzeigen'
@@ -584,6 +584,9 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
     alwaysShowHorizontalScroll: true,
     enableRangeSelection: true,
     enableClipboard: true,
+    suppressCopySingleCellRanges: false,
+    suppressCopyRowsToClipboard: false,
+    suppressClipboardPaste: false,
     enableCellTextSelection: true,
     rowSelection: 'multiple',
     suppressRowClickSelection: true,

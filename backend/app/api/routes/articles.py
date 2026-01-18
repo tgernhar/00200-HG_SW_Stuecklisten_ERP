@@ -290,6 +290,7 @@ async def get_articles(
             bestellkommentar=("-" if order_count > 1 else (getattr(order, "bestellkommentar", None) if order else None)),
             hg_lt=("-" if order_count > 1 else _date_to_str(getattr(order, "hg_lt", None) if order else None)),
             bestaetigter_lt=("-" if order_count > 1 else _date_to_str(getattr(order, "bestaetigter_lt", None) if order else None)),
+            order_count=order_count,
 
             # Block B flags
             pdf_drucken=_flag_or_empty(getattr(flags, "pdf_drucken", "")) if flags else "",

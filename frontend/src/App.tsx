@@ -17,6 +17,8 @@ function App() {
   const [projectsLoading, setProjectsLoading] = useState(false)
   const [projectsError, setProjectsError] = useState<string | null>(null)
   const [lastProjectId, setLastProjectId] = useState<number | null>(null)
+  const [lastSelectedBomId, setLastSelectedBomId] = useState<number | null>(null)
+  const [allowRestore, setAllowRestore] = useState(true)
   const [pendingAuNr, setPendingAuNr] = useState<string | null>(null)
   const [auNr, setAuNr] = useState('')
   const [manualArtikelNr, setManualArtikelNr] = useState('')
@@ -66,8 +68,27 @@ function App() {
     try {
       const raw = window.localStorage.getItem('lastProjectId')
       if (raw) setLastProjectId(Number(raw))
+      const rawBom = window.localStorage.getItem('lastSelectedBomId')
+      if (rawBom) setLastSelectedBomId(Number(rawBom))
     } catch {}
   }, [])
+
+  useEffect(() => {
+    const restore = async () => {
+      if (!allowRestore || !lastProjectId || project) return
+      try {
+        const resp = await api.get(`/projects/${lastProjectId}`)
+        const p = resp?.data as Project
+        if (p) await openProject(p)
+      } catch {
+        try {
+          window.localStorage.removeItem('lastProjectId')
+          window.localStorage.removeItem('lastSelectedBomId')
+        } catch {}
+      }
+    }
+    restore()
+  }, [lastProjectId, project, allowRestore])
 
   useEffect(() => {
     const loadSelectlists = async () => {
@@ -171,8 +192,14 @@ function App() {
     const resp = await api.get(`/projects/${projectId}/boms`)
     const items = (resp?.data?.items || []) as Bom[]
     setBoms(items)
-    if (items.length && !selectedBomId) setSelectedBomId(items[0].id)
-    if (items.length && selectedBomId && !items.find((b) => b.id === selectedBomId)) setSelectedBomId(items[0].id)
+    const preferred = lastSelectedBomId
+    if (items.length) {
+      if (preferred && items.find((b) => b.id === preferred)) {
+        setSelectedBomId(preferred)
+      } else if (!selectedBomId || !items.find((b) => b.id === selectedBomId)) {
+        setSelectedBomId(items[0].id)
+      }
+    }
   }
 
   const openProject = async (p: Project) => {
@@ -1079,7 +1106,21 @@ function App() {
             selectedBomId={selectedBomId}
             onSelectBom={(id) => {
               setSelectedBomId(id)
+              try {
+                window.localStorage.setItem('lastSelectedBomId', String(id))
+                setLastSelectedBomId(id)
+              } catch {}
               setTimeout(() => refetch(), 0)
+            }}
+            onGoHome={() => {
+              setAllowRestore(false)
+              setProject(null)
+              setBoms([])
+              setSelectedBomId(null)
+              setOrdersArticleId(null)
+              setOrdersArticleNumber(undefined)
+              setSelectedArticles([])
+              setImportError(null)
             }}
             onImportSolidworks={handleImportSolidworks}
             onCreateBestellartikel={openBestellartikelModal}

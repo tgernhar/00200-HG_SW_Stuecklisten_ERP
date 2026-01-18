@@ -88,6 +88,7 @@ class ArticleGridRow(ArticleBase):
     bestellkommentar: Optional[str] = None
     hg_lt: Optional[str] = None
     bestaetigter_lt: Optional[str] = None
+    order_count: Optional[int] = None
 
     # Block B (Flags: leer, "1", "x")
     pdf_drucken: Optional[str] = None
