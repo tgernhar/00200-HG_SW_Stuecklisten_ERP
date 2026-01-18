@@ -167,33 +167,6 @@ async def get_articles(
         .all()
     )
 
-    # region agent log
-    try:
-        import json, time
-        with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
-            _f.write(
-                json.dumps(
-                    {
-                        "sessionId": "debug-session",
-                        "runId": "run4",
-                        "hypothesisId": "FETCH",
-                        "location": "backend/app/api/routes/articles.py:get_articles",
-                        "message": "queried",
-                        "data": {
-                            "project_id": project_id,
-                            "requested_bom_id": bom_id,
-                            "effective_bom_id": effective_bom_id,
-                            "count": len(articles),
-                        },
-                        "timestamp": int(time.time() * 1000),
-                    }
-                )
-                + "\n"
-            )
-    except Exception:
-        pass
-    # endregion agent log
-
     rows: List[ArticleGridRow] = []
     for a in articles:
         # Order: erste Bestellung verwenden; bei mehreren Bestellungen Anzahl anzeigen

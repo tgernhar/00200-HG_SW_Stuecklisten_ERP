@@ -21,11 +21,9 @@ logger = logging.getLogger(__name__)
 logger.propagate = True
 logger.setLevel(logging.DEBUG)  # Setze Level, damit alle Meldungen durchkommen
 
-# Hilfsfunktion für Debug-Logs (schreibt sowohl in Logger als auch print)
+# Hilfsfunktion für Debug-Logs (deaktiviert)
 def debug_log(message, level=logging.DEBUG):
-    """Schreibt Debug-Meldung sowohl in Logger als auch print"""
-    logger.log(level, message)
-    print(message, flush=True)
+    return
 
 router = APIRouter()
 
@@ -45,27 +43,6 @@ async def get_projects(
     if artikel_nr:
         q = q.filter(Project.artikel_nr == artikel_nr)
     projects = q.offset(skip).limit(limit).all()
-    # region agent log
-    try:
-        import json, time
-        with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
-            _f.write(
-                json.dumps(
-                    {
-                        "sessionId": "debug-session",
-                        "runId": "run6",
-                        "hypothesisId": "PROJECT_LOAD",
-                        "location": "backend/app/api/routes/projects.py:get_projects",
-                        "message": "list",
-                        "data": {"skip": skip, "limit": limit, "count": len(projects)},
-                        "timestamp": int(time.time() * 1000),
-                    }
-                )
-                + "\n"
-            )
-    except Exception:
-        pass
-    # endregion agent log
     return projects
 
 
@@ -80,27 +57,6 @@ async def get_project_by_au(au_nr: str, db: Session = Depends(get_db)):
     )
     if not project:
         raise HTTPException(status_code=404, detail="Projekt nicht gefunden")
-    # region agent log
-    try:
-        import json, time
-        with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
-            _f.write(
-                json.dumps(
-                    {
-                        "sessionId": "debug-session",
-                        "runId": "run6",
-                        "hypothesisId": "PROJECT_LOAD",
-                        "location": "backend/app/api/routes/projects.py:get_project_by_au",
-                        "message": "found",
-                        "data": {"au_nr": au_nr, "project_id": project.id},
-                        "timestamp": int(time.time() * 1000),
-                    }
-                )
-                + "\n"
-            )
-    except Exception:
-        pass
-    # endregion agent log
     return project
 
 
@@ -514,33 +470,6 @@ async def import_solidworks_into_bom(
 
     if not assembly_filepath:
         raise HTTPException(status_code=400, detail="Assembly-Filepath fehlt")
-
-    # region agent log
-    try:
-        import json, time
-        with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
-            _f.write(
-                json.dumps(
-                    {
-                        "sessionId": "debug-session",
-                        "runId": "run5",
-                        "hypothesisId": "IMPORT_FLOW",
-                        "location": "backend/app/api/routes/projects.py:import_solidworks_into_bom",
-                        "message": "entry",
-                        "data": {
-                            "project_id": project_id,
-                            "bom_id": bom_id,
-                            "assembly_filepath": assembly_filepath,
-                            "overwrite_password_set": bool(overwrite_password),
-                        },
-                        "timestamp": int(time.time() * 1000),
-                    }
-                )
-                + "\n"
-            )
-    except Exception:
-        pass
-    # endregion agent log
 
     # Guard: only allow overwrite with password
     existing_count = db.query(Article).filter(Article.bom_id == bom_id).count()
