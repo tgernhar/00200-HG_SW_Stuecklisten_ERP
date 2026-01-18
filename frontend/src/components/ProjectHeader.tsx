@@ -47,8 +47,12 @@ export const ProjectHeader: React.FC<ProjectHeaderProps> = ({
         </div>
         <div>
           {project.project_path && (
-            <a href={project.project_path} target="_blank" rel="noopener noreferrer">
-              Projektpfad
+            <a
+              href={project.project_path.replace(/[/\\][^/\\]+$/, '')}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Projektordner
             </a>
           )}
         </div>

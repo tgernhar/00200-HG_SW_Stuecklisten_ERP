@@ -77,6 +77,10 @@ class DocumentFlagsUpdate(BaseModel):
     bn_ab: Optional[str] = None
 
 
+class ManualArticleCreate(BaseModel):
+    pos_nr: Optional[int] = None
+
+
 @router.patch("/articles/{article_id}/document-flags")
 async def update_document_flags(article_id: int, payload: DocumentFlagsUpdate, db: Session = Depends(get_db)):
     """
@@ -345,6 +349,107 @@ async def get_articles(
         rows.append(row)
 
     return rows
+
+
+@router.post("/boms/{bom_id}/articles/manual", response_model=ArticleGridRow)
+async def create_manual_article(bom_id: int, payload: ManualArticleCreate, db: Session = Depends(get_db)):
+    bom = db.query(Bom).filter(Bom.id == bom_id).first()
+    if not bom:
+        raise HTTPException(status_code=404, detail="BOM nicht gefunden")
+
+    a = Article(
+        project_id=bom.project_id,
+        bom_id=bom_id,
+        pos_nr=payload.pos_nr,
+        pos_sub=0,
+        hg_artikelnummer=None,
+        benennung=None,
+        konfiguration=None,
+        teilenummer=None,
+        menge=1,
+        p_menge=None,
+        teiletyp_fertigungsplan=None,
+        abteilung_lieferant=None,
+        werkstoff=None,
+        werkstoff_nr=None,
+        oberflaeche=None,
+        oberflaechenschutz=None,
+        farbe=None,
+        lieferzeit=None,
+        laenge=None,
+        breite=None,
+        hoehe=None,
+        gewicht=None,
+        pfad=None,
+        sldasm_sldprt_pfad=None,
+        slddrw_pfad=None,
+        in_stueckliste_anzeigen=True,
+        erp_exists=None,
+    )
+    db.add(a)
+    db.commit()
+    db.refresh(a)
+
+    return ArticleGridRow(
+        id=a.id,
+        project_id=a.project_id,
+        bom_id=a.bom_id,
+        pos_sub=a.pos_sub,
+        pos_nr=a.pos_nr,
+        pos_nr_display=(str(a.pos_nr) if a.pos_nr is not None else ""),
+        hg_artikelnummer=a.hg_artikelnummer,
+        benennung=a.benennung,
+        konfiguration=a.konfiguration,
+        teilenummer=a.teilenummer,
+        menge=a.menge,
+        p_menge=a.p_menge,
+        teiletyp_fertigungsplan=a.teiletyp_fertigungsplan,
+        abteilung_lieferant=a.abteilung_lieferant,
+        werkstoff=a.werkstoff,
+        werkstoff_nr=a.werkstoff_nr,
+        oberflaeche=a.oberflaeche,
+        oberflaechenschutz=a.oberflaechenschutz,
+        farbe=a.farbe,
+        lieferzeit=a.lieferzeit,
+        laenge=a.laenge,
+        breite=a.breite,
+        hoehe=a.hoehe,
+        gewicht=a.gewicht,
+        pfad=a.pfad,
+        sldasm_sldprt_pfad=a.sldasm_sldprt_pfad,
+        slddrw_pfad=a.slddrw_pfad,
+        in_stueckliste_anzeigen=a.in_stueckliste_anzeigen,
+        erp_exists=a.erp_exists,
+        hg_bnr=None,
+        bnr_status=None,
+        bnr_menge=None,
+        bestellkommentar=None,
+        hg_lt=None,
+        bestaetigter_lt=None,
+        order_count=0,
+    )
+
+
+@router.delete("/articles/{article_id}")
+async def delete_article_with_password(
+    article_id: int,
+    overwrite_password: Optional[str] = Query(default=None),
+    db: Session = Depends(get_db)
+):
+    if overwrite_password != "1":
+        raise HTTPException(status_code=403, detail="Passwort erforderlich (aktuell: 1)")
+
+    article = db.query(Article).filter(Article.id == article_id).first()
+    if not article:
+        raise HTTPException(status_code=404, detail="Artikel nicht gefunden")
+
+    # only allow delete if not imported from SolidWorks (no SW paths)
+    if article.sldasm_sldprt_pfad or article.slddrw_pfad or article.pfad:
+        raise HTTPException(status_code=409, detail="Artikel stammt aus SOLIDWORKS und kann nicht gelöscht werden")
+
+    db.delete(article)
+    db.commit()
+    return {"success": True, "deleted_id": article_id}
 
 
 from app.schemas.article import Article as ArticleSchema

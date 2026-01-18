@@ -16,6 +16,11 @@ Implementiert in `frontend/src/App.tsx`:
    - `POST /api/projects/{project_id}/boms/{bom_id}/import-solidworks?assembly_filepath=...`
 6. Artikelliste wird neu geladen und im Grid angezeigt.
 
+## Import‑Fortschritt (UI)
+Während des SOLIDWORKS‑Imports wird ein einfacher **Fortschrittsbalken** angezeigt:
+- „BOM anlegen“ → „Import läuft“ → „Fertig“
+Damit ist erkennbar, dass der Import aktiv ist.
+
 ### Hinweis zu „Datei auswählen“
 Browser liefern aus Sicherheitsgründen **keinen vollständigen Pfad** über den File‑Dialog. Daher ist die **manuelle Pfad‑Eingabe** weiterhin notwendig, wenn der Backend‑Import den echten Pfad braucht.
 

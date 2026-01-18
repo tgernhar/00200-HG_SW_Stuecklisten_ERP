@@ -25,6 +25,7 @@ function App() {
   const [assemblyPath, setAssemblyPath] = useState('')
   const [isImporting, setIsImporting] = useState(false)
   const [importError, setImportError] = useState<string | null>(null)
+  const [importStep, setImportStep] = useState<string | null>(null)
   const [boms, setBoms] = useState<Bom[]>([])
   const [selectedBomId, setSelectedBomId] = useState<number | null>(null)
   const { articles, loading, error, refetch } = useArticles(project?.id || null, selectedBomId)
@@ -287,10 +288,25 @@ function App() {
     if (!project) return
 
     try {
-      await api.post(`/projects/${project.id}/sync-orders`)
+      // #region agent log
+      _log('App.tsx:bnSync', 'start', { projectId: project.id, selectedBomId })
+      // #endregion agent log
+      const bomQuery = selectedBomId ? `?bom_id=${selectedBomId}` : ''
+      const resp = await api.post(`/projects/${project.id}/sync-orders${bomQuery}`)
+      // #region agent log
+      _log('App.tsx:bnSync', 'success', { projectId: project.id, data: resp?.data })
+      // #endregion agent log
       alert('Bestellungen synchronisiert!')
       refetch()
     } catch (error: any) {
+      // #region agent log
+      _log('App.tsx:bnSync', 'error', {
+        projectId: project?.id,
+        message: error?.message,
+        status: error?.response?.status,
+        detail: error?.response?.data?.detail
+      })
+      // #endregion agent log
       alert('Fehler beim Synchronisieren: ' + error.message)
     }
   }
@@ -692,6 +708,7 @@ function App() {
                     // #endregion agent log
                     let bomResp
                     try {
+                      setImportStep('BOM anlegen')
                       bomResp = await api.post(`/projects/${activeProject.id}/boms`, {
                         hugwawi_order_id: picked.hugwawi_order_id,
                         hugwawi_order_name: picked.hugwawi_order_name,
@@ -703,6 +720,7 @@ function App() {
                       if (e?.response?.status === 409) {
                         const pw = prompt('Stückliste existiert bereits. Passwort zum Überschreiben (aktuell: 1):') || ''
                         if (!pw) return
+                        setImportStep('BOM überschreiben')
                         bomResp = await api.post(`/projects/${activeProject.id}/boms`, {
                           hugwawi_order_id: picked.hugwawi_order_id,
                           hugwawi_order_name: picked.hugwawi_order_name,
@@ -725,6 +743,7 @@ function App() {
                     // #endregion agent log
 
                     try {
+                      setImportStep('Import läuft')
                       // #region agent log
                       _log('App.tsx:importModal', 'import-call', { bomId: bom.id, assemblyPath: path })
                       // #endregion agent log
@@ -738,6 +757,7 @@ function App() {
                       if (e?.response?.status === 409) {
                         const pw = prompt('Import existiert bereits. Passwort zum Überschreiben (aktuell: 1):') || ''
                         if (!pw) return
+                        setImportStep('Import überschreiben')
                         const importResp = await api.post(`/projects/${activeProject.id}/boms/${bom.id}/import-solidworks`, null, {
                           params: { assembly_filepath: path, overwrite_password: pw }
                         })
@@ -754,11 +774,13 @@ function App() {
                     setSelectedBomId(bom.id)
                     setAuNr('')
                     refetch()
+                    setImportStep('Fertig')
                     alert('Import erfolgreich!')
                   } catch (e: any) {
                     // #region agent log
                     _log('App.tsx:importModal', 'error', { message: e?.message || String(e), status: e?.response?.status, detail: e?.response?.data?.detail })
                     // #endregion agent log
+                    setImportStep(null)
                     alert('Fehler: ' + (e?.response?.data?.detail || e?.message || String(e)))
                   }
                 }}
@@ -1093,8 +1115,25 @@ function App() {
           </button>
 
           {isImporting && (
-            <div style={{ marginTop: '20px', textAlign: 'center', color: '#666' }}>
-              Projekt wird erstellt und SolidWorks-Daten werden importiert...
+            <div style={{ marginTop: '20px' }}>
+              <div style={{ marginBottom: 8, textAlign: 'center', color: '#666' }}>
+                {importStep || 'Import läuft...'}
+              </div>
+              <div style={{ height: 8, background: '#eee', borderRadius: 6, overflow: 'hidden' }}>
+                <div
+                  style={{
+                    height: '100%',
+                    width:
+                      importStep === 'BOM anlegen' ? '20%' :
+                      importStep === 'BOM überschreiben' ? '30%' :
+                      importStep === 'Import läuft' ? '70%' :
+                      importStep === 'Import überschreiben' ? '80%' :
+                      importStep === 'Fertig' ? '100%' : '40%',
+                    background: '#4caf50',
+                    transition: 'width 0.3s ease'
+                  }}
+                />
+              </div>
             </div>
           )}
         </div>
@@ -1137,6 +1176,7 @@ function App() {
               <ArticleGrid 
                 articles={articles} 
                 projectId={project?.id}
+                selectedBomId={selectedBomId}
                 selectlists={{
                   departments,
                   werkstoff: selectlistValues[17] || [],

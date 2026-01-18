@@ -10,6 +10,7 @@ Diese Dokumentation fasst die in der Entwicklung entstandenen Plan‑Notizen zus
 - [Dokument‑Export](05_document_export.md)
 - [HUGWAWI Artikel-Import CSV](07_hugwawi_article_import_csv.md)
 - [Drucken](04_printing.md)
+- [Manuelle Zeilen & BN‑Sync](08_manual_rows_and_bn_sync.md)
 
 ## Architektur (Kurzüberblick)
 - **Frontend**: React + TypeScript (AG Grid), Dev‑URL je nach Setup z.B. `http://localhost:3000` oder `http://localhost:5173`

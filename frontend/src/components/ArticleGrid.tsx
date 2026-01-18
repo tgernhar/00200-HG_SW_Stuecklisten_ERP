@@ -13,6 +13,7 @@ import api from '../services/api'
 interface ArticleGridProps {
   articles: Article[]
   projectId?: number | null
+  selectedBomId?: number | null
   selectlists?: {
     departments: string[]
     werkstoff: string[]
@@ -28,13 +29,14 @@ interface ArticleGridProps {
   onAfterBulkUpdate?: () => void
 }
 
-export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, selectlists, onCellValueChanged, onOpenOrders, onSelectionChanged, onAfterBulkUpdate }) => {
+export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, selectedBomId, selectlists, onCellValueChanged, onOpenOrders, onSelectionChanged, onAfterBulkUpdate }) => {
   const apiBaseUrl = (api as any)?.defaults?.baseURL || ''
   const gridApiRef = useRef<any>(null)
   const gridColumnApiRef = useRef<any>(null)
   const [showHidden, setShowHidden] = useState(false)
   const [showBestellinfo, setShowBestellinfo] = useState(true)
   const [showDokumentstatus, setShowDokumentstatus] = useState(true)
+  const [showMenge, setShowMenge] = useState(false)
   // #region agent log
   const _agentLog = useCallback((location: string, message: string, data: any) => {
     try {
@@ -195,6 +197,12 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
     if (!api) return
     api.setColumnsVisible(dokumentstatusFields, showDokumentstatus)
   }, [showDokumentstatus])
+
+  useEffect(() => {
+    const api = gridColumnApiRef.current
+    if (!api) return
+    api.setColumnVisible('menge', showMenge)
+  }, [showMenge])
 
 
   const getDisplayedColumns = useCallback((gridApi: any) => {
@@ -534,8 +542,8 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
         { field: 'benennung', headerName: 'Bezeichnung', width: 280, editable: false },
         { field: 'konfiguration', headerName: 'Konfiguration', width: 60, editable: false },
         { field: 'teilenummer', headerName: 'Teilenummer', width: 140, editable: true, cellEditor: 'agTextCellEditor' },
-        { field: 'menge', headerName: 'Menge (SW)', width: 90, editable: false, hide: true },
-        { field: 'p_menge', headerName: 'P-Menge', width: 90, editable: true, valueParser: (p) => parseOptionalInt(p.newValue) },
+        { field: 'menge', headerName: 'Menge', width: 90, editable: false, hide: true, headerClass: 'rotated-header' },
+        { field: 'p_menge', headerName: 'P-Menge', width: 90, editable: true, headerClass: 'rotated-header', valueParser: (p) => parseOptionalInt(p.newValue) },
         { field: 'teiletyp_fertigungsplan', headerName: 'Teiletyp/Fertigungsplan', width: 180, editable: true, maxLength: 150 },
         { field: 'abteilung_lieferant', headerName: 'Abteilung / Lieferant', width: 150, editable: true, maxLength: 150, cellEditor: SelectlistEditor, cellEditorParams: makeSelectEditorParams(deptValues), cellRenderer: (params: ICellRendererParams<Article>) => React.createElement('div', null, params.value ?? '') },
         { field: 'werkstoff', headerName: 'Werkstoff-Nr.', width: 120, editable: true, maxLength: 150, cellEditor: SelectlistEditor, cellEditorParams: makeSelectEditorParams(werkstoffValues), cellRenderer: (params: ICellRendererParams<Article>) => React.createElement('div', null, params.value ?? '') },
@@ -853,6 +861,59 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
         >
           Auswahl einblenden
         </button>
+        <button
+          onClick={async () => {
+            if (!projectId) return
+            try {
+              const resp = await api.post(`/boms/${selectedBomId}/articles/manual`, { pos_nr: null })
+              if (resp?.data?.id) {
+                onAfterBulkUpdate?.()
+              }
+            } catch (e: any) {
+              alert('Fehler beim Einfügen: ' + (e.response?.data?.detail || e.message))
+            }
+          }}
+          style={{
+            padding: '6px 10px',
+            border: '1px solid #ccc',
+            borderRadius: 4,
+            background: '#f7f7f7',
+            cursor: 'pointer'
+          }}
+        >
+          Zeile manuell hinzufügen
+        </button>
+        <button
+          onClick={async () => {
+            const gridApi = gridApiRef.current
+            const selected = (gridApi?.getSelectedRows?.() || []) as Article[]
+            if (!selected.length) {
+              alert('Bitte zuerst Zeile(n) auswählen.')
+              return
+            }
+            const pw = prompt('Löschen bestätigen (Passwort: 1):') || ''
+            if (pw !== '1') return
+            try {
+              await Promise.all(
+                selected.map((a) =>
+                  api.delete(`/articles/${a.id}`, { params: { overwrite_password: pw } })
+                )
+              )
+              onAfterBulkUpdate?.()
+            } catch (e: any) {
+              alert('Fehler beim Löschen: ' + (e.response?.data?.detail || e.message))
+            }
+          }}
+          style={{
+            padding: '6px 10px',
+            border: '1px solid #ccc',
+            borderRadius: 4,
+            background: '#f7f7f7',
+            cursor: 'pointer'
+          }}
+        >
+          Zeilen löschen
+        </button>
         <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
           <input
             type="checkbox"
@@ -866,6 +927,14 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
             }}
           />
           Ausgeblendete anzeigen
+        </label>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <input
+            type="checkbox"
+            checked={showMenge}
+            onChange={(e) => setShowMenge(!!e.target.checked)}
+          />
+          Menge anzeigen
         </label>
         <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
           <input

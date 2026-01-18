@@ -47,6 +47,10 @@ Standard: beide sichtbar.
 ## Pos‑Nr Header (Rotation)
 Der Spaltenkopf **Pos‑Nr** ist wie die Dokumentstatus‑Spalten um 90° gedreht, damit mehr Platz im Grid entsteht.
 
+## Menge‑Spalte
+Die Spalte **Menge** (nicht editierbar) ist standardmäßig ausgeblendet und kann über **„Menge anzeigen“** eingeblendet werden.  
+**Menge** und **P‑Menge** haben rotierte Header.
+
 ## Selectlists (mit Freitext)
 Für folgende Felder wird eine HUGWAWI‑Selectlist geladen; **manuelle Eingaben bleiben erlaubt**:
 - `abteilung_lieferant` ← `department.name`

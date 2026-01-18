@@ -74,7 +74,7 @@ async def get_article_orders(article_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/projects/{project_id}/sync-orders")
-async def sync_orders(project_id: int, db: Session = Depends(get_db)):
+async def sync_orders(project_id: int, bom_id: int | None = None, db: Session = Depends(get_db)):
     """Bestellungen synchronisieren"""
     from app.services.erp_service import sync_project_orders
     
@@ -82,7 +82,27 @@ async def sync_orders(project_id: int, db: Session = Depends(get_db)):
     if not project:
         raise HTTPException(status_code=404, detail="Projekt nicht gefunden")
     
-    result = await sync_project_orders(project_id, db)
+    result = await sync_project_orders(project_id, db, bom_id=bom_id)
+    # #region agent log
+    try:
+        import json, time
+        with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
+            _f.write(json.dumps({
+                "sessionId": "debug-session",
+                "runId": "bn-sync-rows",
+                "hypothesisId": "BN_ROWS",
+                "location": "backend/app/api/routes/erp.py:sync_orders",
+                "message": "result",
+                "data": {
+                    "project_id": project_id,
+                    "synced_count": result.get("synced_count"),
+                    "failed_count": result.get("failed_count")
+                },
+                "timestamp": int(time.time() * 1000)
+            }) + "\n")
+    except Exception:
+        pass
+    # #endregion agent log
     return result
 
 

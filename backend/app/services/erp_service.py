@@ -5,6 +5,8 @@ from sqlalchemy.orm import Session
 from app.models.article import Article
 from app.core.database import get_erp_db_connection
 from datetime import datetime, date
+import json
+import time
 
 
 def article_exists(articlenumber: str, db_connection) -> bool:
@@ -299,7 +301,7 @@ async def check_all_articlenumbers(project_id: int, db: Session) -> dict:
     }
 
 
-async def sync_project_orders(project_id: int, db: Session) -> dict:
+async def sync_project_orders(project_id: int, db: Session, bom_id: int | None = None) -> dict:
     """
     Synchronisiert Bestellungen aus ERP-System
     
@@ -387,6 +389,173 @@ async def sync_project_orders(project_id: int, db: Session) -> dict:
         cursor.execute(query, [auftrag_name, *articlenumbers])
         rows = cursor.fetchall() or []
         cursor.close()
+        # #region agent log
+        try:
+            import json, time
+            row_articlenr = [(r.get("Artikelnr") or "").strip() for r in rows]
+            missing_in_project = [a for a in row_articlenr if a and a not in set(articlenumbers)]
+            with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
+                _f.write(json.dumps({
+                    "sessionId": "debug-session",
+                    "runId": "bn-sync-rows",
+                    "hypothesisId": "BN_ROWS",
+                    "location": "backend/app/services/erp_service.py:sync_project_orders",
+                    "message": "rows-fetched",
+                    "data": {
+                        "au_reference": auftrag_name,
+                        "project_id": project_id,
+                        "project_articlenumbers": len(articlenumbers),
+                        "rows_total": len(rows),
+                        "rows_with_articlenr": sum(1 for a in row_articlenr if a),
+                        "rows_without_articlenr": sum(1 for a in row_articlenr if not a),
+                        "missing_in_project_count": len(missing_in_project),
+                        "missing_sample": missing_in_project[:5]
+                    },
+                    "timestamp": int(time.time() * 1000)
+                }) + "\n")
+        except Exception:
+            pass
+        # #endregion agent log
+
+        # #region agent log
+        try:
+            cursor = erp_connection.cursor(dictionary=True)
+            cursor.execute(
+                f"""
+                SELECT DISTINCT article.articlenumber AS Artikelnr
+                FROM ordertable
+                INNER JOIN order_article_ref ON ordertable.id = order_article_ref.orderid
+                INNER JOIN order_article ON order_article_ref.orderArticleId = order_article.id
+                INNER JOIN article ON order_article.articleid = article.id
+                WHERE
+                    ordertable.reference = %s
+                    AND article.articlenumber IS NOT NULL
+                    AND article.articlenumber <> ''
+                    AND article.articlenumber NOT IN ({placeholders})
+                LIMIT 5
+                """,
+                [auftrag_name, *articlenumbers],
+            )
+            missing_sample = [r.get("Artikelnr") for r in (cursor.fetchall() or [])]
+            cursor.execute(
+                f"""
+                SELECT COUNT(DISTINCT article.articlenumber) AS missing_cnt
+                FROM ordertable
+                INNER JOIN order_article_ref ON ordertable.id = order_article_ref.orderid
+                INNER JOIN order_article ON order_article_ref.orderArticleId = order_article.id
+                INNER JOIN article ON order_article.articleid = article.id
+                WHERE
+                    ordertable.reference = %s
+                    AND article.articlenumber IS NOT NULL
+                    AND article.articlenumber <> ''
+                    AND article.articlenumber NOT IN ({placeholders})
+                """,
+                [auftrag_name, *articlenumbers],
+            )
+            missing_cnt_row = cursor.fetchone() or {}
+            cursor.close()
+            with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
+                _f.write(
+                    json.dumps(
+                        {
+                            "sessionId": "debug-session",
+                            "runId": "run8",
+                            "hypothesisId": "MISSING_ERP",
+                            "location": "backend/app/services/erp_service.py:sync_project_orders",
+                            "message": "missing_articlenumbers_in_erp",
+                            "data": {
+                                "au_reference": auftrag_name,
+                                "missing_cnt": missing_cnt_row.get("missing_cnt"),
+                                "missing_sample": missing_sample,
+                            },
+                            "timestamp": int(time.time() * 1000),
+                        }
+                    )
+                    + "\n"
+                )
+        except Exception:
+            pass
+        # #endregion agent log
+
+        totals = {"total_orders": None, "no_articlenr": None}
+        missing_articlenr_count = None
+        missing_articlenr_sample = []
+        # #region agent log
+        try:
+            cursor = erp_connection.cursor(dictionary=True)
+            cursor.execute(
+                """
+                SELECT
+                    COUNT(*) AS total_orders,
+                    SUM(CASE WHEN a.articlenumber IS NULL OR a.articlenumber = '' THEN 1 ELSE 0 END) AS no_articlenr
+                FROM ordertable ot
+                INNER JOIN order_article_ref oar ON ot.id = oar.orderid
+                INNER JOIN order_article oa ON oar.orderArticleId = oa.id
+                LEFT JOIN article a ON oa.articleid = a.id
+                WHERE ot.reference = %s
+                """,
+                (auftrag_name,),
+            )
+            totals = cursor.fetchone() or totals
+            cursor.close()
+            with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
+                _f.write(json.dumps({
+                    "sessionId": "debug-session",
+                    "runId": "bn-sync-rows",
+                    "hypothesisId": "BN_ROWS",
+                    "location": "backend/app/services/erp_service.py:sync_project_orders",
+                    "message": "orders-total",
+                    "data": {
+                        "au_reference": auftrag_name,
+                        "total_orders": totals.get("total_orders"),
+                        "no_articlenr": totals.get("no_articlenr")
+                    },
+                    "timestamp": int(time.time() * 1000)
+                }) + "\n")
+        except Exception:
+            pass
+        # #endregion agent log
+
+        # Missing articlenumbers in project (ERP orders not covered by IN query)
+        try:
+            cursor = erp_connection.cursor(dictionary=True)
+            cursor.execute(
+                f"""
+                SELECT DISTINCT article.articlenumber AS Artikelnr
+                FROM ordertable
+                INNER JOIN order_article_ref ON ordertable.id = order_article_ref.orderid
+                INNER JOIN order_article ON order_article_ref.orderArticleId = order_article.id
+                INNER JOIN article ON order_article.articleid = article.id
+                WHERE
+                    ordertable.reference = %s
+                    AND article.articlenumber IS NOT NULL
+                    AND article.articlenumber <> ''
+                    AND article.articlenumber NOT IN ({placeholders})
+                LIMIT 5
+                """,
+                [auftrag_name, *articlenumbers],
+            )
+            missing_articlenr_sample = [r.get("Artikelnr") for r in (cursor.fetchall() or [])]
+            cursor.execute(
+                f"""
+                SELECT COUNT(DISTINCT article.articlenumber) AS missing_cnt
+                FROM ordertable
+                INNER JOIN order_article_ref ON ordertable.id = order_article_ref.orderid
+                INNER JOIN order_article ON order_article_ref.orderArticleId = order_article.id
+                INNER JOIN article ON order_article.articleid = article.id
+                WHERE
+                    ordertable.reference = %s
+                    AND article.articlenumber IS NOT NULL
+                    AND article.articlenumber <> ''
+                    AND article.articlenumber NOT IN ({placeholders})
+                """,
+                [auftrag_name, *articlenumbers],
+            )
+            missing_cnt_row = cursor.fetchone() or {}
+            missing_articlenr_count = missing_cnt_row.get("missing_cnt")
+            cursor.close()
+        except Exception:
+            pass
 
         def _to_int(v):
             if v is None or v == "":
@@ -416,6 +585,43 @@ async def sync_project_orders(project_id: int, db: Session) -> dict:
             return v
 
         created_count = 0
+        existing_article_numbers = set(articlenumbers)
+        bom_id = bom_id
+        project_bom_ids = []
+        try:
+            from app.models.bom import Bom
+            boms = (
+                db.query(Bom)
+                .filter(Bom.project_id == project_id)
+                .order_by(Bom.id.asc())
+                .all()
+            )
+            project_bom_ids = [b.id for b in boms]
+            if bom_id is None:
+                bom = boms[0] if boms else None
+                bom_id = bom.id if bom else None
+            # region agent log
+            try:
+                with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
+                    _f.write(
+                        json.dumps(
+                            {
+                                "sessionId": "debug-session",
+                                "runId": "run6",
+                                "hypothesisId": "BOM_ASSIGN",
+                                "location": "backend/app/services/erp_service.py:sync_project_orders",
+                                "message": "selected_bom",
+                                "data": {"project_id": project_id, "bom_id": bom_id},
+                                "timestamp": int(time.time() * 1000),
+                            }
+                        )
+                        + "\n"
+                    )
+            except Exception:
+                pass
+            # endregion agent log
+        except Exception:
+            bom_id = None
         for r in rows:
             try:
                 articlenr = (r.get("Artikelnr") or "").strip()
@@ -438,6 +644,280 @@ async def sync_project_orders(project_id: int, db: Session) -> dict:
             except Exception as e:
                 failed.append({"reason": str(e), "row": r})
 
+        manual_created = 0
+        no_art_rows_count = None
+        no_art_created = 0
+        no_art_skipped_existing_any = 0
+        no_art_skipped_existing_project = 0
+        # Create manual rows for orders without existing articles
+        for r in rows:
+            try:
+                articlenr = (r.get("Artikelnr") or "").strip()
+                if not articlenr:
+                    continue
+                if articlenr in existing_article_numbers:
+                    continue
+                a = Article(
+                    project_id=project_id,
+                    bom_id=bom_id,
+                    pos_nr=None,
+                    pos_sub=0,
+                    hg_artikelnummer=articlenr,
+                    benennung=None,
+                    konfiguration=None,
+                    teilenummer=None,
+                    menge=1,
+                    p_menge=None,
+                    teiletyp_fertigungsplan=None,
+                    abteilung_lieferant=None,
+                    werkstoff=None,
+                    werkstoff_nr=None,
+                    oberflaeche=None,
+                    oberflaechenschutz=None,
+                    farbe=None,
+                    lieferzeit=None,
+                    laenge=None,
+                    breite=None,
+                    hoehe=None,
+                    gewicht=None,
+                    pfad=None,
+                    sldasm_sldprt_pfad=None,
+                    slddrw_pfad=None,
+                    in_stueckliste_anzeigen=True,
+                    erp_exists=None,
+                )
+                db.add(a)
+                db.flush()
+                o = Order(
+                    article_id=a.id,
+                    hg_bnr=r.get("Auftrag"),
+                    bnr_status=r.get("Status"),
+                    bnr_menge=_to_int(r.get("Menge")),
+                    bestellkommentar=r.get("OrderText"),
+                    hg_lt=_to_date(r.get("LtHg")),
+                    bestaetigter_lt=_to_date(r.get("LtBestaetigt")),
+                )
+                db.add(o)
+                created_count += 1
+                manual_created += 1
+                synced.append({"article_id": a.id, "articlenumber": articlenr, "created_manual": True})
+            except Exception as e:
+                failed.append({"reason": str(e), "row": r})
+
+        # Create manual rows for orders without article number
+        try:
+            cursor = erp_connection.cursor(dictionary=True)
+            cursor.execute(
+                f"""
+                SELECT
+                    ordertable.name AS Auftrag,
+                    article.articlenumber AS Artikelnr,
+                    article_status.name AS Status,
+                    order_article_ref.batchsize AS Menge,
+                    ordertable.text AS OrderText,
+                    ordertable.date1 AS LtHg,
+                    ordertable.date2 AS LtBestaetigt
+                FROM ordertable
+                INNER JOIN order_article_ref ON ordertable.id = order_article_ref.orderid
+                INNER JOIN order_article ON order_article_ref.orderArticleId = order_article.id
+                LEFT JOIN article ON order_article.articleid = article.id
+                INNER JOIN article_status ON order_article.articlestatus = article_status.id
+                WHERE
+                    ordertable.reference = %s
+                    AND (
+                        article.articlenumber IS NULL
+                        OR article.articlenumber = ''
+                        OR article.articlenumber NOT IN ({placeholders})
+                    )
+                """,
+                [auftrag_name, *articlenumbers],
+            )
+            no_art_rows = cursor.fetchall() or []
+            no_art_rows_count = len(no_art_rows)
+            cursor.close()
+            # region agent log
+            try:
+                with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
+                    _f.write(
+                        json.dumps(
+                            {
+                                "sessionId": "debug-session",
+                                "runId": "run6",
+                                "hypothesisId": "NO_ART_ROWS",
+                                "location": "backend/app/services/erp_service.py:sync_project_orders",
+                                "message": "no_art_rows",
+                                "data": {"project_id": project_id, "count": len(no_art_rows)},
+                                "timestamp": int(time.time() * 1000),
+                            }
+                        )
+                        + "\n"
+                    )
+            except Exception:
+                pass
+            # endregion agent log
+
+            for r in no_art_rows:
+                try:
+                    # Avoid duplicate orders on repeated BN-Sync
+                    existing_order_project = (
+                        db.query(Order)
+                        .join(Article, Order.article_id == Article.id)
+                        .filter(
+                            Article.project_id == project_id,
+                            Order.hg_bnr == r.get("Auftrag"),
+                            Order.bnr_status == r.get("Status"),
+                            Order.bnr_menge == _to_int(r.get("Menge")),
+                            Order.bestellkommentar == r.get("OrderText"),
+                            Order.hg_lt == _to_date(r.get("LtHg")),
+                            Order.bestaetigter_lt == _to_date(r.get("LtBestaetigt")),
+                        )
+                        .first()
+                    )
+                    existing_order_project_bom = None
+                    if bom_id is not None:
+                        existing_order_project_bom = (
+                            db.query(Order)
+                            .join(Article, Order.article_id == Article.id)
+                            .filter(
+                                Article.project_id == project_id,
+                                Article.bom_id == bom_id,
+                                Order.hg_bnr == r.get("Auftrag"),
+                                Order.bnr_status == r.get("Status"),
+                                Order.bnr_menge == _to_int(r.get("Menge")),
+                                Order.bestellkommentar == r.get("OrderText"),
+                                Order.hg_lt == _to_date(r.get("LtHg")),
+                                Order.bestaetigter_lt == _to_date(r.get("LtBestaetigt")),
+                            )
+                            .first()
+                        )
+                    if existing_order_project_bom:
+                        no_art_skipped_existing_any += 1
+                        no_art_skipped_existing_project += 1
+                        # region agent log
+                        try:
+                            with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
+                                _f.write(
+                                    json.dumps(
+                                        {
+                                            "sessionId": "debug-session",
+                                            "runId": "run7",
+                                            "hypothesisId": "NO_ART_DEDUPE",
+                                            "location": "backend/app/services/erp_service.py:sync_project_orders",
+                                            "message": "skip_no_art_row_existing_order",
+                                            "data": {
+                                                "project_id": project_id,
+                                                "existing_order_project_id": existing_order_project.id if existing_order_project else None,
+                                                "existing_order_project_bom_id": existing_order_project_bom.id if existing_order_project_bom else None,
+                                                "row": {
+                                                    "Auftrag": r.get("Auftrag"),
+                                                    "Artikelnr": r.get("Artikelnr"),
+                                                    "Status": r.get("Status"),
+                                                    "Menge": r.get("Menge"),
+                                                    "OrderText": r.get("OrderText"),
+                                                    "LtHg": str(r.get("LtHg")),
+                                                    "LtBestaetigt": str(r.get("LtBestaetigt")),
+                                                },
+                                            },
+                                            "timestamp": int(time.time() * 1000),
+                                        }
+                                    )
+                                    + "\n"
+                                )
+                        except Exception:
+                            pass
+                        # endregion agent log
+                        continue
+
+                    a = Article(
+                        project_id=project_id,
+                        bom_id=bom_id,
+                        pos_nr=None,
+                        pos_sub=0,
+                        hg_artikelnummer=(r.get("Artikelnr") or None),
+                        benennung=None,
+                        konfiguration=None,
+                        teilenummer=None,
+                        menge=1,
+                        p_menge=None,
+                        teiletyp_fertigungsplan=None,
+                        abteilung_lieferant=None,
+                        werkstoff=None,
+                        werkstoff_nr=None,
+                        oberflaeche=None,
+                        oberflaechenschutz=None,
+                        farbe=None,
+                        lieferzeit=None,
+                        laenge=None,
+                        breite=None,
+                        hoehe=None,
+                        gewicht=None,
+                        pfad=None,
+                        sldasm_sldprt_pfad=None,
+                        slddrw_pfad=None,
+                        in_stueckliste_anzeigen=True,
+                        erp_exists=None,
+                    )
+                    db.add(a)
+                    db.flush()
+                    # region agent log
+                    try:
+                        with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
+                            _f.write(
+                                json.dumps(
+                                    {
+                                        "sessionId": "debug-session",
+                                        "runId": "run6",
+                                        "hypothesisId": "MANUAL_ROW",
+                                        "location": "backend/app/services/erp_service.py:sync_project_orders",
+                                        "message": "manual_row_created_no_art",
+                                        "data": {"project_id": project_id, "article_id": a.id, "bom_id": bom_id},
+                                        "timestamp": int(time.time() * 1000),
+                                    }
+                                )
+                                + "\n"
+                            )
+                    except Exception:
+                        pass
+                    # endregion agent log
+                    o = Order(
+                        article_id=a.id,
+                        hg_bnr=r.get("Auftrag"),
+                        bnr_status=r.get("Status"),
+                        bnr_menge=_to_int(r.get("Menge")),
+                        bestellkommentar=r.get("OrderText"),
+                        hg_lt=_to_date(r.get("LtHg")),
+                        bestaetigter_lt=_to_date(r.get("LtBestaetigt")),
+                    )
+                    db.add(o)
+                    created_count += 1
+                    manual_created += 1
+                    no_art_created += 1
+                    synced.append({"article_id": a.id, "articlenumber": None, "created_manual": True})
+                    # region agent log
+                    try:
+                        with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
+                            _f.write(
+                                json.dumps(
+                                    {
+                                        "sessionId": "debug-session",
+                                        "runId": "run7",
+                                        "hypothesisId": "NO_ART_CREATE",
+                                        "location": "backend/app/services/erp_service.py:sync_project_orders",
+                                        "message": "created_no_art_row",
+                                        "data": {"project_id": project_id, "article_id": a.id, "order_hg_bnr": r.get("Auftrag")},
+                                        "timestamp": int(time.time() * 1000),
+                                    }
+                                )
+                                + "\n"
+                            )
+                    except Exception:
+                        pass
+                    # endregion agent log
+                except Exception as e:
+                    failed.append({"reason": str(e), "row": r})
+        except Exception as e:
+            failed.append({"reason": f"Fehler beim Laden von Bestellungen ohne Artikelnummer: {e}"})
+
 
         db.commit()
     finally:
@@ -447,5 +927,17 @@ async def sync_project_orders(project_id: int, db: Session) -> dict:
         "synced": synced,
         "failed": failed,
         "synced_count": len(synced),
-        "failed_count": len(failed)
+        "failed_count": len(failed),
+        "total_orders": totals.get("total_orders"),
+        "no_articlenr": totals.get("no_articlenr"),
+        "missing_in_project_count": len(missing_in_project),
+        "manual_created": manual_created,
+        "debug_no_art_rows_count": no_art_rows_count,
+        "debug_no_art_created": no_art_created,
+        "debug_no_art_skipped_existing_any": no_art_skipped_existing_any,
+        "debug_no_art_skipped_existing_project": no_art_skipped_existing_project,
+        "debug_missing_articlenr_count": missing_articlenr_count,
+        "debug_missing_articlenr_sample": missing_articlenr_sample,
+        "debug_bom_id_used": bom_id,
+        "debug_project_bom_ids": project_bom_ids,
     }
