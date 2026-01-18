@@ -17,6 +17,10 @@ Diese Dokumentation fasst die in der Entwicklung entstandenen Plan‑Notizen zus
 - **DB**: MySQL (Docker‑Service `mysql`)
 - **SOLIDWORKS Connector**: separater Dienst auf Windows, vom Backend per HTTP angesprochen
 
+## Datenlogik (Kurzinfo)
+- **Projekt‑Key**: Projekte sind eindeutig über **Artikelnummer (`artikel_nr`)**.  
+  `au_nr` ist Zusatzinfo und darf mehrfach vorkommen.
+
 ### Docker Compose (wichtigste Ports)
 - Frontend: `3000`
 - Backend: `8000`

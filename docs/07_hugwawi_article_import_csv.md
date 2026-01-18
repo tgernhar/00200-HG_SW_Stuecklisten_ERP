@@ -6,7 +6,7 @@ Diese Funktion exportiert Artikel aus dem Stücklisten-ERP als **Import-CSV** f�
 Der Export ist so aufgebaut, dass er direkt in den HUGWAWI-Artikel-Import eingelesen werden kann.
 
 ## UI
-Im Projektkopf (Header) gibt es den Button **„Export“**. Dieser lädt die CSV-Datei herunter.
+Im Projektkopf (Header) gibt es den Button **„ERP-Artikel-Export“**. Dieser lädt die CSV-Datei herunter.
 
 ## Backend Endpoint
 - `GET /api/projects/{project_id}/export-hugwawi-articles-csv`
@@ -16,7 +16,7 @@ Es werden **nur Artikel exportiert, die im ERP fehlen**:
 - `articles.erp_exists = false`
 - `hg_artikelnummer` ist gesetzt und nicht `"-"`
 
-Hinweis: `erp_exists` wird durch den Artikelnummer-Abgleich gepflegt (**ERP-Abgleich** Button).
+Hinweis: `erp_exists` wird durch den Artikelnummer-Abgleich gepflegt (**Artikel-Sync** Button).
 
 ### Export mit Auswahl (Checkboxen im Grid)
 Wenn im Grid Zeilen ausgewählt sind, sendet das Frontend zusätzlich den Query‑Parameter:
@@ -73,7 +73,7 @@ Die Header-Reihenfolge ist fest in `backend/app/services/hugwawi_csv_export.py` 
 - **DIN/EN/ISO/EN-ISO**: leer (nicht NULL)
 
 ## Troubleshooting
-- **CSV leer**: dann sind entweder keine Artikel im Projekt oder `erp_exists` wurde noch nicht gesetzt. Erst **ERP-Abgleich** ausführen.
+- **CSV leer**: dann sind entweder keine Artikel im Projekt oder `erp_exists` wurde noch nicht gesetzt. Erst **Artikel-Sync** ausführen.
 - **Abteilung wird nicht übernommen**: wenn `abteilung_lieferant` nicht exakt einem erlaubten Namen entspricht, wird auf **03 Auswärtsfertigung** gesetzt.
 - **Encoding-Probleme (Umlaute)**: Export ist Windows-1252 (cp1252). Falls euer HUGWAWI-Import irgendwann UTF-8 sauber unterstützt, kann der Export wieder umgestellt werden.
 

@@ -1,7 +1,7 @@
 /**
  * Article Grid Component (AG Grid)
  */
-import React, { useMemo, useCallback, useRef, useState } from 'react'
+import React, { useMemo, useCallback, useRef, useState, useEffect } from 'react'
 import { AgGridReact } from 'ag-grid-react'
 import { ColDef, ColGroupDef, ICellRendererParams } from 'ag-grid-community'
 import 'ag-grid-community/styles/ag-grid.css'
@@ -13,17 +13,28 @@ import api from '../services/api'
 interface ArticleGridProps {
   articles: Article[]
   projectId?: number | null
+  selectlists?: {
+    departments: string[]
+    werkstoff: string[]
+    werkstoff_nr: string[]
+    oberflaeche: string[]
+    oberflaechenschutz: string[]
+    farbe: string[]
+    lieferzeit: string[]
+  }
   onCellValueChanged?: (params: any) => void
   onOpenOrders?: (article: Article) => void
   onSelectionChanged?: (selected: Article[]) => void
   onAfterBulkUpdate?: () => void
 }
 
-export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, onCellValueChanged, onOpenOrders, onSelectionChanged, onAfterBulkUpdate }) => {
+export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, selectlists, onCellValueChanged, onOpenOrders, onSelectionChanged, onAfterBulkUpdate }) => {
   const apiBaseUrl = (api as any)?.defaults?.baseURL || ''
   const gridApiRef = useRef<any>(null)
   const gridColumnApiRef = useRef<any>(null)
   const [showHidden, setShowHidden] = useState(false)
+  const [showBestellinfo, setShowBestellinfo] = useState(true)
+  const [showDokumentstatus, setShowDokumentstatus] = useState(true)
   // #region agent log
   const _agentLog = useCallback((location: string, message: string, data: any) => {
     try {
@@ -92,6 +103,81 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, o
     if (!Number.isFinite(n)) return null
     return Math.trunc(n)
   }, [])
+
+  const makeSelectEditorParams = useCallback((values: string[]) => {
+    return (params: any) => {
+      const current = params?.value ? String(params.value) : ''
+      const list = Array.isArray(values) ? values.slice() : []
+      if (current && !list.includes(current)) list.push(current)
+      return {
+        values: list,
+        allowTyping: true,
+        filterList: true,
+        highlightMatch: true,
+        cellHeight: 28
+      }
+    }
+  }, [])
+
+  const deptValues = selectlists?.departments || []
+  const werkstoffValues = selectlists?.werkstoff || []
+  const werkstoffNrValues = selectlists?.werkstoff_nr || []
+  const oberflaecheValues = selectlists?.oberflaeche || []
+  const oberflaechenschutzValues = selectlists?.oberflaechenschutz || []
+  const farbeValues = selectlists?.farbe || []
+  const lieferzeitValues = selectlists?.lieferzeit || []
+
+  const bestellinfoFields = [
+    'hg_bnr',
+    'bnr_status',
+    'bnr_menge',
+    'bestellkommentar',
+    'hg_lt',
+    'bestaetigter_lt',
+    'orders_button'
+  ]
+
+  const dokumentstatusFields = [
+    'pdf_drucken',
+    'pdf_format',
+    'pdf',
+    'pdf_bestell_pdf',
+    'dxf',
+    'bestell_dxf',
+    'sw_part_asm',
+    'sw_drw',
+    'step',
+    'x_t',
+    'stl',
+    'esp',
+    'bn_ab'
+  ]
+
+  useEffect(() => {
+    const api = gridColumnApiRef.current
+    if (!api) return
+    api.setColumnsVisible(bestellinfoFields, showBestellinfo)
+  }, [showBestellinfo])
+
+  useEffect(() => {
+    const api = gridColumnApiRef.current
+    if (!api) return
+    api.setColumnsVisible(dokumentstatusFields, showDokumentstatus)
+  }, [showDokumentstatus])
+
+  useEffect(() => {
+    // #region agent log
+    _agentLog('ArticleGrid.tsx:selectlists', 'sizes', {
+      departments: deptValues.length,
+      werkstoff: werkstoffValues.length,
+      werkstoff_nr: werkstoffNrValues.length,
+      oberflaeche: oberflaecheValues.length,
+      oberflaechenschutz: oberflaechenschutzValues.length,
+      farbe: farbeValues.length,
+      lieferzeit: lieferzeitValues.length
+    })
+    // #endregion agent log
+  }, [deptValues, werkstoffValues, werkstoffNrValues, oberflaecheValues, oberflaechenschutzValues, farbeValues, lieferzeitValues, _agentLog])
 
   const getDisplayedColumns = useCallback((gridApi: any) => {
     try {
@@ -260,6 +346,7 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, o
         { field: 'bestaetigter_lt', headerName: 'Bestätigter LT', width: 120, editable: false },
         {
           headerName: 'Bestellungen',
+          colId: 'orders_button',
           width: 110,
           editable: false,
           sortable: false,
@@ -416,7 +503,7 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, o
     {
       headerName: 'Stücklisteninformationen',
       children: [
-        { field: 'pos_nr_display', headerName: 'Pos-Nr', width: 80, editable: false },
+        { field: 'pos_nr_display', headerName: 'Pos-Nr', width: 80, editable: false, headerClass: 'rotated-header' },
         { 
           field: 'hg_artikelnummer', 
           headerName: 'H+G Artikelnummer', 
@@ -432,13 +519,13 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, o
         { field: 'menge', headerName: 'Menge (SW)', width: 90, editable: false, hide: true },
         { field: 'p_menge', headerName: 'P-Menge', width: 90, editable: true, valueParser: (p) => parseOptionalInt(p.newValue) },
         { field: 'teiletyp_fertigungsplan', headerName: 'Teiletyp/Fertigungsplan', width: 180, editable: true, maxLength: 150 },
-        { field: 'abteilung_lieferant', headerName: 'Abteilung / Lieferant', width: 150, editable: true, maxLength: 150 },
-        { field: 'werkstoff', headerName: 'Werkstoff', width: 120, editable: true, maxLength: 150 },
-        { field: 'werkstoff_nr', headerName: 'Werkstoff-Nr.', width: 120, editable: true, maxLength: 150 },
-        { field: 'oberflaeche', headerName: 'Oberfläche', width: 120, editable: true, maxLength: 150 },
-        { field: 'oberflaechenschutz', headerName: 'Oberflächenschutz', width: 150, editable: true, maxLength: 150 },
-        { field: 'farbe', headerName: 'Farbe', width: 100, editable: true, maxLength: 150 },
-        { field: 'lieferzeit', headerName: 'Lieferzeit', width: 100, editable: true, maxLength: 150 },
+        { field: 'abteilung_lieferant', headerName: 'Abteilung / Lieferant', width: 150, editable: true, maxLength: 150, cellEditor: 'agRichSelectCellEditor', cellEditorPopup: true, cellEditorParams: makeSelectEditorParams(deptValues) },
+        { field: 'werkstoff', headerName: 'Werkstoff-Nr.', width: 120, editable: true, maxLength: 150, cellEditor: 'agRichSelectCellEditor', cellEditorPopup: true, cellEditorParams: makeSelectEditorParams(werkstoffValues) },
+        { field: 'werkstoff_nr', headerName: 'Werkstoff', width: 120, editable: true, maxLength: 150, cellEditor: 'agRichSelectCellEditor', cellEditorPopup: true, cellEditorParams: makeSelectEditorParams(werkstoffNrValues) },
+        { field: 'oberflaeche', headerName: 'Oberfläche', width: 120, editable: true, maxLength: 150, cellEditor: 'agRichSelectCellEditor', cellEditorPopup: true, cellEditorParams: makeSelectEditorParams(oberflaecheValues) },
+        { field: 'oberflaechenschutz', headerName: 'Oberflächenschutz', width: 150, editable: true, maxLength: 150, cellEditor: 'agRichSelectCellEditor', cellEditorPopup: true, cellEditorParams: makeSelectEditorParams(oberflaechenschutzValues) },
+        { field: 'farbe', headerName: 'Farbe', width: 100, editable: true, maxLength: 150, cellEditor: 'agRichSelectCellEditor', cellEditorPopup: true, cellEditorParams: makeSelectEditorParams(farbeValues) },
+        { field: 'lieferzeit', headerName: 'Lieferzeit', width: 100, editable: true, maxLength: 150, cellEditor: 'agRichSelectCellEditor', cellEditorPopup: true, cellEditorParams: makeSelectEditorParams(lieferzeitValues) },
         { field: 'laenge', headerName: 'Länge', width: 100, editable: true, valueParser: (p) => parseOptionalNumber(p.newValue) },
         { field: 'breite', headerName: 'Breite', width: 100, editable: true, valueParser: (p) => parseOptionalNumber(p.newValue) },
         { field: 'hoehe', headerName: 'Höhe', width: 100, editable: true, valueParser: (p) => parseOptionalNumber(p.newValue) },
@@ -449,7 +536,21 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, o
         { field: 'in_stueckliste_anzeigen', headerName: 'In Stückliste anzeigen', width: 120, editable: true, cellRenderer: 'agCheckboxCellRenderer' }
       ]
     }
-  ], [articleNumberCellRenderer, makeDocRenderer, parseOptionalInt, parseOptionalNumber, onOpenOrders])
+  ], [
+    articleNumberCellRenderer,
+    makeDocRenderer,
+    makeSelectEditorParams,
+    parseOptionalInt,
+    parseOptionalNumber,
+    onOpenOrders,
+    deptValues,
+    werkstoffValues,
+    werkstoffNrValues,
+    oberflaecheValues,
+    oberflaechenschutzValues,
+    farbeValues,
+    lieferzeitValues
+  ])
 
   const defaultColDef = useMemo<ColDef>(() => ({
     resizable: true,
@@ -594,6 +695,16 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, o
     onGridReady: (params: any) => {
       gridApiRef.current = params?.api
       gridColumnApiRef.current = params?.columnApi
+      try {
+        params?.columnApi?.setColumnsVisible?.(bestellinfoFields, showBestellinfo)
+        params?.columnApi?.setColumnsVisible?.(dokumentstatusFields, showDokumentstatus)
+      } catch {}
+      // #region agent log
+      _agentLog('ArticleGrid.tsx:gridReady', 'editor-check', {
+        hasRichSelect: !!(params?.api?.getCellEditorInstances?.()),
+        columns: (params?.columnApi?.getAllColumns?.() || []).length
+      })
+      // #endregion agent log
     }
   }
 
@@ -739,6 +850,22 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, o
             }}
           />
           Ausgeblendete anzeigen
+        </label>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <input
+            type="checkbox"
+            checked={showBestellinfo}
+            onChange={(e) => setShowBestellinfo(!!e.target.checked)}
+          />
+          Bestellinformationen
+        </label>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <input
+            type="checkbox"
+            checked={showDokumentstatus}
+            onChange={(e) => setShowDokumentstatus(!!e.target.checked)}
+          />
+          Dokumentstatus
         </label>
         <span style={{ fontWeight: 700 }}>Legende Dokumentenstatus:</span>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>

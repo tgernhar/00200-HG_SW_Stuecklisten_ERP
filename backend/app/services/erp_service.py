@@ -149,6 +149,47 @@ def get_bestellartikel_templates_by_ids(template_ids: list[int], db_connection) 
         cursor.close()
 
 
+def list_departments(db_connection) -> list[dict]:
+    """
+    Listet Abteilungen aus HUGWAWI (department.name).
+    """
+    cursor = db_connection.cursor(dictionary=True)
+    try:
+        cursor.execute(
+            """
+            SELECT id, name
+            FROM department
+            WHERE name IS NOT NULL AND name <> ''
+            ORDER BY name ASC
+            """
+        )
+        return cursor.fetchall() or []
+    finally:
+        cursor.close()
+
+
+def list_selectlist_values(selectlist_id: int, db_connection) -> list[dict]:
+    """
+    Listet Selectlist-Werte aus HUGWAWI für eine gegebene selectlist (article_selectlist_value.value).
+    """
+    cursor = db_connection.cursor(dictionary=True)
+    try:
+        cursor.execute(
+            """
+            SELECT v.id, v.value
+            FROM article_selectlist_value v
+            INNER JOIN article_selectlist s ON v.article_selectlist_id = s.id
+            WHERE s.selectlist = %s
+              AND v.value IS NOT NULL AND v.value <> ''
+            ORDER BY v.value ASC
+            """,
+            (int(selectlist_id),),
+        )
+        return cursor.fetchall() or []
+    finally:
+        cursor.close()
+
+
 async def check_all_articlenumbers(project_id: int, db: Session) -> dict:
     """
     Batch-Prüfung aller Artikelnummern im ERP

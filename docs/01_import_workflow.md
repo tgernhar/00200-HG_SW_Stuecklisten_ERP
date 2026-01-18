@@ -1,19 +1,20 @@
 # Import‑Workflow (Hauptseite)
 
 ## Ziel
-Statt zuerst ein Projekt auszuwählen, startet der Nutzer direkt über ein Formular:
-- **Auftragsnummer (AU‑Nr)** eingeben
-- **Pfad zur SolidWorks‑Baugruppe** (Assembly) eingeben
-- Import aus SOLIDWORKS starten → Daten werden in MySQL gespeichert → Artikel werden angezeigt
+Import startet über AU‑Nr und Artikel‑Auswahl. Projekte werden **eindeutig über die Artikelnummer** geführt; AU‑Nr ist Zusatzinfo.
 
 ## Frontend‑Flow
 Implementiert in `frontend/src/App.tsx`:
-1. Nutzer gibt AU‑Nr und Assembly‑Pfad ein.
-2. Frontend erzeugt Projekt:
-   - `POST /api/projects` mit `au_nr` und `project_path`
-3. Frontend triggert Import:
-   - `POST /api/projects/{project_id}/import-solidworks?assembly_filepath=...`
-4. Danach wird die Artikelliste neu geladen und im Grid angezeigt.
+1. Nutzer gibt AU‑Nr ein.
+2. Frontend lädt HUGWAWI‑Artikel zum Auftrag:
+   - `GET /api/hugwawi/orders/{au_nr}/articles`
+3. Nutzer wählt Artikelnummer (oder **„Neue Artikelnummer von Hand eingeben“**).
+4. Frontend erzeugt/öffnet Projekt:
+   - `POST /api/projects` mit `artikel_nr` (Pflicht) + optional `au_nr` + `project_path`
+5. Frontend erzeugt BOM und importiert:
+   - `POST /api/projects/{project_id}/boms`
+   - `POST /api/projects/{project_id}/boms/{bom_id}/import-solidworks?assembly_filepath=...`
+6. Artikelliste wird neu geladen und im Grid angezeigt.
 
 ### Hinweis zu „Datei auswählen“
 Browser liefern aus Sicherheitsgründen **keinen vollständigen Pfad** über den File‑Dialog. Daher ist die **manuelle Pfad‑Eingabe** weiterhin notwendig, wenn der Backend‑Import den echten Pfad braucht.

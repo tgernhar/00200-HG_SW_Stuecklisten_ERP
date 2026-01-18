@@ -40,3 +40,33 @@ async def get_bestellartikel_templates():
     finally:
         erp.close()
 
+
+@router.get("/hugwawi/departments")
+async def get_hugwawi_departments():
+    """
+    Liefert Abteilungen aus HUGWAWI (department.name).
+    """
+    from app.services.erp_service import list_departments
+
+    erp = get_erp_db_connection()
+    try:
+        rows = list_departments(erp)
+        return {"items": rows, "count": len(rows)}
+    finally:
+        erp.close()
+
+
+@router.get("/hugwawi/selectlist-values/{selectlist_id}")
+async def get_hugwawi_selectlist_values(selectlist_id: int):
+    """
+    Liefert Selectlist-Werte aus HUGWAWI (article_selectlist_value.value) für eine selectlist.
+    """
+    from app.services.erp_service import list_selectlist_values
+
+    erp = get_erp_db_connection()
+    try:
+        rows = list_selectlist_values(selectlist_id, erp)
+        return {"items": rows, "count": len(rows)}
+    finally:
+        erp.close()
+

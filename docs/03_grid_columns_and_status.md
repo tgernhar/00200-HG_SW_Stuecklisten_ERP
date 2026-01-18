@@ -37,6 +37,28 @@ Viele Spalten sind reine Status-/Existenzfelder und daher nicht editierbar. Edit
 Es gibt die Spalte **`in_stueckliste_anzeigen`** (Checkbox). Zusätzlich gibt es im Grid eine Aktion:
 - **„Auswahl ausblenden“**: setzt für die aktuell markierten Zeilen `in_stueckliste_anzeigen=false`.
 
+## Block-Toggles (UI)
+In der Grid‑Toolbar gibt es zwei Schalter:
+- **Bestellinformationen** (Block A) ein/ausblenden
+- **Dokumentstatus** (Block B) ein/ausblenden
+
+Standard: beide sichtbar.
+
+## Pos‑Nr Header (Rotation)
+Der Spaltenkopf **Pos‑Nr** ist wie die Dokumentstatus‑Spalten um 90° gedreht, damit mehr Platz im Grid entsteht.
+
+## Selectlists (mit Freitext)
+Für folgende Felder wird eine HUGWAWI‑Selectlist geladen; **manuelle Eingaben bleiben erlaubt**:
+- `abteilung_lieferant` ← `department.name`
+- `werkstoff` (Selectlist 17)
+- `werkstoff_nr` (Selectlist 15)
+- `oberflaeche` (Selectlist 18)
+- `oberflaechenschutz` (Selectlist 21)
+- `farbe` (Selectlist 19)
+- `lieferzeit` (Selectlist 22)
+
+Hinweis: Im Grid wurden die **Headertexte** für „Werkstoff“ und „Werkstoff‑Nr“ getauscht, die Daten bleiben unverändert.
+
 Wichtig: Das Ausblenden wirkt **nur im UI/Grid**. Die Datensätze bleiben in der DB erhalten und werden von Export/Prüfungen weiterhin berücksichtigt.
 
 ## Tastatur‑Navigation & Inline‑Editing

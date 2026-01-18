@@ -29,6 +29,8 @@ function App() {
   const [ordersArticleId, setOrdersArticleId] = useState<number | null>(null)
   const [ordersArticleNumber, setOrdersArticleNumber] = useState<string | undefined>(undefined)
   const [selectedArticles, setSelectedArticles] = useState<Article[]>([])
+  const [departments, setDepartments] = useState<string[]>([])
+  const [selectlistValues, setSelectlistValues] = useState<Record<number, string[]>>({})
 
   const [hugwawiItems, setHugwawiItems] = useState<HugwawiOrderArticleItem[]>([])
   const [showHugwawiPicker, setShowHugwawiPicker] = useState(false)
@@ -65,6 +67,54 @@ function App() {
       const raw = window.localStorage.getItem('lastProjectId')
       if (raw) setLastProjectId(Number(raw))
     } catch {}
+  }, [])
+
+  useEffect(() => {
+    const loadSelectlists = async () => {
+      try {
+        const [deptResp, w17, w15, w18, w21, w19, w22] = await Promise.all([
+          api.get('/hugwawi/departments'),
+          api.get('/hugwawi/selectlist-values/17'),
+          api.get('/hugwawi/selectlist-values/15'),
+          api.get('/hugwawi/selectlist-values/18'),
+          api.get('/hugwawi/selectlist-values/21'),
+          api.get('/hugwawi/selectlist-values/19'),
+          api.get('/hugwawi/selectlist-values/22')
+        ])
+
+        const deptItems = (deptResp?.data?.items || []) as Array<{ name?: string }>
+        setDepartments(deptItems.map((d) => String(d.name || '')).filter(Boolean))
+
+        const toValues = (resp: any) =>
+          (resp?.data?.items || []).map((v: any) => String(v.value || '')).filter(Boolean)
+
+        setSelectlistValues({
+          17: toValues(w17),
+          15: toValues(w15),
+          18: toValues(w18),
+          21: toValues(w21),
+          19: toValues(w19),
+          22: toValues(w22)
+        })
+        // #region agent log
+        _log('App.tsx:selectlists', 'loaded', {
+          departments: deptItems.length,
+          v17: (w17?.data?.items || []).length,
+          v15: (w15?.data?.items || []).length,
+          v18: (w18?.data?.items || []).length,
+          v21: (w21?.data?.items || []).length,
+          v19: (w19?.data?.items || []).length,
+          v22: (w22?.data?.items || []).length
+        })
+        // #endregion agent log
+      } catch (e) {
+        // #region agent log
+        _log('App.tsx:selectlists', 'error', { message: (e as any)?.message || String(e) })
+        // #endregion agent log
+        // still allow manual input
+      }
+    }
+    loadSelectlists()
   }, [])
 
   const loadProjects = async (params?: { au_nr?: string; artikel_nr?: string }) => {
@@ -1060,6 +1110,15 @@ function App() {
               <ArticleGrid 
                 articles={articles} 
                 projectId={project?.id}
+                selectlists={{
+                  departments,
+                  werkstoff: selectlistValues[17] || [],
+                  werkstoff_nr: selectlistValues[15] || [],
+                  oberflaeche: selectlistValues[18] || [],
+                  oberflaechenschutz: selectlistValues[21] || [],
+                  farbe: selectlistValues[19] || [],
+                  lieferzeit: selectlistValues[22] || []
+                }}
                 onCellValueChanged={handleCellValueChanged}
                 onOpenOrders={handleOpenOrders}
                 onSelectionChanged={(sel) => setSelectedArticles(sel)}
