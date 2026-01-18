@@ -4,9 +4,11 @@ Diese Dokumentation fasst die in der Entwicklung entstandenen Plan‑Notizen zus
 
 ## Inhalt
 - [Import‑Workflow](01_import_workflow.md)
+- [SOLIDWORKS Custom Properties: Import & Zurückschreiben](06_solidworks_custom_properties.md)
 - [Dokumentenprüfung](02_documents_check.md)
 - [Grid: Spalten & Dokumentstatus](03_grid_columns_and_status.md)
 - [Dokument‑Export](05_document_export.md)
+- [HUGWAWI Artikel-Import CSV](07_hugwawi_article_import_csv.md)
 - [Drucken](04_printing.md)
 
 ## Architektur (Kurzüberblick)

@@ -87,7 +87,9 @@ export const DocumentStatusRenderer: React.FC<DocumentStatusProps> = ({ value, e
       onClick={handleClick}
       style={{
         ...getStyle(),
-        padding: '2px',
+        padding: '0px',
+        fontSize: '12px',
+        lineHeight: '13px',
         textAlign: 'center',
         cursor: exists ? 'pointer' : 'default',
         userSelect: 'none'

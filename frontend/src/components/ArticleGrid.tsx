@@ -15,9 +15,10 @@ interface ArticleGridProps {
   projectId?: number | null
   onCellValueChanged?: (params: any) => void
   onOpenOrders?: (article: Article) => void
+  onSelectionChanged?: (selected: Article[]) => void
 }
 
-export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, onCellValueChanged, onOpenOrders }) => {
+export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, onCellValueChanged, onOpenOrders, onSelectionChanged }) => {
   const apiBaseUrl = (api as any)?.defaults?.baseURL || ''
   const gridApiRef = useRef<any>(null)
   const gridColumnApiRef = useRef<any>(null)
@@ -213,12 +214,15 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, o
       headerName: '',
       field: '__select__',
       width: 42,
+      minWidth: 42,
+      maxWidth: 42,
       pinned: 'left',
       lockPinned: true,
       resizable: false,
       sortable: false,
       filter: false,
       editable: false,
+      suppressSizeToFit: true,
       checkboxSelection: true,
       headerCheckboxSelection: true,
       headerCheckboxSelectionFilteredOnly: true
@@ -252,7 +256,9 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, o
                   if (a && onOpenOrders) onOpenOrders(a)
                 },
                 style: {
-                  padding: '4px 8px',
+                  padding: '2px 6px',
+                  fontSize: '11px',
+                  lineHeight: '12px',
                   borderRadius: 6,
                   border: '1px solid #ddd',
                   background: disabled ? '#f3f3f3' : '#fff',
@@ -270,24 +276,26 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, o
       headerName: 'Dokumentstatus',
       headerClass: 'rotated-header-group',
       children: [
-        { field: 'pdf_drucken', headerName: 'PDF Drucken', width: 80, editable: true, headerClass: 'rotated-header' },
-        { field: 'pdf_format', headerName: 'PDF Format', width: 85, editable: false, headerClass: 'rotated-header' },
+        { field: 'pdf_drucken', headerName: 'PDF Drucken', width: 45, editable: true, headerClass: 'rotated-header' },
+        { field: 'pdf_format', headerName: 'PDF Format', width: 45, editable: false, headerClass: 'rotated-header' },
         { 
           field: 'pdf', 
           headerName: 'PDF', 
-          width: 65,
-          minWidth: 55,
-          maxWidth: 75,
+          headerTooltip: 'PDF',
+          width: 45,
+          minWidth: 45,
+          maxWidth: 45,
           editable: true, 
           headerClass: 'rotated-header',
           cellRenderer: makeDocRenderer({ existsField: 'pdf_exists', pathField: 'pdf_path', openMode: 'openPdf' })
         },
         {
           field: 'pdf_bestell_pdf',
-          headerName: 'Bestell_PDF',
-          width: 65,
-          minWidth: 55,
-          maxWidth: 75,
+          headerName: 'B-PDF',
+          headerTooltip: 'Bestell_PDF',
+          width: 45,
+          minWidth: 45,
+          maxWidth: 45,
           editable: true,
           headerClass: 'rotated-header',
           cellRenderer: makeDocRenderer({ existsField: 'pdf_bestell_pdf_exists', pathField: 'pdf_bestell_pdf_path', openMode: 'openPdf' })
@@ -295,39 +303,43 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, o
         {
           field: 'dxf',
           headerName: 'DXF',
-          width: 65,
-          minWidth: 55,
-          maxWidth: 75,
+          headerTooltip: 'DXF',
+          width: 45,
+          minWidth: 45,
+          maxWidth: 45,
           editable: true,
           headerClass: 'rotated-header',
           cellRenderer: makeDocRenderer({ existsField: 'dxf_exists', pathField: 'dxf_path', openMode: 'openSwDir' })
         },
         {
           field: 'bestell_dxf',
-          headerName: 'Bestell_DXF',
-          width: 65,
-          minWidth: 55,
-          maxWidth: 75,
+          headerName: 'B-DXF',
+          headerTooltip: 'Bestell_DXF',
+          width: 45,
+          minWidth: 45,
+          maxWidth: 45,
           editable: true,
           headerClass: 'rotated-header',
           cellRenderer: makeDocRenderer({ existsField: 'bestell_dxf_exists', pathField: 'bestell_dxf_path', openMode: 'openSwDir' })
         },
         {
           field: 'sw_part_asm',
-          headerName: 'SW_Part_ASM',
-          width: 65,
-          minWidth: 55,
-          maxWidth: 75,
+          headerName: 'ASM',
+          headerTooltip: 'SW_Part_ASM',
+          width: 45,
+          minWidth: 45,
+          maxWidth: 45,
           editable: false,
           headerClass: 'rotated-header',
           cellRenderer: makeDocRenderer({ existsField: 'sw_part_asm_exists', pathField: 'sw_part_asm_path', openMode: 'openSwDir' })
         },
         {
           field: 'sw_drw',
-          headerName: 'SW_DRW',
-          width: 65,
-          minWidth: 55,
-          maxWidth: 75,
+          headerName: 'DRW',
+          headerTooltip: 'SW_DRW',
+          width: 45,
+          minWidth: 45,
+          maxWidth: 45,
           editable: false,
           headerClass: 'rotated-header',
           cellRenderer: makeDocRenderer({ existsField: 'sw_drw_exists', pathField: 'sw_drw_path', openMode: 'openSwDir' })
@@ -335,9 +347,10 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, o
         {
           field: 'step',
           headerName: 'STEP',
-          width: 65,
-          minWidth: 55,
-          maxWidth: 75,
+          headerTooltip: 'STEP',
+          width: 45,
+          minWidth: 45,
+          maxWidth: 45,
           editable: true,
           headerClass: 'rotated-header',
           cellRenderer: makeDocRenderer({ existsField: 'step_exists', pathField: 'step_path', openMode: 'openSwDir' })
@@ -345,9 +358,10 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, o
         {
           field: 'x_t',
           headerName: 'X_T',
-          width: 65,
-          minWidth: 55,
-          maxWidth: 75,
+          headerTooltip: 'X_T',
+          width: 45,
+          minWidth: 45,
+          maxWidth: 45,
           editable: true,
           headerClass: 'rotated-header',
           cellRenderer: makeDocRenderer({ existsField: 'x_t_exists', pathField: 'x_t_path', openMode: 'openSwDir' })
@@ -355,9 +369,10 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, o
         {
           field: 'stl',
           headerName: 'STL',
-          width: 65,
-          minWidth: 55,
-          maxWidth: 75,
+          headerTooltip: 'STL',
+          width: 45,
+          minWidth: 45,
+          maxWidth: 45,
           editable: true,
           headerClass: 'rotated-header',
           cellRenderer: makeDocRenderer({ existsField: 'stl_exists', pathField: 'stl_path', openMode: 'openSwDir' })
@@ -365,14 +380,15 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, o
         {
           field: 'esp',
           headerName: 'ESP',
-          width: 65,
-          minWidth: 55,
-          maxWidth: 75,
+          headerTooltip: 'ESP',
+          width: 45,
+          minWidth: 45,
+          maxWidth: 45,
           editable: false,
           headerClass: 'rotated-header',
           cellRenderer: makeDocRenderer({ existsField: 'esp_exists', pathField: 'esp_path', openMode: 'openSwDir' })
         },
-        { field: 'bn_ab', headerName: 'BN-AB', width: 100, editable: true, headerClass: 'rotated-header' }
+        { field: 'bn_ab', headerName: 'BN-AB', width: 50, editable: true, headerClass: 'rotated-header' }
       ]
     },
     // Block C: Stücklisteninformationen
@@ -383,13 +399,14 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, o
         { 
           field: 'hg_artikelnummer', 
           headerName: 'H+G Artikelnummer', 
-          width: 150, 
+          width: 260,
+          minWidth: 220,
           editable: true,
           cellEditor: 'agTextCellEditor',
           cellRenderer: articleNumberCellRenderer
         },
-        { field: 'benennung', headerName: 'BENENNUNG', width: 200, editable: false },
-        { field: 'konfiguration', headerName: 'Konfiguration', width: 150, editable: false },
+        { field: 'benennung', headerName: 'Bezeichnung', width: 280, editable: false },
+        { field: 'konfiguration', headerName: 'Konfiguration', width: 60, editable: false },
         { field: 'teilenummer', headerName: 'Teilenummer', width: 140, editable: true, cellEditor: 'agTextCellEditor' },
         { field: 'menge', headerName: 'Menge (SW)', width: 90, editable: false, hide: true },
         { field: 'p_menge', headerName: 'P-Menge', width: 90, editable: true, valueParser: (p) => parseOptionalInt(p.newValue) },
@@ -433,8 +450,9 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, o
     stopEditingWhenCellsLoseFocus: true,
     enterNavigatesVertically: false,
     enterNavigatesVerticallyAfterEdit: false,
-    rowHeight: 35,
-    headerHeight: 120, // Erhöht für 90° gedrehte Überschriften in Block B
+    rowHeight: 26,
+    groupHeaderHeight: 40,
+    headerHeight: 120, // Spalten-Header hoch genug für rotierte Dokumentstatus-Header
     onCellValueChanged: onCellValueChanged,
     // Allow user to show/hide columns like "Menge (SW)"
     sideBar: 'columns',
@@ -558,6 +576,12 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, o
     }
   }
 
+  const handleSelectionChanged = useCallback(() => {
+    const gridApi = gridApiRef.current
+    const selected = (gridApi?.getSelectedRows?.() || []) as Article[]
+    if (onSelectionChanged) onSelectionChanged(selected)
+  }, [onSelectionChanged])
+
   const handlePushSelectedToSolidworks = useCallback(async () => {
     const gridApi = gridApiRef.current
     const pid = projectId ?? null
@@ -621,9 +645,23 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, o
           columnDefs={columnDefs}
           defaultColDef={defaultColDef}
           gridOptions={gridOptions}
+          onSelectionChanged={handleSelectionChanged}
+          onFirstDataRendered={() => {
+            try {
+              gridColumnApiRef.current?.autoSizeColumn?.('hg_artikelnummer')
+            } catch {}
+          }}
+          onRowDataUpdated={() => {
+            try {
+              gridColumnApiRef.current?.autoSizeColumn?.('hg_artikelnummer')
+            } catch {}
+          }}
         />
       </div>
       <style>{`
+        .ag-theme-alpine {
+          --ag-font-size: 12px;
+        }
         .rotated-header {
           writing-mode: vertical-rl;
           text-orientation: mixed;
@@ -633,8 +671,16 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, o
           justify-content: center;
           white-space: nowrap;
         }
+        .rotated-header .ag-header-cell-label {
+          justify-content: center;
+        }
+        .rotated-header .ag-header-cell-text {
+          font-weight: 600;
+          font-size: 12px;
+          letter-spacing: 0.2px;
+        }
         .rotated-header-group {
-          height: 120px;
+          height: 40px;
         }
       `}</style>
     </div>

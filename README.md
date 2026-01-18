@@ -65,6 +65,7 @@ Der SOLIDWORKS-Connector läuft als separater Windows-Service und muss auf einem
 - **Quick Start**: `QUICKSTART.md` - Schnellstart-Anleitung
 - **Deployment**: `DEPLOYMENT.md` - Deployment-Anleitung
 - **Changelog**: `CHANGELOG.md` - Versionshistorie
+- **Projekt-Doku (Details Import/Custom Properties)**: `docs/README.md`
 
 ## API-Dokumentation
 

@@ -13,6 +13,26 @@ Im Block „Stücklisteninformationen“ stehen:
 - `hg_artikelnummer` (H+G Artikelnummer)
 - `benennung`
 
+## Editierbare Felder (Stücklisteninformationen)
+Viele Spalten sind reine Status-/Existenzfelder und daher nicht editierbar. Editierbar sind insbesondere:
+- **Custom‑Property Felder (werden in SOLIDWORKS zurückgeschrieben)**:
+  - `hg_artikelnummer` (H+G Artikelnummer)
+  - `teilenummer` (Teilenummer)
+  - `werkstoff` (Material/Werkstoff)
+  - `werkstoff_nr` (Werkstoffgruppe)
+  - `abteilung_lieferant` (HUGWAWI - Abteilung)
+  - `oberflaeche` (Oberfläche; Sonderregel `.SLDASM` → Oberfläche_ZSB beim Zurückschreiben)
+  - `oberflaechenschutz` (Oberflächenschutz)
+  - `farbe` (Farbe)
+  - `lieferzeit` (Lieferzeit - geschätzt)
+  - `teiletyp_fertigungsplan` (Teiletyp Fertigungsplan)
+- **Produktionsmenge**:
+  - `p_menge` (P‑Menge, editierbar)
+
+## Menge (SOLIDWORKS) vs. P‑Menge (Produktion)
+- **`menge`**: Menge aus SOLIDWORKS (read‑only) und **standardmäßig ausgeblendet** (kann im Column‑Sidebar wieder eingeblendet werden).
+- **`p_menge`**: Produktionsmenge (editierbar), initial aus `menge` vorbelegt (Import).
+
 ## Tastatur‑Navigation & Inline‑Editing
 Ziel: schnelle Bearbeitung ohne Maus (Fokus bewegen + Werte eingeben).
 

@@ -7,7 +7,7 @@ import { ArticleGrid } from './components/ArticleGrid'
 import { OrdersDrawer } from './components/OrdersDrawer'
 import { useArticles } from './hooks/useArticles'
 import api from './services/api'
-import { Project } from './services/types'
+import { Project, Article } from './services/types'
 import './App.css'
 
 function App() {
@@ -19,6 +19,7 @@ function App() {
   const { articles, loading, error, refetch } = useArticles(project?.id || null)
   const [ordersArticleId, setOrdersArticleId] = useState<number | null>(null)
   const [ordersArticleNumber, setOrdersArticleNumber] = useState<string | undefined>(undefined)
+  const [selectedArticles, setSelectedArticles] = useState<Article[]>([])
 
   const handleImportSolidworks = async () => {
     if (!project) return
@@ -114,7 +115,41 @@ function App() {
   }
 
   const handleExport = () => {
-    alert('Export noch nicht implementiert')
+    if (!project) return
+    const doExport = async () => {
+      try {
+        const selectedIds = selectedArticles.map(a => a.id).filter(Boolean)
+        const params: any = {}
+        if (selectedIds.length) params.article_ids = selectedIds.join(',')
+
+        const res = await api.get(`/projects/${project.id}/export-hugwawi-articles-csv`, {
+          params,
+          responseType: 'blob'
+        } as any)
+
+        const blob = new Blob([res.data], { type: 'text/csv;charset=utf-8' })
+
+        // Try get filename from Content-Disposition
+        const cd = (res as any)?.headers?.['content-disposition'] as string | undefined
+        let filename = `hugwawi_import_${project.au_nr}.csv`
+        if (cd) {
+          const m = /filename=\"?([^\";]+)\"?/i.exec(cd)
+          if (m?.[1]) filename = m[1]
+        }
+
+        const url = window.URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = filename
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+        window.URL.revokeObjectURL(url)
+      } catch (error: any) {
+        alert('Fehler beim Export: ' + (error.response?.data?.detail || error.message))
+      }
+    }
+    doExport()
   }
 
   const handleCellValueChanged = async (params: any) => {
@@ -399,6 +434,7 @@ function App() {
                 projectId={project?.id}
                 onCellValueChanged={handleCellValueChanged}
                 onOpenOrders={handleOpenOrders}
+                onSelectionChanged={(sel) => setSelectedArticles(sel)}
               />
               {loading && (
                 <div style={{
