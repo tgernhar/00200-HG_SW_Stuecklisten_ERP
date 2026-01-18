@@ -220,56 +220,6 @@ async def get_articles(
             if v is None:
                 return None
             return str(v)
-        # #region agent log
-        if order_count:
-            try:
-                import json, time
-                with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
-                    _f.write(json.dumps({
-                        "sessionId": "debug-session",
-                        "runId": "bn-sync-2",
-                        "hypothesisId": "BN_GRID_MAP",
-                        "location": "backend/app/api/routes/articles.py:get_articles",
-                        "message": "display-values",
-                        "data": {
-                            "article_id": a.id,
-                            "order_count": order_count,
-                            "display_hg_bnr": (str(order_count) if order_count > 1 else (getattr(order, "hg_bnr", None) if order else None)),
-                            "display_bnr_status": ("-" if order_count > 1 else (getattr(order, "bnr_status", None) if order else None)),
-                            "display_bnr_menge": (order_sum if order_count > 1 else (getattr(order, "bnr_menge", None) if order else None)),
-                            "display_bestellkommentar": ("-" if order_count > 1 else (getattr(order, "bestellkommentar", None) if order else None)),
-                            "display_hg_lt": ("-" if order_count > 1 else _date_to_str(getattr(order, "hg_lt", None) if order else None)),
-                            "display_bestaetigter_lt": ("-" if order_count > 1 else _date_to_str(getattr(order, "bestaetigter_lt", None) if order else None))
-                        },
-                        "timestamp": int(time.time() * 1000)
-                    }) + "\n")
-            except Exception:
-                pass
-        # #endregion agent log
-        # #region agent log
-        try:
-            import json, time
-            with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
-                _f.write(json.dumps({
-                    "sessionId": "debug-session",
-                    "runId": "bn-sync-1",
-                    "hypothesisId": "BN_GRID_MAP",
-                    "location": "backend/app/api/routes/articles.py:get_articles",
-                    "message": "order-aggregate",
-                    "data": {
-                        "article_id": a.id,
-                        "order_count": order_count,
-                        "first_hg_bnr": getattr(order, "hg_bnr", None) if order else None,
-                        "first_status": getattr(order, "bnr_status", None) if order else None,
-                        "first_menge": getattr(order, "bnr_menge", None) if order else None,
-                        "first_lt": getattr(order, "hg_lt", None) if order else None,
-                        "first_lt_bestaetigt": getattr(order, "bestaetigter_lt", None) if order else None
-                    },
-                    "timestamp": int(time.time() * 1000)
-                }) + "\n")
-        except Exception:
-            pass
-        # #endregion agent log
 
         # Flags
         flags = getattr(a, "document_flags", None)
