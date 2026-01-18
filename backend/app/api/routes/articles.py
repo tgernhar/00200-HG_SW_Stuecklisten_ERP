@@ -122,6 +122,7 @@ async def get_articles(project_id: int, db: Session = Depends(get_db)):
             joinedload(Article.document_flags),
         )
         .filter(Article.project_id == project_id)
+        .order_by(Article.pos_nr.asc(), Article.id.asc())
         .all()
     )
 

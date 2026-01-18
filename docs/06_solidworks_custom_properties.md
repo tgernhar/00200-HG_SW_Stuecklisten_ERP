@@ -11,6 +11,7 @@ Wichtig: Import und Zurückschreiben verwenden **dieselbe Feldliste / dasselbe M
 ## Import (SOLIDWORKS → DB)
 - Importiert werden sowohl Parts (`.SLDPRT`) als auch Assemblies (`.SLDASM`) aus der Baugruppe.
 - Der Import läuft **rekursiv über alle Ebenen** (Unterbaugruppen + Teile).
+- Zusätzlich wird die **Top‑Level Assembly (Hauptbaugruppe)** selbst als eigener Eintrag importiert (erste Zeile, `pos_nr = 0`).
 - Custom Properties werden normalisiert (z.B. Umlaute/Sonderzeichen) und dann über das zentrale Mapping in DB‑Felder geschrieben.
 
 ## Zurückschreiben (Frontend/DB → SOLIDWORKS)

@@ -197,9 +197,26 @@ async def import_solidworks_assembly(
         else:
             aggregated[key]["menge"] += 1
 
+    def _norm_win_path(p: str) -> str:
+        """
+        Normalize Windows-ish paths for robust comparisons:
+        - backslashes
+        - ntpath.normpath
+        - lower-case (case-insensitive FS)
+        """
+        s = (p or "").strip()
+        if not s:
+            return ""
+        try:
+            s = s.replace("/", "\\")
+            s = ntpath.normpath(s)
+        except Exception:
+            pass
+        return s.lower()
+
     # Re-number positions after dedupe:
-    # - sort by original SOLIDWORKS pos_nr (ascending)
-    # - then assign contiguous 1..n
+    # - Root assembly row (assembly_filepath) shall be pos_nr = 0
+    # - Other rows: sort by original pos and assign contiguous 1..n
     def _pos_sort_key(item):
         _k, _d = item
         p = _d.get("pos_nr")
@@ -209,9 +226,35 @@ async def import_solidworks_assembly(
             p_int = None
         return (p_int is None, p_int if p_int is not None else 0, str(_d.get("teilenummer") or ""), str(_d.get("benennung") or ""))
 
-    sorted_items = sorted(aggregated.items(), key=_pos_sort_key)
-    aggregated = {k: v for k, v in sorted_items}
-    for i, (k, d) in enumerate(sorted_items, start=1):
+    asm_norm = _norm_win_path(assembly_filepath)
+    root_item = None
+    other_items = []
+    for k, d in aggregated.items():
+        part_norm = _norm_win_path(k[0])
+        if asm_norm and part_norm == asm_norm and root_item is None:
+            root_item = (k, d)
+        else:
+            other_items.append((k, d))
+
+    other_items_sorted = sorted(other_items, key=_pos_sort_key)
+
+    combined = []
+    if root_item is not None:
+        combined.append(root_item)
+    combined.extend(other_items_sorted)
+
+    # Rebuild dict with deterministic order (root first)
+    aggregated = {k: v for k, v in combined}
+
+    # Assign pos_nr
+    if root_item is not None:
+        _rk, _rd = root_item
+        _rd["pos_nr"] = 0
+        # Root assembly must be a single line item
+        _rd["menge"] = 1
+        _rd["p_menge"] = 1
+
+    for i, (k, d) in enumerate(other_items_sorted, start=1):
         d["pos_nr"] = i
         # Initialize/Reset Produktionsmenge (P-Menge) from SOLIDWORKS-Menge on every import
         d["p_menge"] = int(d.get("menge") or 0)

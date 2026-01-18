@@ -435,6 +435,7 @@ function App() {
                 onCellValueChanged={handleCellValueChanged}
                 onOpenOrders={handleOpenOrders}
                 onSelectionChanged={(sel) => setSelectedArticles(sel)}
+                onAfterBulkUpdate={() => refetch()}
               />
               {loading && (
                 <div style={{

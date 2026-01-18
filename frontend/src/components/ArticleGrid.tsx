@@ -1,7 +1,7 @@
 /**
  * Article Grid Component (AG Grid)
  */
-import React, { useMemo, useCallback, useRef } from 'react'
+import React, { useMemo, useCallback, useRef, useState } from 'react'
 import { AgGridReact } from 'ag-grid-react'
 import { ColDef, ColGroupDef, ICellRendererParams } from 'ag-grid-community'
 import 'ag-grid-community/styles/ag-grid.css'
@@ -16,12 +16,14 @@ interface ArticleGridProps {
   onCellValueChanged?: (params: any) => void
   onOpenOrders?: (article: Article) => void
   onSelectionChanged?: (selected: Article[]) => void
+  onAfterBulkUpdate?: () => void
 }
 
-export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, onCellValueChanged, onOpenOrders, onSelectionChanged }) => {
+export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, onCellValueChanged, onOpenOrders, onSelectionChanged, onAfterBulkUpdate }) => {
   const apiBaseUrl = (api as any)?.defaults?.baseURL || ''
   const gridApiRef = useRef<any>(null)
   const gridColumnApiRef = useRef<any>(null)
+  const [showHidden, setShowHidden] = useState(false)
   const makeDocRenderer = useCallback(
     (opts: {
       existsField?: keyof Article
@@ -610,6 +612,52 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, o
     }
   }, [projectId])
 
+  const handleHideSelection = useCallback(async () => {
+    const gridApi = gridApiRef.current
+    const selected = (gridApi?.getSelectedRows?.() || []) as Article[]
+    if (!selected.length) {
+      alert('Bitte zuerst Zeilen auswählen.\nHinweis: Für bereits ausgeblendete Zeilen ggf. erst „Ausgeblendete anzeigen“ aktivieren.')
+      return
+    }
+
+    const articleIds = selected.map(a => a.id).filter(Boolean) as number[]
+    try {
+      await api.post(`/articles/batch-update`, { article_ids: articleIds, updates: { in_stueckliste_anzeigen: false } })
+      try {
+        gridApi?.deselectAll?.()
+      } catch {}
+      if (onAfterBulkUpdate) onAfterBulkUpdate()
+    } catch (e: any) {
+      alert('Fehler beim Ausblenden: ' + (e.response?.data?.detail || e.message))
+    }
+  }, [onAfterBulkUpdate])
+
+  const handleShowSelection = useCallback(async () => {
+    const gridApi = gridApiRef.current
+    const selected = (gridApi?.getSelectedRows?.() || []) as Article[]
+    if (!selected.length) {
+      alert('Bitte zuerst Zeilen auswählen.\nHinweis: Für ausgeblendete Zeilen zuerst „Ausgeblendete anzeigen“ aktivieren.')
+      return
+    }
+
+    const articleIds = selected.map(a => a.id).filter(Boolean) as number[]
+    try {
+      await api.post(`/articles/batch-update`, { article_ids: articleIds, updates: { in_stueckliste_anzeigen: true } })
+      try {
+        gridApi?.deselectAll?.()
+      } catch {}
+      if (onAfterBulkUpdate) onAfterBulkUpdate()
+    } catch (e: any) {
+      alert('Fehler beim Einblenden: ' + (e.response?.data?.detail || e.message))
+    }
+  }, [onAfterBulkUpdate])
+
+  const rowData = useMemo(() => {
+    const list = Array.isArray(articles) ? articles : []
+    if (showHidden) return list
+    return list.filter(a => (a as any)?.in_stueckliste_anzeigen !== false)
+  }, [articles, showHidden])
+
   return (
     <div style={{ width: '100%', height: '100%' }} onKeyDownCapture={handleKeyDownCapture}>
       <div style={{ display: 'flex', gap: '12px', alignItems: 'center', padding: '6px 8px', fontSize: '12px' }}>
@@ -625,6 +673,38 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, o
         >
           In SOLIDWORKS zurückschreiben (Auswahl)
         </button>
+        <button
+          onClick={handleHideSelection}
+          style={{
+            padding: '6px 10px',
+            border: '1px solid #ccc',
+            borderRadius: 4,
+            background: '#f7f7f7',
+            cursor: 'pointer'
+          }}
+        >
+          Auswahl ausblenden
+        </button>
+        <button
+          onClick={handleShowSelection}
+          style={{
+            padding: '6px 10px',
+            border: '1px solid #ccc',
+            borderRadius: 4,
+            background: '#f7f7f7',
+            cursor: 'pointer'
+          }}
+        >
+          Auswahl einblenden
+        </button>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <input
+            type="checkbox"
+            checked={showHidden}
+            onChange={(e) => setShowHidden(!!e.target.checked)}
+          />
+          Ausgeblendete anzeigen
+        </label>
         <span style={{ fontWeight: 700 }}>Legende Dokumentenstatus:</span>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
           <span style={{ background: '#FFD700', border: '1px solid #d1b400', padding: '1px 6px', borderRadius: 3 }}>1</span>
@@ -641,7 +721,7 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, o
       </div>
       <div className="ag-theme-alpine" style={{ width: '100%', height: '100%' }}>
         <AgGridReact
-          rowData={articles}
+          rowData={rowData}
           columnDefs={columnDefs}
           defaultColDef={defaultColDef}
           gridOptions={gridOptions}

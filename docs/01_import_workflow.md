@@ -30,6 +30,10 @@ Da dedupliziert wird, sind die ursprünglichen SOLIDWORKS‑Positionsnummern oft
 - nach der ursprünglichen SOLIDWORKS‑Position sortiert und anschließend
 - **neu fortlaufend** von **1..n** durchnummeriert.
 
+Zusätzlich wird die **Hauptbaugruppe** (die beim Import angegebene `.SLDASM`) als **eigener Stücklisteneintrag** aufgenommen und steht immer an erster Stelle:
+- **Hauptbaugruppe**: `pos_nr = 0`
+- **Alle weiteren (deduplizierten) Positionen**: `pos_nr = 1..n`
+
 ### Mengen: `menge` vs. `p_menge`
 - **`menge`**: Menge laut SOLIDWORKS‑Stückliste (wird importiert, **read‑only**). Im Grid ist diese Spalte **standardmäßig ausgeblendet**, kann aber bei Bedarf wieder eingeblendet werden.
 - **`p_menge`**: Produktionsmenge für die Fertigung (**editierbar**). Beim Import wird `p_menge` initial mit `menge` vorbelegt.

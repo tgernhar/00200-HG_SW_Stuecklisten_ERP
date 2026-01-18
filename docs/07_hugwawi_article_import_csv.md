@@ -18,6 +18,13 @@ Es werden **nur Artikel exportiert, die im ERP fehlen**:
 
 Hinweis: `erp_exists` wird durch den Artikelnummer-Abgleich gepflegt (**ERP-Abgleich** Button).
 
+### Export mit Auswahl (Checkboxen im Grid)
+Wenn im Grid Zeilen ausgewählt sind, sendet das Frontend zusätzlich den Query‑Parameter:
+- `article_ids=1,2,3`
+
+Dann exportiert das Backend **nur diese IDs** – und innerhalb der Auswahl weiterhin nur Artikel mit:
+- `erp_exists = false`
+
 ## CSV-Format (wichtig)
 - **Separator**: Semikolon `;`
 - **Leere Felder**: leer zwischen `;;` (nicht `NULL`)

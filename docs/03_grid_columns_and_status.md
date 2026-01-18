@@ -33,6 +33,12 @@ Viele Spalten sind reine Status-/Existenzfelder und daher nicht editierbar. Edit
 - **`menge`**: Menge aus SOLIDWORKS (read‑only) und **standardmäßig ausgeblendet** (kann im Column‑Sidebar wieder eingeblendet werden).
 - **`p_menge`**: Produktionsmenge (editierbar), initial aus `menge` vorbelegt (Import).
 
+## Ausblenden im Grid (UI)
+Es gibt die Spalte **`in_stueckliste_anzeigen`** (Checkbox). Zusätzlich gibt es im Grid eine Aktion:
+- **„Auswahl ausblenden“**: setzt für die aktuell markierten Zeilen `in_stueckliste_anzeigen=false`.
+
+Wichtig: Das Ausblenden wirkt **nur im UI/Grid**. Die Datensätze bleiben in der DB erhalten und werden von Export/Prüfungen weiterhin berücksichtigt.
+
 ## Tastatur‑Navigation & Inline‑Editing
 Ziel: schnelle Bearbeitung ohne Maus (Fokus bewegen + Werte eingeben).
 
