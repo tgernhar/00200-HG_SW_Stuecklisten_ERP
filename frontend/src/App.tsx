@@ -385,6 +385,7 @@ function App() {
             <div style={{ position: 'relative', height: '100%' }}>
               <ArticleGrid 
                 articles={articles} 
+                projectId={project?.id}
                 onCellValueChanged={handleCellValueChanged}
                 onOpenOrders={handleOpenOrders}
               />

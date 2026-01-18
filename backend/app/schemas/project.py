@@ -2,7 +2,7 @@
 Project Schemas (Pydantic)
 """
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
 
 
@@ -27,3 +27,7 @@ class Project(ProjectBase):
     
     class Config:
         from_attributes = True
+
+
+class SolidworksPushRequest(BaseModel):
+    article_ids: List[int]

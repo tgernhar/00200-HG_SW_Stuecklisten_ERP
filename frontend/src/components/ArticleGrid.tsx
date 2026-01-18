@@ -12,11 +12,12 @@ import api from '../services/api'
 
 interface ArticleGridProps {
   articles: Article[]
+  projectId?: number | null
   onCellValueChanged?: (params: any) => void
   onOpenOrders?: (article: Article) => void
 }
 
-export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, onCellValueChanged, onOpenOrders }) => {
+export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, onCellValueChanged, onOpenOrders }) => {
   const apiBaseUrl = (api as any)?.defaults?.baseURL || ''
   const gridApiRef = useRef<any>(null)
   const gridColumnApiRef = useRef<any>(null)
@@ -200,6 +201,21 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, onCellValueC
 
   // Column Definitions
   const columnDefs: (ColDef | ColGroupDef)[] = useMemo(() => [
+    // Selection (Multi)
+    {
+      headerName: '',
+      field: '__select__',
+      width: 42,
+      pinned: 'left',
+      lockPinned: true,
+      resizable: false,
+      sortable: false,
+      filter: false,
+      editable: false,
+      checkboxSelection: true,
+      headerCheckboxSelection: true,
+      headerCheckboxSelectionFilteredOnly: true
+    },
     // Block A: Bestellinformationen
     {
       headerName: 'Bestellinformationen',
@@ -402,7 +418,8 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, onCellValueC
     enableRangeSelection: true,
     enableClipboard: true,
     enableCellTextSelection: true,
-    suppressRowClickSelection: false,
+    rowSelection: 'multiple',
+    suppressRowClickSelection: true,
     singleClickEdit: true,
     stopEditingWhenCellsLoseFocus: true,
     enterNavigatesVertically: false,
@@ -530,9 +547,49 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, onCellValueC
     }
   }
 
+  const handlePushSelectedToSolidworks = useCallback(async () => {
+    const gridApi = gridApiRef.current
+    const pid = projectId ?? null
+    if (!pid) {
+      alert('Projekt fehlt (projectId)')
+      return
+    }
+    const selected = (gridApi?.getSelectedRows?.() || []) as Article[]
+    if (!selected.length) {
+      alert('Bitte zuerst Zeilen auswählen.')
+      return
+    }
+    const articleIds = selected.map(a => a.id).filter(Boolean)
+    try {
+      const resp = await api.post(`/projects/${pid}/push-solidworks`, { article_ids: articleIds })
+      const d = resp?.data || {}
+      const failed = Array.isArray(d.failed) ? d.failed : []
+      const msg =
+        `SOLIDWORKS Rückschreiben abgeschlossen:\n` +
+        `Erfolgreich: ${d.updated_count ?? '-'}\n` +
+        `Fehler: ${d.failed_count ?? '-'}\n` +
+        (failed.length ? `\nErster Fehler: ${JSON.stringify(failed[0])}` : '')
+      alert(msg)
+    } catch (e: any) {
+      alert('Fehler beim Rückschreiben: ' + (e.response?.data?.detail || e.message))
+    }
+  }, [projectId])
+
   return (
     <div style={{ width: '100%', height: '100%' }} onKeyDownCapture={handleKeyDownCapture}>
       <div style={{ display: 'flex', gap: '12px', alignItems: 'center', padding: '6px 8px', fontSize: '12px' }}>
+        <button
+          onClick={handlePushSelectedToSolidworks}
+          style={{
+            padding: '6px 10px',
+            border: '1px solid #ccc',
+            borderRadius: 4,
+            background: '#f7f7f7',
+            cursor: 'pointer'
+          }}
+        >
+          In SOLIDWORKS zurückschreiben (Auswahl)
+        </button>
         <span style={{ fontWeight: 700 }}>Legende Dokumentenstatus:</span>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
           <span style={{ background: '#FFD700', border: '1px solid #d1b400', padding: '1px 6px', borderRadius: 3 }}>1</span>

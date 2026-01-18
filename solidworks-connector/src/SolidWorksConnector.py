@@ -3,6 +3,7 @@ SOLIDWORKS Connector - Main Module
 """
 import win32com.client
 import os
+from typing import List, Dict, Any, Optional
 import logging
 import threading
 import pythoncom
@@ -10,7 +11,7 @@ import getpass
 import pywintypes
 import ctypes
 import winerror
-from typing import List, Dict, Any, Optional
+# (duplicate typing import removed above)
 
 # Logger für SOLIDWORKS-Connector
 connector_logger = logging.getLogger('solidworks_connector')
@@ -60,27 +61,20 @@ class SolidWorksConnector:
                 connector_logger.error(f"Could not get session information: {sid_err}", exc_info=True)
 
             connector_logger.info("Versuche Verbindung zu SOLIDWORKS herzustellen...")
-            # Prefer attaching to an already running instance (common in user workflows).
-            # If that fails, try Dispatch() (default context), then DispatchEx() with LOCAL_SERVER.
-            connected_via = None
-            last_err: Exception | None = None
+            # Hard guard: multiple SOLIDWORKS processes cause COM ambiguity and can lead to
+            # "bereits geöffnet / Kopie öffnen?" prompts.
+            allow_multi = str(os.getenv("SWC_ALLOW_MULTI_INSTANCE", "0")).strip().lower() in ("1", "true", "yes")
             try:
+                # Use the existing interactive SOLIDWORKS instance if present.
                 self.sw_app = win32com.client.GetActiveObject("SldWorks.Application")
-                connected_via = "GetActiveObject"
             except Exception as e1:
-                last_err = e1
                 try:
                     self.sw_app = win32com.client.Dispatch("SldWorks.Application")
-                    connected_via = "Dispatch"
                 except Exception as e2:
-                    last_err = e2
-                    # Create a new instance in the local server context
-                    self.sw_app = win32com.client.DispatchEx("SldWorks.Application", clsctx=pythoncom.CLSCTX_LOCAL_SERVER)
-                    connected_via = "DispatchEx(CLSCTX_LOCAL_SERVER)"
+                    raise
 
-            self.sw_app.Visible = False
+            # Do not force-hide user's instance.
             connector_logger.info("Erfolgreich zu SOLIDWORKS verbunden")
-            connector_logger.info(f"Connected via: {connected_via}")
             return True
         except pywintypes.com_error as e:
             connector_logger.error(f"COM Fehler beim Verbinden zu SOLIDWORKS: {e}", exc_info=True)
@@ -97,6 +91,79 @@ class SolidWorksConnector:
         # - Request threads may be reused by the server.
         # - Uninitializing COM while objects are still referenced can cause undefined behavior.
         # If needed, we can revisit with a dedicated COM thread model.
+
+    def _close_doc_best_effort(self, model, filepath: str) -> None:
+        """
+        SOLIDWORKS CloseDoc ist in vielen Umgebungen am zuverlässigsten mit Dokumenttitel (nicht vollem Pfad).
+        Wir versuchen daher: Titel -> Basename -> Pfad. Best effort: niemals Exception nach außen werfen.
+        """
+        try:
+            def _get_str_member(obj, name: str) -> Optional[str]:
+                try:
+                    v = getattr(obj, name, None)
+                except Exception:
+                    return None
+                try:
+                    v2 = v() if callable(v) else v
+                except Exception:
+                    v2 = v
+                if v2 is None:
+                    return None
+                s = str(v2).strip()
+                return s or None
+
+            title = _get_str_member(model, "GetTitle") or _get_str_member(model, "Title")
+            basename = os.path.basename(filepath) if filepath else None
+            candidates = [c for c in [title, basename, filepath] if c]
+
+            closed_with = None
+            for cand in candidates:
+                try:
+                    self.sw_app.CloseDoc(cand)
+                    closed_with = cand
+                    break
+                except Exception:
+                    continue
+
+            # Post-check: SOLIDWORKS API often expects FULL PATH for GetOpenDocumentByName.
+            still_open_by_title = None
+            still_open_by_path = None
+            try:
+                if title:
+                    still_open_by_title = bool(self.sw_app.GetOpenDocumentByName(title))
+            except Exception:
+                still_open_by_title = None
+            try:
+                if filepath:
+                    still_open_by_path = bool(self.sw_app.GetOpenDocumentByName(filepath))
+            except Exception:
+                still_open_by_path = None
+
+            # If still open, try one more time with remaining candidates (best effort).
+            if (still_open_by_title is True) or (still_open_by_path is True):
+                for cand in candidates:
+                    if cand == closed_with:
+                        continue
+                    try:
+                        self.sw_app.CloseDoc(cand)
+                    except Exception:
+                        pass
+                try:
+                    if title:
+                        still_open_by_title = bool(self.sw_app.GetOpenDocumentByName(title))
+                except Exception:
+                    pass
+                try:
+                    if filepath:
+                        still_open_by_path = bool(self.sw_app.GetOpenDocumentByName(filepath))
+                except Exception:
+                    pass
+        except Exception:
+            try:
+                if filepath:
+                    self.sw_app.CloseDoc(filepath)
+            except Exception:
+                pass
     
     def get_all_parts_and_properties_from_assembly(self, assembly_filepath: str) -> List[List[Any]]:
         """
@@ -120,6 +187,48 @@ class SolidWorksConnector:
             - results[13][j] = Exclude from Boom Flag
         """
         connector_logger.info(f"get_all_parts_and_properties_from_assembly aufgerufen mit: {assembly_filepath}")
+
+        # Robustness: callers sometimes pass a directory instead of a .SLDASM file.
+        # In that case, try to auto-pick a single .SLDASM in that directory.
+        if assembly_filepath and os.path.isdir(assembly_filepath):
+            try:
+                entries = []
+                try:
+                    entries = os.listdir(assembly_filepath)
+                except Exception:
+                    entries = []
+                sldasm_files = [
+                    os.path.join(assembly_filepath, e)
+                    for e in entries
+                    if isinstance(e, str) and e.lower().endswith(".sldasm")
+                ]
+                if len(sldasm_files) == 1:
+                    assembly_filepath = sldasm_files[0]
+                    connector_logger.info(f"Directory given; auto-selected assembly: {assembly_filepath}")
+                elif len(sldasm_files) == 0:
+                    raise Exception(
+                        f"Assembly-Pfad ist ein Ordner, aber keine .SLDASM gefunden: {assembly_filepath}"
+                    )
+                else:
+                    # Prefer a file that matches the directory name, else fail with actionable message.
+                    dir_name = os.path.basename(os.path.normpath(assembly_filepath)).lower()
+                    preferred = None
+                    for fp in sldasm_files:
+                        base = os.path.splitext(os.path.basename(fp))[0].lower()
+                        if base == dir_name or dir_name in base:
+                            preferred = fp
+                            break
+                    if preferred:
+                        assembly_filepath = preferred
+                        connector_logger.info(f"Multiple .SLDASM found; auto-selected: {assembly_filepath}")
+                    else:
+                        raise Exception(
+                            "Assembly-Pfad ist ein Ordner mit mehreren .SLDASM. "
+                            "Bitte eine konkrete .SLDASM-Datei angeben. "
+                            f"Gefunden: {', '.join(os.path.basename(x) for x in sldasm_files[:5])}"
+                        )
+            except Exception as e:
+                raise
         
         if not self.sw_app:
             connector_logger.info("SOLIDWORKS-Verbindung nicht vorhanden, versuche Verbindung...")
@@ -180,17 +289,20 @@ class SolidWorksConnector:
                     return []
 
             # NOTE: SOLIDWORKS API param semantics differ (top-level-only vs all-levels).
-            # We'll try multiple variants and fall back to root traversal if still empty.
+            # We must prefer "all levels" to include sub-assemblies and nested parts.
+            # We'll still fall back to other variants/root traversal if needed.
             components = []
             raw_components = None
             try:
-                raw_components = getattr(asm_doc, "GetComponents")(True)
+                # Prefer all levels (TopLevelOnly = False)
+                raw_components = getattr(asm_doc, "GetComponents")(False)
                 components = _to_list_safe(raw_components)
             except Exception:
                 components = []
             if not components:
                 try:
-                    raw_components = getattr(asm_doc, "GetComponents")(False)
+                    # Fallback: top-level only (may still be better than empty in some environments)
+                    raw_components = getattr(asm_doc, "GetComponents")(True)
                     components = _to_list_safe(raw_components)
                 except Exception:
                     components = []
@@ -590,15 +702,244 @@ class SolidWorksConnector:
                                 ])
                             
                         finally:
-                            self.sw_app.CloseDoc(part_path)
+                            # Close by title/basename is more reliable than full path.
+                            try:
+                                self._close_doc_best_effort(part_model, part_path)
+                            except Exception:
+                                try:
+                                    self.sw_app.CloseDoc(part_path)
+                                except Exception:
+                                    pass
                     
                     child += 1
                 else:
                     hidden_count += 1
         finally:
-            self.sw_app.CloseDoc(assembly_filepath)
+            try:
+                self._close_doc_best_effort(sw_model, assembly_filepath)
+            except Exception:
+                try:
+                    self.sw_app.CloseDoc(assembly_filepath)
+                except Exception:
+                    pass
         
         return results
+
+    def set_custom_properties(
+        self,
+        filepath: str,
+        configuration: str | None,
+        properties: Dict[str, Optional[str]],
+        scope: str = "both_pref_config",
+    ) -> Dict[str, Any]:
+        """Setzt Custom Properties konfigurationsspezifisch in einem SOLIDWORKS Dokument (kein globaler Fallback)."""
+        if not filepath:
+            raise Exception("filepath fehlt")
+
+        if not self.sw_app:
+            if not self.connect():
+                raise Exception("Konnte nicht zu SOLIDWORKS verbinden")
+
+        # Defensive: ensure we do not use a COM object from a different thread
+        current_tid = threading.get_ident()
+        if self._owner_thread_id is not None and self._owner_thread_id != current_tid:
+            raise Exception("Interner Fehler: SOLIDWORKS COM Objekt wurde in anderem Thread erstellt (Thread-Mismatch)")
+
+        if not os.path.exists(filepath):
+            raise Exception(f"Datei nicht gefunden: {filepath}")
+
+        # Pre-check: is this document already open in the connected SOLIDWORKS instance?
+        # If yes, we should NOT close it (it's user/assembly state). We'll update properties in-place.
+        pre_open_doc = None
+        opened_here = True
+        try:
+            pre_by_path = None
+            try:
+                pre_by_path = self.sw_app.GetOpenDocumentByName(filepath)
+            except Exception:
+                pre_by_path = None
+            if pre_by_path is not None:
+                pre_open_doc = pre_by_path
+                opened_here = False
+        except Exception:
+            pass
+
+        ext = str(filepath).upper()
+        if ext.endswith(".SLDPRT"):
+            doc_type = 1
+        elif ext.endswith(".SLDASM"):
+            doc_type = 2
+        elif ext.endswith(".SLDDRW"):
+            doc_type = 3
+        else:
+            raise Exception("Unsupported file type (expected .SLDPRT/.SLDASM/.SLDDRW)")
+
+        sw_errors = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
+        sw_warnings = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
+        if pre_open_doc is not None:
+            sw_model = pre_open_doc
+        else:
+            sw_model = self.sw_app.OpenDoc6(filepath, doc_type, 0, "", sw_errors, sw_warnings)
+            if not sw_model:
+                raise Exception(f"Konnte Dokument nicht öffnen: {filepath}")
+
+        try:
+            def _get_str_member(obj, name: str) -> Optional[str]:
+                try:
+                    v = getattr(obj, name, None)
+                except Exception:
+                    return None
+                try:
+                    v2 = v() if callable(v) else v
+                except Exception:
+                    v2 = v
+                if v2 is None:
+                    return None
+                s = str(v2).strip()
+                return s or None
+
+            title = _get_str_member(sw_model, "GetTitle") or _get_str_member(sw_model, "Title")
+            path_name = _get_str_member(sw_model, "GetPathName") or _get_str_member(sw_model, "PathName")
+        except Exception:
+            pass
+
+        updated = []
+        failed = []
+
+        def _try_set(mgr, name: str, value: str) -> bool:
+            # Prefer Set2 (update existing), fallback to Add3 (create)
+            try:
+                if hasattr(mgr, "Set2"):
+                    ok = mgr.Set2(name, value)
+                    if bool(ok):
+                        return True
+            except Exception:
+                pass
+
+            # swCustomInfoType_e: Text = 30 (common)
+            info_type = 30
+            # Try Add3 variants
+            try:
+                if hasattr(mgr, "Add3"):
+                    try:
+                        # (Name, Type, Value, Options)
+                        mgr.Add3(name, info_type, value, 0)
+                        return True
+                    except Exception:
+                        # some versions require different options
+                        mgr.Add3(name, info_type, value, 2)
+                        return True
+            except Exception:
+                pass
+
+            # Try Add2 variants
+            try:
+                if hasattr(mgr, "Add2"):
+                    mgr.Add2(name, info_type, value)
+                    return True
+            except Exception:
+                pass
+
+            return False
+
+        try:
+            doc_ext = sw_model.Extension
+
+            # Resolve target configuration (config-specific only):
+            # - try requested configuration first
+            # - else try "Standard"
+            # - else fall back to ActiveConfiguration
+            cfg_req = (configuration or "").strip()
+
+            cfg_names: list[str] = []
+            try:
+                get_cfg_names = getattr(sw_model, "GetConfigurationNames", None)
+                names = get_cfg_names() if callable(get_cfg_names) else get_cfg_names
+                cfg_names = [str(n) for n in (list(names) if names else [])]
+            except Exception:
+                cfg_names = []
+
+            def _cfg_known(name: str) -> bool:
+                if not name or not cfg_names:
+                    return True  # unknown list -> don't block attempts
+                try:
+                    nl = str(name).strip().lower()
+                    return any(str(n).strip().lower() == nl for n in cfg_names)
+                except Exception:
+                    return True
+
+            active_name = None
+            try:
+                active_name = sw_model.ConfigurationManager.ActiveConfiguration.Name
+            except Exception:
+                active_name = None
+
+            cfg_candidates = []
+            if cfg_req:
+                cfg_candidates.append(cfg_req)
+            cfg_candidates.append("Standard")
+            if active_name:
+                cfg_candidates.append(active_name)
+
+            mgr = None
+            last_mgr_err = None
+            for cfg_name in cfg_candidates:
+                if not cfg_name or not _cfg_known(cfg_name):
+                    continue
+                try:
+                    mgr = doc_ext.CustomPropertyManager(cfg_name)
+                    if mgr is not None:
+                        break
+                except Exception as e:
+                    last_mgr_err = e
+                    mgr = None
+                    continue
+
+            if mgr is None:
+                raise Exception(f"Konnte CustomPropertyManager für Konfiguration nicht erhalten (requested='{cfg_req}'): {last_mgr_err}")
+
+            for raw_name, raw_val in (properties or {}).items():
+                name = (raw_name or "").strip()
+                if not name:
+                    continue
+                # Avoid overwriting existing SOLIDWORKS properties with empty strings.
+                if raw_val is None:
+                    continue
+                value = str(raw_val)
+                if value.strip() == "":
+                    continue
+
+                try:
+                    ok = _try_set(mgr, name, value)
+                except Exception as e:
+                    ok = False
+                    failed.append({"name": name, "reason": str(e)})
+                    continue
+
+                if ok:
+                    updated.append(name)
+                else:
+                    failed.append({"name": name, "reason": "Set/Add failed"})
+
+            # Save (best effort)
+            try:
+                if hasattr(sw_model, "Save3"):
+                    save_err = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
+                    save_warn = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
+                    sw_model.Save3(1, save_err, save_warn)
+                else:
+                    sw_model.Save()
+            except Exception:
+                # Save failures should be surfaced
+                raise
+        finally:
+            try:
+                if opened_here:
+                    self._close_doc_best_effort(sw_model, filepath)
+            except Exception:
+                pass
+
+        return {"updated": updated, "failed": failed, "updated_count": len(updated), "failed_count": len(failed)}
     
     def create_3d_documents(
         self,
@@ -667,7 +1008,13 @@ class SolidWorksConnector:
             return True
             
         finally:
-            self.sw_app.CloseDoc(sw_filepath_with_documentname)
+            try:
+                self._close_doc_best_effort(sw_part, sw_filepath_with_documentname)
+            except Exception:
+                try:
+                    self.sw_app.CloseDoc(sw_filepath_with_documentname)
+                except Exception:
+                    pass
 
     def create_2d_documents(
         self,
@@ -1095,7 +1442,7 @@ class SolidWorksConnector:
                         pass
 
             try:
-                self.sw_app.CloseDoc(sw_drawing_path)
+                self._close_doc_best_effort(sw_model, sw_drawing_path)
             except Exception:
                 # Best effort close
                 pass

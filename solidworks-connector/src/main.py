@@ -3,7 +3,7 @@ SOLIDWORKS Connector - FastAPI Server
 """
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Dict
 from SolidWorksConnector import SolidWorksConnector
 import os
 import logging
@@ -87,6 +87,13 @@ class Create2DDocumentsRequest(BaseModel):
 
 class PathsExistRequest(BaseModel):
     paths: List[str]
+
+class SetCustomPropertiesRequest(BaseModel):
+    filepath: str
+    configuration: Optional[str] = None
+    # Kept for backward compatibility; connector writes config-specific only.
+    scope: str = "config_only"
+    properties: Dict[str, Optional[str]]
 
 
 @app.get("/")
@@ -221,6 +228,25 @@ def paths_exist(request: PathsExistRequest):
         raise
     except Exception as e:
         connector_logger.error(f"Fehler in paths-exist: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/solidworks/set-custom-properties")
+def set_custom_properties(request: SetCustomPropertiesRequest):
+    """
+    Setzt Custom Properties in einer SOLIDWORKS Datei (SLDPRT/SLDASM).
+    """
+    try:
+        connector = get_connector()
+        result = connector.set_custom_properties(
+            request.filepath,
+            configuration=request.configuration,
+            properties=request.properties,
+            scope=request.scope,
+        )
+        return {"success": True, "result": result}
+    except Exception as e:
+        connector_logger.error(f"Fehler in set-custom-properties: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

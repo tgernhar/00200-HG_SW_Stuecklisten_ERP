@@ -6,7 +6,10 @@ from sqlalchemy.orm import Session
 from typing import List
 from app.core.database import get_db
 from app.models.project import Project
-from app.schemas.project import Project as ProjectSchema, ProjectCreate, ProjectUpdate
+from app.schemas.project import Project as ProjectSchema, ProjectCreate, ProjectUpdate, SolidworksPushRequest
+from app.models.article import Article
+from app.core.config import settings
+import httpx
 import os
 import logging
 import ntpath
@@ -318,3 +321,105 @@ async def import_solidworks(
     if isinstance(result, dict) and result.get("success") is False:
         raise HTTPException(status_code=502, detail=result.get("error") or "SOLIDWORKS-Import fehlgeschlagen")
     return result
+
+
+@router.post("/projects/{project_id}/push-solidworks")
+async def push_solidworks(
+    project_id: int,
+    payload: SolidworksPushRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Schreibt ausgewählte DB-Werte als SOLIDWORKS Custom Properties zurück.
+    Scope: ausschließlich konfigurationsspezifisch (kein globales Schreiben).
+    """
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Projekt nicht gefunden")
+
+    ids = list(payload.article_ids or [])
+    if not ids:
+        raise HTTPException(status_code=400, detail="Keine article_ids angegeben")
+
+    articles = (
+        db.query(Article)
+        .filter(Article.project_id == project_id, Article.id.in_(ids))
+        .all()
+    )
+    found_ids = {a.id for a in articles}
+    missing_ids = [i for i in ids if i not in found_ids]
+    if missing_ids:
+        raise HTTPException(status_code=404, detail=f"Artikel nicht gefunden: {missing_ids[:20]}")
+
+    # Mapping: DB-Feld -> SOLIDWORKS Property Name (VBA-Namen)
+    # IMPORTANT: Do not send empty strings; otherwise we overwrite existing SOLIDWORKS values with blanks.
+    def _val(v):
+        if v is None:
+            return None
+        s = str(v)
+        return s if s.strip() != "" else None
+
+    updated = []
+    failed = []
+
+    url = f"{settings.SOLIDWORKS_CONNECTOR_URL}/api/solidworks/set-custom-properties"
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        for a in articles:
+            filepath = a.sldasm_sldprt_pfad or ""
+            if not filepath:
+                failed.append({"article_id": a.id, "reason": "sldasm_sldprt_pfad fehlt"})
+                continue
+
+            ext = str(filepath).lower()
+            is_sldasm = ext.endswith(".sldasm")
+
+            props = {}
+            def _put(name: str, v):
+                vv = _val(v)
+                if vv is not None:
+                    props[name] = vv
+
+            _put("H+G Artikelnummer", a.hg_artikelnummer)
+            _put("Teilenummer", a.teilenummer)
+            _put("Material", a.werkstoff)
+            _put("Werkstoffgruppe", a.werkstoff_nr)
+            _put("HUGWAWI - Abteilung", a.abteilung_lieferant)
+            # Oberfläche: ZSB-Regel
+            if is_sldasm:
+                _put("Oberfläche_ZSB", a.oberflaeche)
+            else:
+                _put("Oberfläche", a.oberflaeche)
+            _put("Oberflächenschutz", a.oberflaechenschutz)
+            _put("Farbe", a.farbe)
+            _put("Lieferzeit - geschätzt", a.lieferzeit)
+            _put("Teiletyp Fertigungsplan", a.teiletyp_fertigungsplan)
+
+            req = {
+                "filepath": filepath,
+                "configuration": _val(a.konfiguration) or "",
+                "scope": "config_only",
+                "properties": props,
+            }
+
+            try:
+                resp = await client.post(url, json=req)
+            except httpx.RequestError as e:
+                raise HTTPException(status_code=502, detail=f"SOLIDWORKS-Connector nicht erreichbar: {e}")
+
+            if resp.status_code != 200:
+                failed.append({"article_id": a.id, "reason": f"{resp.status_code}: {resp.text}"})
+                continue
+
+            data = resp.json() if resp.content else {}
+            if not data.get("success", False):
+                failed.append({"article_id": a.id, "reason": data.get("error") or "Unbekannter Fehler"})
+                continue
+
+            updated.append(a.id)
+
+    return {
+        "updated": updated,
+        "failed": failed,
+        "updated_count": len(updated),
+        "failed_count": len(failed),
+    }
