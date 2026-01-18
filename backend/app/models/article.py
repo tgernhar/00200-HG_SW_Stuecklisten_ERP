@@ -11,9 +11,12 @@ class Article(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
+    bom_id = Column(Integer, ForeignKey("boms.id"), nullable=False, index=True)
     
     # Positionsnummer
     pos_nr = Column(Integer)
+    # Sub-Position für Bestellartikel: 0 = Basisposition, 1..n = eingefügte Zeilen direkt darunter
+    pos_sub = Column(Integer, default=0, nullable=False)
     
     # Artikelinformationen (Block C)
     hg_artikelnummer = Column(String(100), index=True)  # C2
@@ -53,6 +56,7 @@ class Article(Base):
     
     # Relationships
     project = relationship("Project", back_populates="articles")
+    bom = relationship("Bom", back_populates="articles")
     orders = relationship("Order", back_populates="article", cascade="all, delete-orphan")
     documents = relationship("Document", back_populates="article", cascade="all, delete-orphan")
     document_flags = relationship("DocumentGenerationFlag", back_populates="article", cascade="all, delete-orphan", uselist=False)

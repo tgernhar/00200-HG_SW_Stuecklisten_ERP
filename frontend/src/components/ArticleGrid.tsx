@@ -397,7 +397,7 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, o
     {
       headerName: 'Stücklisteninformationen',
       children: [
-        { field: 'pos_nr', headerName: 'Pos-Nr', width: 80, editable: false },
+        { field: 'pos_nr_display', headerName: 'Pos-Nr', width: 80, editable: false },
         { 
           field: 'hg_artikelnummer', 
           headerName: 'H+G Artikelnummer', 

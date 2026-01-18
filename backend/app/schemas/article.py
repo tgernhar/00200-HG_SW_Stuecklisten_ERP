@@ -76,6 +76,10 @@ class Article(ArticleBase):
 class ArticleGridRow(ArticleBase):
     id: int
     project_id: int
+    bom_id: Optional[int] = None
+    pos_sub: Optional[int] = None
+    # Anzeigeformat für Positionsnummer inkl. Unterposition (z.B. "12.1")
+    pos_nr_display: Optional[str] = None
 
     # Block A (aus Order, falls vorhanden)
     hg_bnr: Optional[str] = None

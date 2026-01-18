@@ -589,9 +589,10 @@ class SolidWorksConnector:
 
                 if not part_path:
                     missing_path_count += 1
-                    # Ohne Pfad kann das Backend nicht korrekt deduplizieren/weiterverarbeiten.
-                    # Daher best-effort: nur loggen und überspringen.
-                    continue
+                    # Ohne Pfad (Toolbox/virtuell): trotzdem importieren, mit synthetischem Pfad.
+                    # Damit kann das Backend deduplizieren und die Zeile wird sichtbar.
+                    safe_name = (part_name or "").strip() or "UNKNOWN"
+                    part_path = f"VIRTUAL:{safe_name}"
 
                 # Öffne Part/Assembly für Dimensions-/Property-Abfrage (best effort)
                 x_dim = 0
@@ -773,6 +774,9 @@ class SolidWorksConnector:
                     ])
 
                 child += 1
+            connector_logger.info(
+                f"Assembly scan done. hidden_count={hidden_count}, missing_path_count={missing_path_count}, total_components={len(components)}"
+            )
         finally:
             try:
                 self._close_doc_best_effort(sw_model, assembly_filepath)

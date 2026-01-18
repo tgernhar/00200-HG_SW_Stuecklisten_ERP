@@ -1,4 +1,4 @@
 # API Route Modules
-from app.api.routes import projects, articles, documents, erp
+from app.api.routes import projects, articles, documents, erp, hugwawi, boms
 
-__all__ = ["projects", "articles", "documents", "erp"]
+__all__ = ["projects", "articles", "documents", "erp", "hugwawi", "boms"]

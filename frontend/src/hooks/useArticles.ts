@@ -5,7 +5,7 @@ import { useState, useEffect } from 'react'
 import api from '../services/api'
 import { Article } from '../services/types'
 
-export const useArticles = (projectId: number | null) => {
+export const useArticles = (projectId: number | null, bomId: number | null) => {
   const [articles, setArticles] = useState<Article[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -16,7 +16,9 @@ export const useArticles = (projectId: number | null) => {
     setLoading(true)
     setError(null)
     try {
-      const response = await api.get(`/projects/${projectId}/articles`)
+      const response = await api.get(`/projects/${projectId}/articles`, {
+        params: bomId ? { bom_id: bomId } : undefined
+      })
       setArticles(response.data)
     } catch (err: any) {
       setError(err.message)
@@ -27,7 +29,7 @@ export const useArticles = (projectId: number | null) => {
 
   useEffect(() => {
     fetchArticles()
-  }, [projectId])
+  }, [projectId, bomId])
 
   return { articles, loading, error, refetch: fetchArticles }
 }

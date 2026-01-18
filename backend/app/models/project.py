@@ -18,3 +18,4 @@ class Project(Base):
     
     # Relationships
     articles = relationship("Article", back_populates="project", cascade="all, delete-orphan")
+    boms = relationship("Bom", back_populates="project", cascade="all, delete-orphan")

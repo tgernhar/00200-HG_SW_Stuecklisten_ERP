@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from typing import List
 from app.core.database import get_db
 from app.models.project import Project
+from app.models.bom import Bom
 from app.schemas.project import Project as ProjectSchema, ProjectCreate, ProjectUpdate, SolidworksPushRequest
 from app.models.article import Article
 from app.core.config import settings
@@ -139,6 +140,7 @@ async def import_solidworks(
     project_id: int,
     request: Request,
     assembly_filepath: str = Query(None, description="Pfad zur SOLIDWORKS Assembly-Datei"),
+    overwrite_password: str | None = Query(default=None, description="Passwort zum Überschreiben (aktuell: '1')"),
     db: Session = Depends(get_db)
 ):
     """
@@ -314,10 +316,177 @@ async def import_solidworks(
     
     assembly_filepath = normalized_path
     
+    # Legacy-Route: importiert in die erste BOM des Projekts.
+    bom = db.query(Bom).filter(Bom.project_id == project_id).order_by(Bom.id.asc()).first()
+    if not bom:
+        # sollte durch Migration/backfill nicht passieren; best effort: lege Legacy-BOM an
+        bom = Bom(project_id=project_id, hugwawi_order_name=project.au_nr)
+        db.add(bom)
+        db.commit()
+        db.refresh(bom)
+
+    # Überschreibschutz: wenn bereits Artikel existieren, nur mit Passwort "1"
+    existing_count = db.query(Article).filter(Article.bom_id == bom.id).count()
+    if existing_count > 0 and overwrite_password != "1":
+        raise HTTPException(
+            status_code=409,
+            detail="Für diese Stückliste existiert bereits ein Import. Zum Überschreiben bitte overwrite_password=1 setzen.",
+        )
+
     from app.services.solidworks_service import import_solidworks_assembly
-    result = await import_solidworks_assembly(project_id, assembly_filepath, db)
+    result = await import_solidworks_assembly(project_id, bom.id, assembly_filepath, db)
     # Wenn der Service einen "success": False liefert, sollte das im HTTP-Status sichtbar sein,
     # sonst wirkt es im Frontend wie "hängt", weil Axios bei 200 nicht in den catch-Block geht.
+    if isinstance(result, dict) and result.get("success") is False:
+        raise HTTPException(status_code=502, detail=result.get("error") or "SOLIDWORKS-Import fehlgeschlagen")
+    return result
+
+
+@router.get("/projects/{project_id}/boms")
+async def list_project_boms(project_id: int, db: Session = Depends(get_db)):
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Projekt nicht gefunden")
+    boms = db.query(Bom).filter(Bom.project_id == project_id).order_by(Bom.id.asc()).all()
+    return {"project_id": project_id, "items": boms, "count": len(boms)}
+
+
+@router.post("/projects/{project_id}/boms")
+async def create_or_get_bom(project_id: int, payload: dict, db: Session = Depends(get_db)):
+    """
+    Legt eine BOM (Stückliste) für eine eindeutige HUGWAWI Kombination an.
+    Wenn die Kombination bereits existiert: nur mit overwrite_password=\"1\" wird sie überschrieben (Artikel gelöscht).
+    """
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Projekt nicht gefunden")
+
+    hugwawi_order_id = payload.get("hugwawi_order_id")
+    hugwawi_order_name = payload.get("hugwawi_order_name")
+    hugwawi_order_article_id = payload.get("hugwawi_order_article_id")
+    hugwawi_article_id = payload.get("hugwawi_article_id")
+    hugwawi_articlenumber = payload.get("hugwawi_articlenumber")
+    overwrite_password = payload.get("overwrite_password")
+
+    if not all([hugwawi_order_id, hugwawi_order_name, hugwawi_order_article_id, hugwawi_article_id, hugwawi_articlenumber]):
+        raise HTTPException(status_code=400, detail="Ungültiger Payload (fehlende HUGWAWI IDs/Felder)")
+
+    bom = (
+        db.query(Bom)
+        .filter(
+            Bom.project_id == project_id,
+            Bom.hugwawi_order_id == int(hugwawi_order_id),
+            Bom.hugwawi_order_article_id == int(hugwawi_order_article_id),
+        )
+        .first()
+    )
+
+    if bom:
+        # Überschreiben nur mit Passwort
+        if overwrite_password != "1":
+            raise HTTPException(
+                status_code=409,
+                detail="Für diese Kombination existiert bereits eine Stückliste. Zum Überschreiben bitte overwrite_password=1 setzen.",
+            )
+        try:
+            db.query(Article).filter(Article.bom_id == bom.id).delete(synchronize_session=False)
+            # update stored labels for traceability
+            bom.hugwawi_order_name = str(hugwawi_order_name)
+            bom.hugwawi_article_id = int(hugwawi_article_id)
+            bom.hugwawi_articlenumber = str(hugwawi_articlenumber)
+            db.commit()
+        except Exception as e:
+            db.rollback()
+            raise HTTPException(status_code=500, detail=f"Fehler beim Überschreiben: {e}")
+        return {"bom": bom, "overwritten": True}
+
+    bom = Bom(
+        project_id=project_id,
+        hugwawi_order_id=int(hugwawi_order_id),
+        hugwawi_order_name=str(hugwawi_order_name),
+        hugwawi_order_article_id=int(hugwawi_order_article_id),
+        hugwawi_article_id=int(hugwawi_article_id),
+        hugwawi_articlenumber=str(hugwawi_articlenumber),
+    )
+    db.add(bom)
+    db.commit()
+    db.refresh(bom)
+    return {"bom": bom, "created": True}
+
+
+@router.post("/projects/{project_id}/boms/{bom_id}/import-solidworks")
+async def import_solidworks_into_bom(
+    project_id: int,
+    bom_id: int,
+    request: Request,
+    assembly_filepath: str = Query(None, description="Pfad zur SOLIDWORKS Assembly-Datei"),
+    overwrite_password: str | None = Query(default=None, description="Passwort zum Überschreiben (aktuell: '1')"),
+    db: Session = Depends(get_db),
+):
+    """
+    Importiert SOLIDWORKS-Assembly in eine konkrete BOM.
+    Wenn bereits ein Import existiert (Artikel vorhanden), ist overwrite_password=1 erforderlich.
+    """
+    query_params = dict(request.query_params)
+    if not assembly_filepath:
+        assembly_filepath = query_params.get("assembly_filepath")
+
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Projekt nicht gefunden")
+
+    bom = db.query(Bom).filter(Bom.id == bom_id, Bom.project_id == project_id).first()
+    if not bom:
+        raise HTTPException(status_code=404, detail="BOM nicht gefunden")
+
+    if not assembly_filepath:
+        raise HTTPException(status_code=400, detail="Assembly-Filepath fehlt")
+
+    # Guard: only allow overwrite with password
+    existing_count = db.query(Article).filter(Article.bom_id == bom_id).count()
+    if existing_count > 0 and overwrite_password != "1":
+        raise HTTPException(
+            status_code=409,
+            detail="Für diese Stückliste existiert bereits ein Import. Zum Überschreiben bitte overwrite_password=1 setzen.",
+        )
+
+    # reuse existing normalization logic by delegating to the legacy route's helper path.
+    # (copy minimal normalization for connector; keep Windows path for connector)
+    import urllib.parse
+    import pathlib
+    import os
+    import ntpath
+
+    normalized_path = assembly_filepath
+    if "%" in normalized_path or ("+" in normalized_path and " " not in normalized_path):
+        normalized_path = urllib.parse.unquote_plus(normalized_path)
+
+    is_docker = os.getcwd() == "/app" or os.path.exists("/.dockerenv")
+    is_windows_drive_path = bool(ntpath.splitdrive(normalized_path or "")[0]) and ntpath.isabs(normalized_path or "")
+    skip_fs_exists_check = bool(is_docker and is_windows_drive_path)
+
+    check_path = normalized_path
+    if is_docker and normalized_path.startswith("C:\\"):
+        if normalized_path.startswith("C:\\Thomas\\Solidworks\\"):
+            relative_path = normalized_path[len("C:\\Thomas\\Solidworks\\") :]
+            check_path = f"/mnt/solidworks/{relative_path}".replace("\\", "/")
+        else:
+            check_path = normalized_path.replace("C:\\", "/mnt/solidworks/").replace("\\", "/")
+        skip_fs_exists_check = False
+    else:
+        if not is_docker:
+            normalized_path = normalized_path.replace("/", "\\")
+        normalized_path = os.path.normpath(normalized_path)
+        check_path = normalized_path
+
+    if not skip_fs_exists_check:
+        check_path_obj = pathlib.Path(check_path)
+        if not (os.path.exists(check_path) or check_path_obj.exists()):
+            raise HTTPException(status_code=400, detail=f"Assembly-Datei existiert nicht: {normalized_path}")
+
+    from app.services.solidworks_service import import_solidworks_assembly
+
+    result = await import_solidworks_assembly(project_id, bom_id, normalized_path, db)
     if isinstance(result, dict) and result.get("success") is False:
         raise HTTPException(status_code=502, detail=result.get("error") or "SOLIDWORKS-Import fehlgeschlagen")
     return result

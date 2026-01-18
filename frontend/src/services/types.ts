@@ -10,10 +10,43 @@ export interface Project {
   updated_at?: string
 }
 
+export interface Bom {
+  id: number
+  project_id: number
+  hugwawi_order_id?: number
+  hugwawi_order_name?: string
+  hugwawi_order_article_id?: number
+  hugwawi_article_id?: number
+  hugwawi_articlenumber?: string
+  created_at: string
+  updated_at?: string
+}
+
+export interface HugwawiOrderArticleItem {
+  hugwawi_order_id: number
+  hugwawi_order_name: string
+  hugwawi_order_reference?: string
+  hugwawi_order_article_id: number
+  hugwawi_article_id: number
+  hugwawi_articlenumber: string
+  hugwawi_description?: string
+}
+
+export interface HugwawiBestellartikelTemplate {
+  hugwawi_article_id: number
+  hugwawi_articlenumber: string
+  hugwawi_description?: string
+  customtext2?: string
+  customtext3?: string
+}
+
 export interface Article {
   id: number
   project_id: number
+  bom_id?: number
   pos_nr?: number
+  pos_nr_display?: string
+  pos_sub?: number
   hg_artikelnummer?: string
   benennung?: string
   konfiguration?: string

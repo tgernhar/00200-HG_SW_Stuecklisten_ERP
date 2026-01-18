@@ -1,12 +1,13 @@
 """
 Article Routes
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.core.database import get_db
 from app.models.article import Article
 from app.models.project import Project
+from app.models.bom import Bom
 from app.models.document_flag import DocumentGenerationFlag
 from app.schemas.article import ArticleGridRow, ArticleCreate, ArticleUpdate, ArticleBatchUpdate
 from sqlalchemy.orm import joinedload
@@ -107,12 +108,33 @@ async def update_document_flags(article_id: int, payload: DocumentFlagsUpdate, d
 
 
 @router.get("/projects/{project_id}/articles", response_model=List[ArticleGridRow])
-async def get_articles(project_id: int, db: Session = Depends(get_db)):
-    """Alle Artikel eines Projekts"""
+async def get_articles(
+    project_id: int,
+    bom_id: int | None = Query(
+        default=None,
+        description="Optional: BOM-ID. Wenn leer und es gibt genau 1 BOM, wird diese verwendet.",
+    ),
+    db: Session = Depends(get_db),
+):
+    """Alle Artikel einer BOM (default: einzige BOM im Projekt)"""
     # Prüfe ob Projekt existiert
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Projekt nicht gefunden")
+
+    effective_bom_id = bom_id
+    if effective_bom_id is None:
+        boms = db.query(Bom).filter(Bom.project_id == project_id).order_by(Bom.id.asc()).all()
+        if len(boms) == 1:
+            effective_bom_id = boms[0].id
+        elif len(boms) == 0:
+            raise HTTPException(status_code=404, detail="Keine BOM für dieses Projekt gefunden")
+        else:
+            raise HTTPException(status_code=400, detail="Mehrere BOMs vorhanden. Bitte bom_id angeben.")
+    else:
+        bom = db.query(Bom).filter(Bom.id == effective_bom_id, Bom.project_id == project_id).first()
+        if not bom:
+            raise HTTPException(status_code=404, detail="BOM nicht gefunden")
     
     articles = (
         db.query(Article)
@@ -122,7 +144,8 @@ async def get_articles(project_id: int, db: Session = Depends(get_db)):
             joinedload(Article.document_flags),
         )
         .filter(Article.project_id == project_id)
-        .order_by(Article.pos_nr.asc(), Article.id.asc())
+        .filter(Article.bom_id == effective_bom_id)
+        .order_by(Article.pos_nr.asc(), Article.pos_sub.asc(), Article.id.asc())
         .all()
     )
 
@@ -174,7 +197,12 @@ async def get_articles(project_id: int, db: Session = Depends(get_db)):
             # Article fields
             id=a.id,
             project_id=a.project_id,
+            bom_id=getattr(a, "bom_id", None),
             pos_nr=a.pos_nr,
+            pos_sub=getattr(a, "pos_sub", None),
+            pos_nr_display=(
+                (f"{a.pos_nr}.{getattr(a, 'pos_sub', 0)}" if int(getattr(a, "pos_sub", 0) or 0) > 0 else (str(a.pos_nr) if a.pos_nr is not None else ""))
+            ),
             hg_artikelnummer=a.hg_artikelnummer,
             benennung=a.benennung,
             konfiguration=a.konfiguration,

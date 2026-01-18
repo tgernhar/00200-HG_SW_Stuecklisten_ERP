@@ -40,6 +40,112 @@ def article_exists(articlenumber: str, db_connection) -> bool:
         return False
 
 
+def find_order_by_name(au_nr: str, db_connection) -> dict | None:
+    """
+    Findet einen Auftrag in HUGWAWI über ordertable.name (AU-Nr).
+    Rückgabe minimal: {id, name, reference}
+    """
+    cursor = db_connection.cursor(dictionary=True)
+    try:
+        cursor.execute(
+            """
+            SELECT id, name, reference
+            FROM ordertable
+            WHERE name = %s
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (au_nr,),
+        )
+        return cursor.fetchone()
+    finally:
+        cursor.close()
+
+
+def list_order_articles_by_au_name(au_nr: str, db_connection) -> list[dict]:
+    """
+    Liefert die eindeutigen Artikel-Zuordnungen eines Auftrags (order_article_ref) anhand AU-Nr (ordertable.name).
+    Rückgabe enthält IDs zur eindeutigen Speicherung (orderid + orderArticleId) und die Artikelnummer.
+    """
+    cursor = db_connection.cursor(dictionary=True)
+    try:
+        cursor.execute(
+            """
+            SELECT
+                ot.id AS hugwawi_order_id,
+                ot.name AS hugwawi_order_name,
+                ot.reference AS hugwawi_order_reference,
+                oar.orderArticleId AS hugwawi_order_article_id,
+                a.id AS hugwawi_article_id,
+                a.articlenumber AS hugwawi_articlenumber,
+                a.description AS hugwawi_description
+            FROM ordertable ot
+            INNER JOIN order_article_ref oar ON ot.id = oar.orderid
+            INNER JOIN order_article oa ON oar.orderArticleId = oa.id
+            INNER JOIN article a ON oa.articleid = a.id
+            WHERE ot.name = %s
+            ORDER BY a.articlenumber ASC, oar.orderArticleId ASC
+            """,
+            (au_nr,),
+        )
+        return cursor.fetchall() or []
+    finally:
+        cursor.close()
+
+
+def list_bestellartikel_templates(db_connection) -> list[dict]:
+    """
+    Listet HUGWAWI Artikel, deren Artikelnummer mit '099900-' beginnt.
+    Für UI: customtext2 (Text) und customtext3 (Suffix) plus Basisinfos.
+    """
+    cursor = db_connection.cursor(dictionary=True)
+    try:
+        cursor.execute(
+            """
+            SELECT
+                id AS hugwawi_article_id,
+                articlenumber AS hugwawi_articlenumber,
+                description AS hugwawi_description,
+                customtext2 AS customtext2,
+                customtext3 AS customtext3
+            FROM article
+            WHERE articlenumber LIKE '099900-%'
+            ORDER BY articlenumber ASC
+            """
+        )
+        return cursor.fetchall() or []
+    finally:
+        cursor.close()
+
+
+def get_bestellartikel_templates_by_ids(template_ids: list[int], db_connection) -> list[dict]:
+    """
+    Lädt eine Teilmenge der 099900-* Templates anhand HUGWAWI article.id.
+    """
+    ids = [int(x) for x in (template_ids or []) if x is not None]
+    if not ids:
+        return []
+    cursor = db_connection.cursor(dictionary=True)
+    try:
+        placeholders = ", ".join(["%s"] * len(ids))
+        cursor.execute(
+            f"""
+            SELECT
+                id AS hugwawi_article_id,
+                articlenumber AS hugwawi_articlenumber,
+                description AS hugwawi_description,
+                customtext2 AS customtext2,
+                customtext3 AS customtext3
+            FROM article
+            WHERE id IN ({placeholders})
+            """,
+            ids,
+        )
+        return cursor.fetchall() or []
+    finally:
+        cursor.close()
+
+
 async def check_all_articlenumbers(project_id: int, db: Session) -> dict:
     """
     Batch-Prüfung aller Artikelnummern im ERP
@@ -126,8 +232,8 @@ async def sync_project_orders(project_id: int, db: Session) -> dict:
             "failed_count": 1,
         }
 
-    # Auftragnr in HUGWAWI entspricht ordertable.reference
-    auftrag_ref = project.au_nr
+    # AU-Nr in HUGWAWI entspricht ordertable.name
+    auftrag_name = project.au_nr
 
     articles = db.query(Article).filter(Article.project_id == project_id).all()
     erp_connection = get_erp_db_connection()
@@ -180,12 +286,12 @@ async def sync_project_orders(project_id: int, db: Session) -> dict:
             INNER JOIN article ON order_article.articleid = article.id
             INNER JOIN article_status ON order_article.articlestatus = article_status.id
             WHERE
-                ordertable.reference = %s
+                ordertable.name = %s
                 AND article.articlenumber IN ({placeholders})
         """
 
         cursor = erp_connection.cursor(dictionary=True)
-        cursor.execute(query, [auftrag_ref, *articlenumbers])
+        cursor.execute(query, [auftrag_name, *articlenumbers])
         rows = cursor.fetchall() or []
         cursor.close()
 

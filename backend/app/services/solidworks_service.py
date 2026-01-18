@@ -56,6 +56,7 @@ def _norm_prop_name(name: str) -> str:
 
 async def import_solidworks_assembly(
     project_id: int,
+    bom_id: int,
     assembly_filepath: str,
     db: Session
 ) -> dict:
@@ -123,17 +124,18 @@ async def import_solidworks_assembly(
         except Exception:
             rows = results
 
-    # Clear existing articles for this project to make import idempotent
+    # Clear existing articles for this BOM to make import idempotent
     try:
-        db.query(Article).filter(Article.project_id == project_id).delete(synchronize_session=False)
+        db.query(Article).filter(Article.bom_id == bom_id).delete(synchronize_session=False)
         db.commit()
     except Exception as e:
-        logger.error(f"Failed clearing old articles for project {project_id}: {e}", exc_info=True)
+        logger.error(f"Failed clearing old articles for bom {bom_id} (project {project_id}): {e}", exc_info=True)
         db.rollback()
 
     # Aggregate parts by (filepath, configuration)
     aggregated = {}
     props_by_key = defaultdict(dict)  # key -> {propName: propValue}
+    virtual_count = 0
 
     # NOTE: _norm_prop_name ist oben definiert (VBA-kompatibler)
 
@@ -163,6 +165,8 @@ async def import_solidworks_assembly(
         key = (str(part_path or ""), str(config or ""))
         if not key[0]:
             continue
+        if str(key[0]).lower().startswith("virtual:"):
+            virtual_count += 1
 
         # property rows
         if prop_name:
@@ -267,11 +271,13 @@ async def import_solidworks_assembly(
             if prop_name in props_by_key.get(key, {}):
                 data[field] = props_by_key[key][prop_name]
 
-        article = Article(project_id=project_id, **data)
+        article = Article(project_id=project_id, bom_id=bom_id, **data)
         db.add(article)
         created_articles.append(article)
 
     db.commit()
+    if virtual_count:
+        logger.info(f"Imported {virtual_count} VIRTUAL components (toolbox/virtual parts without file paths).")
     return {
         "success": True,
         "imported_count": len(created_articles),

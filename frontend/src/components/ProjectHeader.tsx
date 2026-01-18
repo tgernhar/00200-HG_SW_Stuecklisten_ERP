@@ -2,11 +2,15 @@
  * Project Header Component
  */
 import React from 'react'
-import { Project } from '../services/types'
+import { Bom, Project } from '../services/types'
 
 interface ProjectHeaderProps {
   project: Project | null
+  boms: Bom[]
+  selectedBomId: number | null
+  onSelectBom: (bomId: number) => void
   onImportSolidworks: () => void
+  onCreateBestellartikel: () => void
   onCheckERP: () => void
   onSyncOrders: () => void
   onCreateDocuments: () => void
@@ -17,7 +21,11 @@ interface ProjectHeaderProps {
 
 export const ProjectHeader: React.FC<ProjectHeaderProps> = ({
   project,
+  boms,
+  selectedBomId,
+  onSelectBom,
   onImportSolidworks,
+  onCreateBestellartikel,
   onCheckERP,
   onSyncOrders,
   onCreateDocuments,
@@ -43,8 +51,30 @@ export const ProjectHeader: React.FC<ProjectHeaderProps> = ({
           )}
         </div>
       </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
+        <strong>Stückliste:</strong>
+        <select
+          value={selectedBomId ?? ''}
+          onChange={(e) => onSelectBom(Number(e.target.value))}
+          disabled={!boms?.length}
+        >
+          {(boms || []).map((b) => {
+            const label = b.hugwawi_articlenumber
+              ? `${b.hugwawi_articlenumber} (OrderArticleId ${b.hugwawi_order_article_id})`
+              : `Legacy-BOM ${b.id}`
+            return (
+              <option key={b.id} value={b.id}>
+                {label}
+              </option>
+            )
+          })}
+        </select>
+      </div>
       <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
         <button onClick={onImportSolidworks}>Import SOLIDWORKS</button>
+        <button onClick={onCreateBestellartikel} style={{ fontWeight: 'bold' }}>
+          Bestellartikel erstellen
+        </button>
         <button onClick={onCheckERP}>ERP-Abgleich</button>
         <button onClick={onSyncOrders}>Sync ERP</button>
         <button onClick={onCreateDocuments} style={{ fontWeight: 'bold' }}>
