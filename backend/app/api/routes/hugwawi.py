@@ -52,6 +52,24 @@ async def get_hugwawi_departments():
     try:
         rows = list_departments(erp)
         return {"items": rows, "count": len(rows)}
+    except Exception as e:
+        # #region agent log
+        try:
+            import json, time
+            with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
+                _f.write(json.dumps({
+                    "sessionId": "debug-session",
+                    "runId": "selectlists-1",
+                    "hypothesisId": "SELECTLIST_ERR",
+                    "location": "backend/app/api/routes/hugwawi.py:get_hugwawi_departments",
+                    "message": "error",
+                    "data": {"error": str(e)},
+                    "timestamp": int(time.time() * 1000)
+                }) + "\n")
+        except Exception:
+            pass
+        # #endregion agent log
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         erp.close()
 
@@ -67,6 +85,24 @@ async def get_hugwawi_selectlist_values(selectlist_id: int):
     try:
         rows = list_selectlist_values(selectlist_id, erp)
         return {"items": rows, "count": len(rows)}
+    except Exception as e:
+        # #region agent log
+        try:
+            import json, time
+            with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
+                _f.write(json.dumps({
+                    "sessionId": "debug-session",
+                    "runId": "selectlists-1",
+                    "hypothesisId": "SELECTLIST_ERR",
+                    "location": "backend/app/api/routes/hugwawi.py:get_hugwawi_selectlist_values",
+                    "message": "error",
+                    "data": {"selectlist_id": selectlist_id, "error": str(e)},
+                    "timestamp": int(time.time() * 1000)
+                }) + "\n")
+        except Exception:
+            pass
+        # #endregion agent log
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         erp.close()
 
