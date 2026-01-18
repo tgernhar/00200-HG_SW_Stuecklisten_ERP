@@ -179,6 +179,7 @@ async def get_articles(project_id: int, db: Session = Depends(get_db)):
             konfiguration=a.konfiguration,
             teilenummer=a.teilenummer,
             menge=a.menge,
+            p_menge=getattr(a, "p_menge", None),
             teiletyp_fertigungsplan=a.teiletyp_fertigungsplan,
             abteilung_lieferant=a.abteilung_lieferant,
             werkstoff=a.werkstoff,

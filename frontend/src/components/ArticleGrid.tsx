@@ -64,6 +64,13 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, o
     return Number.isFinite(n) ? n : null
   }, [])
 
+  const parseOptionalInt = useCallback((value: any) => {
+    if (value === '' || value === null || value === undefined) return null
+    const n = typeof value === 'number' ? value : Number(String(value).replace(',', '.'))
+    if (!Number.isFinite(n)) return null
+    return Math.trunc(n)
+  }, [])
+
   const getDisplayedColumns = useCallback((gridApi: any) => {
     try {
       return (gridApi?.getAllDisplayedColumns?.() || []) as any[]
@@ -377,13 +384,15 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, o
           field: 'hg_artikelnummer', 
           headerName: 'H+G Artikelnummer', 
           width: 150, 
-          editable: false,
+          editable: true,
+          cellEditor: 'agTextCellEditor',
           cellRenderer: articleNumberCellRenderer
         },
         { field: 'benennung', headerName: 'BENENNUNG', width: 200, editable: false },
         { field: 'konfiguration', headerName: 'Konfiguration', width: 150, editable: false },
-        { field: 'teilenummer', headerName: 'Teilenummer', width: 120, editable: false },
-        { field: 'menge', headerName: 'Menge', width: 80, editable: false },
+        { field: 'teilenummer', headerName: 'Teilenummer', width: 140, editable: true, cellEditor: 'agTextCellEditor' },
+        { field: 'menge', headerName: 'Menge (SW)', width: 90, editable: false, hide: true },
+        { field: 'p_menge', headerName: 'P-Menge', width: 90, editable: true, valueParser: (p) => parseOptionalInt(p.newValue) },
         { field: 'teiletyp_fertigungsplan', headerName: 'Teiletyp/Fertigungsplan', width: 180, editable: true, maxLength: 150 },
         { field: 'abteilung_lieferant', headerName: 'Abteilung / Lieferant', width: 150, editable: true, maxLength: 150 },
         { field: 'werkstoff', headerName: 'Werkstoff', width: 120, editable: true, maxLength: 150 },
@@ -402,7 +411,7 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, o
         { field: 'in_stueckliste_anzeigen', headerName: 'In Stückliste anzeigen', width: 120, editable: true, cellRenderer: 'agCheckboxCellRenderer' }
       ]
     }
-  ], [articleNumberCellRenderer, makeDocRenderer, parseOptionalNumber, onOpenOrders])
+  ], [articleNumberCellRenderer, makeDocRenderer, parseOptionalInt, parseOptionalNumber, onOpenOrders])
 
   const defaultColDef = useMemo<ColDef>(() => ({
     resizable: true,
@@ -427,6 +436,8 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, o
     rowHeight: 35,
     headerHeight: 120, // Erhöht für 90° gedrehte Überschriften in Block B
     onCellValueChanged: onCellValueChanged,
+    // Allow user to show/hide columns like "Menge (SW)"
+    sideBar: 'columns',
 
     // Skip non-editable cells for Tab / Shift+Tab
     tabToNextCell: (params: any) => {

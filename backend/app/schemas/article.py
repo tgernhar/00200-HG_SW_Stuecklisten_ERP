@@ -13,6 +13,7 @@ class ArticleBase(BaseModel):
     konfiguration: Optional[str] = None
     teilenummer: Optional[str] = None
     menge: int = 1
+    p_menge: Optional[int] = None
     teiletyp_fertigungsplan: Optional[str] = None
     abteilung_lieferant: Optional[str] = None
     werkstoff: Optional[str] = None
@@ -43,6 +44,7 @@ class ArticleUpdate(BaseModel):
     konfiguration: Optional[str] = None
     teilenummer: Optional[str] = None
     menge: Optional[int] = None
+    p_menge: Optional[int] = None
     teiletyp_fertigungsplan: Optional[str] = None
     abteilung_lieferant: Optional[str] = None
     werkstoff: Optional[str] = None

@@ -19,6 +19,7 @@ export interface Article {
   konfiguration?: string
   teilenummer?: string
   menge: number
+  p_menge?: number
   teiletyp_fertigungsplan?: string
   abteilung_lieferant?: string
   werkstoff?: string

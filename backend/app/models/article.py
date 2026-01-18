@@ -21,6 +21,8 @@ class Article(Base):
     konfiguration = Column(String(200))  # C4
     teilenummer = Column(String(100))  # C5
     menge = Column(Integer, default=1)  # C6
+    # Produktionsmenge (editierbar; wird beim Import initial auf menge gesetzt)
+    p_menge = Column(Integer, default=1)  # C6b
     
     # Editierbare Felder (max 150 Zeichen)
     teiletyp_fertigungsplan = Column(String(150))  # C7

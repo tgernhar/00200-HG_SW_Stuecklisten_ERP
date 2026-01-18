@@ -138,6 +138,9 @@ function App() {
 
       // Artikel-Stammdaten (editierbare Spalten in Block C)
       const articleFields = new Set([
+        'hg_artikelnummer',
+        'teilenummer',
+        'p_menge',
         'teiletyp_fertigungsplan',
         'abteilung_lieferant',
         'werkstoff',
@@ -157,6 +160,13 @@ function App() {
         if (v === '' || v === null || v === undefined) return null
         const n = typeof v === 'number' ? v : Number(String(v).replace(',', '.'))
         return Number.isFinite(n) ? n : null
+      }
+
+      const parseOptionalInt = (v: any) => {
+        if (v === '' || v === null || v === undefined) return null
+        const n = typeof v === 'number' ? v : Number(String(v).replace(',', '.'))
+        if (!Number.isFinite(n)) return null
+        return Math.trunc(n)
       }
 
       const parseBoolean = (v: any) => {
@@ -181,6 +191,7 @@ function App() {
       if (articleFields.has(field)) {
         let value: any = params.newValue
         if (field === 'in_stueckliste_anzeigen') value = parseBoolean(value)
+        if (field === 'p_menge') value = parseOptionalInt(value)
         if (field === 'laenge' || field === 'breite' || field === 'hoehe' || field === 'gewicht') {
           value = parseOptionalNumber(value)
         }

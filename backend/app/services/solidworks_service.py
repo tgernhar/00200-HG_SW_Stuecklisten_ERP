@@ -197,6 +197,25 @@ async def import_solidworks_assembly(
         else:
             aggregated[key]["menge"] += 1
 
+    # Re-number positions after dedupe:
+    # - sort by original SOLIDWORKS pos_nr (ascending)
+    # - then assign contiguous 1..n
+    def _pos_sort_key(item):
+        _k, _d = item
+        p = _d.get("pos_nr")
+        try:
+            p_int = int(p) if p is not None else None
+        except Exception:
+            p_int = None
+        return (p_int is None, p_int if p_int is not None else 0, str(_d.get("teilenummer") or ""), str(_d.get("benennung") or ""))
+
+    sorted_items = sorted(aggregated.items(), key=_pos_sort_key)
+    aggregated = {k: v for k, v in sorted_items}
+    for i, (k, d) in enumerate(sorted_items, start=1):
+        d["pos_nr"] = i
+        # Initialize/Reset Produktionsmenge (P-Menge) from SOLIDWORKS-Menge on every import
+        d["p_menge"] = int(d.get("menge") or 0)
+
     # Map VBA/Excel Custom Properties -> DB-Felder (nach normalisierten Namen)
     prop_to_field = {
         # VBA: "H+G Artikelnummer"
