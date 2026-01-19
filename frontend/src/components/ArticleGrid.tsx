@@ -57,6 +57,106 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
     [apiBaseUrl]
   )
 
+  const getDirFromPath = useCallback((p?: string): string | undefined => {
+    if (!p) return undefined
+    const normalized = String(p).replace(/\//g, '\\')
+    const idx = normalized.lastIndexOf('\\')
+    if (idx <= 0) return undefined
+    return normalized.slice(0, idx)
+  }, [])
+
+  const toFileUrl = useCallback((path: string): string => {
+    const normalized = String(path).replace(/\\/g, '/')
+    return `file:///${encodeURI(normalized)}`
+  }, [])
+
+  const fallbackCopy = useCallback(async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      alert(`Pfad kopiert:\n${text}`)
+    } catch {
+      alert(`Pfad:\n${text}`)
+    }
+  }, [])
+
+  const handleMouseDownCapture = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      const modifier = !!(e.altKey || e.ctrlKey || (e as any).metaKey)
+      if (!modifier) return
+
+      const target = e.target as HTMLElement | null
+      const cellEl = (target?.closest?.('.ag-cell') as HTMLElement | null) || null
+      const rowEl = (target?.closest?.('.ag-row') as HTMLElement | null) || null
+
+      const colId =
+        (cellEl?.getAttribute?.('col-id') ||
+          cellEl?.getAttribute?.('data-col-id') ||
+          null) as string | null
+
+      const rowIdxStr =
+        (rowEl?.getAttribute?.('row-index') ||
+          rowEl?.getAttribute?.('data-row-index') ||
+          null) as string | null
+
+      const rowIndex = rowIdxStr != null ? Number(rowIdxStr) : null
+
+      if (colId !== 'pdf' && colId !== 'dxf') return
+      if (rowIndex === null || !Number.isFinite(rowIndex)) return
+
+      const gridApi = gridApiRef.current
+      const rowNode = gridApi?.getDisplayedRowAtIndex?.(rowIndex)
+      const data = rowNode?.data as any
+      if (!data) return
+
+      if (colId === 'pdf') {
+        if (!data?.pdf_exists || !data?.pdf_path) return
+        const openUrl = `${apiBaseUrl}/documents/open-pdf?path=${encodeURIComponent(String(data.pdf_path))}`
+        e.preventDefault()
+        e.stopPropagation()
+        const win = window.open(openUrl, '_blank')
+        if (!win) window.location.assign(openUrl)
+        return
+      }
+
+      if (colId === 'dxf') {
+        if (!data?.dxf_exists) return
+        const dir = getDirFromPath(data?.sldasm_sldprt_pfad || data?.sw_part_asm_path || data?.sw_drw_path)
+        if (!dir) return
+        e.preventDefault()
+        e.stopPropagation()
+        const win = window.open(toFileUrl(dir), '_blank')
+        if (!win) void fallbackCopy(dir)
+      }
+    },
+    [apiBaseUrl, fallbackCopy, getDirFromPath, toFileUrl]
+  )
+
+  const FlagCellRenderer = useCallback((params: ICellRendererParams<Article>) => {
+    const v = String((params as any)?.value ?? '')
+    const isCreate = v === '1'
+    const isDone = v === 'x'
+    const style: React.CSSProperties = {
+      padding: 0,
+      fontSize: '12px',
+      lineHeight: '13px',
+      textAlign: 'center',
+      userSelect: 'none',
+      width: '100%',
+      height: '100%',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center'
+    }
+    if (isCreate) {
+      style.backgroundColor = '#FFD700'
+      style.color = '#000'
+    } else if (isDone) {
+      style.backgroundColor = '#90EE90'
+      style.color = '#000'
+    }
+    return React.createElement('div', { style }, v || '')
+  }, [])
+
   // Article Number Cell Renderer (für ERP-Abgleich-Farbe)
   const articleNumberCellRenderer = useCallback((params: ICellRendererParams) => {
     const style: React.CSSProperties = {
@@ -391,8 +491,9 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
       headerName: 'Dokumentstatus',
       headerClass: 'rotated-header-group',
       children: [
-        { field: 'pdf_drucken', headerName: 'PDF Drucken', width: 45, minWidth: 45, maxWidth: 45, editable: true, headerClass: 'rotated-header' },
-        { field: 'pdf_format', headerName: 'PDF Format', width: 45, minWidth: 45, maxWidth: 45, editable: false, headerClass: 'rotated-header' },
+        { field: 'pdf_drucken', headerName: 'PDF Drucken', width: 45, minWidth: 45, maxWidth: 45, editable: true, headerClass: 'rotated-header', cellRenderer: FlagCellRenderer },
+        // +~20% width so A3/A4 fits (was 45px).
+        { field: 'pdf_format', headerName: 'PDF Format', width: 55, minWidth: 55, maxWidth: 55, editable: false, headerClass: 'rotated-header' },
         { 
           field: 'pdf', 
           headerName: 'PDF', 
@@ -795,7 +896,7 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
   }, [articles, showHidden])
 
   return (
-    <div style={{ width: '100%', height: '100%' }} onKeyDownCapture={handleKeyDownCapture}>
+    <div style={{ width: '100%', height: '100%' }} onKeyDownCapture={handleKeyDownCapture} onMouseDownCapture={handleMouseDownCapture}>
       <div style={{ display: 'flex', gap: '12px', alignItems: 'center', padding: '6px 8px', fontSize: '12px' }}>
         <button
           onClick={handlePushSelectedToSolidworks}

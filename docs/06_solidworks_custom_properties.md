@@ -13,6 +13,7 @@ Wichtig: Import und Zurückschreiben verwenden **dieselbe Feldliste / dasselbe M
 - Der Import läuft **rekursiv über alle Ebenen** (Unterbaugruppen + Teile).
 - Zusätzlich wird die **Top‑Level Assembly (Hauptbaugruppe)** selbst als eigener Eintrag importiert (erste Zeile, `pos_nr = 0`).
 - Jede importierte Zeile wird mit **`sw_origin = true`** markiert. Manuell angelegte Zeilen bzw. Bestellartikel haben `sw_origin = false`.
+- **Bezeichnung/Benennung**: Wird bevorzugt aus dem **Dateinamen ohne Extension** abgeleitet (z.B. `.../Teilname.SLDPRT` → `Teilname`). Falls kein Pfad vorhanden ist (virtuelle/Toolbox‑Teile), wird der SOLIDWORKS‑Name (`Name2`) verwendet.
 - Custom Properties werden normalisiert (z.B. Umlaute/Sonderzeichen) und dann über das zentrale Mapping in DB‑Felder geschrieben.
 
 ## Zurückschreiben (Frontend/DB → SOLIDWORKS)

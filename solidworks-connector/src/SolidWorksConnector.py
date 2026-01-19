@@ -674,6 +674,18 @@ class SolidWorksConnector:
                     safe_name = (part_name or "").strip() or "UNKNOWN"
                     part_path = f"VIRTUAL:{safe_name}"
 
+                # Benennung stabil aus Dateiname (ohne Extension) ableiten, falls möglich.
+                display_name = ""
+                if part_path and not part_path.lower().startswith("virtual:"):
+                    base_name = os.path.basename(part_path)
+                    display_name = os.path.splitext(base_name)[0]
+                if not display_name:
+                    display_name = (part_name or "").strip()
+                if not display_name and part_path.lower().startswith("virtual:"):
+                    display_name = part_path.split(":", 1)[1].strip()
+                if display_name:
+                    part_name = display_name
+
                 # Öffne Part/Assembly für Dimensions-/Property-Abfrage (best effort)
                 x_dim = 0
                 y_dim = 0

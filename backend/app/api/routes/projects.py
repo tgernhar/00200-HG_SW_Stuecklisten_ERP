@@ -358,6 +358,33 @@ async def import_solidworks(
             detail="Für diese Stückliste existiert bereits ein Import. Zum Überschreiben bitte overwrite_password=1 setzen.",
         )
 
+    # #region agent log
+    try:
+        import json, time
+        with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
+            _f.write(
+                json.dumps(
+                    {
+                        "sessionId": "debug-session",
+                        "runId": "pre-import",
+                        "hypothesisId": "IMPORT_ROUTE",
+                        "location": "backend/app/api/routes/projects.py:import_solidworks",
+                        "message": "guard_passed",
+                        "data": {
+                            "project_id": project_id,
+                            "bom_id": bom.id,
+                            "existing_count": existing_count,
+                            "overwrite_password_set": overwrite_password == "1",
+                        },
+                        "timestamp": int(time.time() * 1000),
+                    }
+                )
+                + "\n"
+            )
+    except Exception:
+        pass
+    # #endregion agent log
+
     from app.services.solidworks_service import import_solidworks_assembly
     result = await import_solidworks_assembly(project_id, bom.id, assembly_filepath, db)
     # Wenn der Service einen "success": False liefert, sollte das im HTTP-Status sichtbar sein,
@@ -417,6 +444,31 @@ async def create_or_get_bom(project_id: int, payload: dict, db: Session = Depend
                 status_code=409,
                 detail="Für diese Kombination existiert bereits eine Stückliste. Zum Überschreiben bitte overwrite_password=1 setzen.",
             )
+        # #region agent log
+        try:
+            import json, time
+            with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
+                _f.write(
+                    json.dumps(
+                        {
+                            "sessionId": "debug-session",
+                            "runId": "pre-import",
+                            "hypothesisId": "IMPORT_ROUTE",
+                            "location": "backend/app/api/routes/projects.py:create_or_get_bom",
+                            "message": "guard_passed",
+                            "data": {
+                                "project_id": project_id,
+                                "bom_id": bom.id,
+                                "overwrite_password_set": overwrite_password == "1",
+                            },
+                            "timestamp": int(time.time() * 1000),
+                        }
+                    )
+                    + "\n"
+                )
+        except Exception:
+            pass
+        # #endregion agent log
         try:
             db.query(Article).filter(Article.bom_id == bom.id).delete(synchronize_session=False)
             # update stored labels for traceability
@@ -424,8 +476,50 @@ async def create_or_get_bom(project_id: int, payload: dict, db: Session = Depend
             bom.hugwawi_article_id = int(hugwawi_article_id)
             bom.hugwawi_articlenumber = str(hugwawi_articlenumber)
             db.commit()
+            # #region agent log
+            try:
+                import json, time
+                with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
+                    _f.write(
+                        json.dumps(
+                            {
+                                "sessionId": "debug-session",
+                                "runId": "pre-import",
+                                "hypothesisId": "IMPORT_ROUTE",
+                                "location": "backend/app/api/routes/projects.py:create_or_get_bom",
+                                "message": "overwrite_delete_success",
+                                "data": {"project_id": project_id, "bom_id": bom.id},
+                                "timestamp": int(time.time() * 1000),
+                            }
+                        )
+                        + "\n"
+                    )
+            except Exception:
+                pass
+            # #endregion agent log
         except Exception as e:
             db.rollback()
+            # #region agent log
+            try:
+                import json, time
+                with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
+                    _f.write(
+                        json.dumps(
+                            {
+                                "sessionId": "debug-session",
+                                "runId": "pre-import",
+                                "hypothesisId": "IMPORT_ROUTE",
+                                "location": "backend/app/api/routes/projects.py:create_or_get_bom",
+                                "message": "overwrite_delete_error",
+                                "data": {"project_id": project_id, "bom_id": bom.id, "error": str(e)},
+                                "timestamp": int(time.time() * 1000),
+                            }
+                        )
+                        + "\n"
+                    )
+            except Exception:
+                pass
+            # #endregion agent log
             raise HTTPException(status_code=500, detail=f"Fehler beim Überschreiben: {e}")
         return {"bom": bom, "overwritten": True}
 
@@ -478,6 +572,32 @@ async def import_solidworks_into_bom(
             status_code=409,
             detail="Für diese Stückliste existiert bereits ein Import. Zum Überschreiben bitte overwrite_password=1 setzen.",
         )
+    # #region agent log
+    try:
+        import json, time
+        with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
+            _f.write(
+                json.dumps(
+                    {
+                        "sessionId": "debug-session",
+                        "runId": "pre-import",
+                        "hypothesisId": "IMPORT_ROUTE",
+                        "location": "backend/app/api/routes/projects.py:import_solidworks_into_bom",
+                        "message": "guard_passed",
+                        "data": {
+                            "project_id": project_id,
+                            "bom_id": bom_id,
+                            "existing_count": existing_count,
+                            "overwrite_password_set": overwrite_password == "1",
+                        },
+                        "timestamp": int(time.time() * 1000),
+                    }
+                )
+                + "\n"
+            )
+    except Exception:
+        pass
+    # #endregion agent log
 
     # reuse existing normalization logic by delegating to the legacy route's helper path.
     # (copy minimal normalization for connector; keep Windows path for connector)

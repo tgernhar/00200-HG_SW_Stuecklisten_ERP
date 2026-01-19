@@ -125,12 +125,101 @@ async def import_solidworks_assembly(
             rows = results
 
     # Clear existing articles for this BOM to make import idempotent
+    # #region agent log
+    try:
+        import json, time
+        existing_count = db.query(Article.id).filter(Article.bom_id == bom_id).count()
+        order_count = (
+            db.query(Order.id)
+            .join(Article, Order.article_id == Article.id)
+            .filter(Article.bom_id == bom_id)
+            .count()
+        )
+        doc_count = (
+            db.query(Document.id)
+            .join(Article, Document.article_id == Article.id)
+            .filter(Article.bom_id == bom_id)
+            .count()
+        )
+        flag_count = (
+            db.query(DocumentGenerationFlag.id)
+            .join(Article, DocumentGenerationFlag.article_id == Article.id)
+            .filter(Article.bom_id == bom_id)
+            .count()
+        )
+        with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
+            _f.write(
+                json.dumps(
+                    {
+                        "sessionId": "debug-session",
+                        "runId": "pre-import",
+                        "hypothesisId": "FK_DELETE",
+                        "location": "backend/app/services/solidworks_service.py:import_solidworks_assembly",
+                        "message": "pre_delete_counts",
+                        "data": {
+                            "project_id": project_id,
+                            "bom_id": bom_id,
+                            "articles": existing_count,
+                            "orders": order_count,
+                            "documents": doc_count,
+                            "document_flags": flag_count,
+                        },
+                        "timestamp": int(time.time() * 1000),
+                    }
+                )
+                + "\n"
+            )
+    except Exception:
+        pass
+    # #endregion agent log
     try:
         db.query(Article).filter(Article.bom_id == bom_id).delete(synchronize_session=False)
         db.commit()
+        # #region agent log
+        try:
+            import json, time
+            with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
+                _f.write(
+                    json.dumps(
+                        {
+                            "sessionId": "debug-session",
+                            "runId": "pre-import",
+                            "hypothesisId": "FK_DELETE",
+                            "location": "backend/app/services/solidworks_service.py:import_solidworks_assembly",
+                            "message": "delete_articles_success",
+                            "data": {"project_id": project_id, "bom_id": bom_id},
+                            "timestamp": int(time.time() * 1000),
+                        }
+                    )
+                    + "\n"
+                )
+        except Exception:
+            pass
+        # #endregion agent log
     except Exception as e:
         logger.error(f"Failed clearing old articles for bom {bom_id} (project {project_id}): {e}", exc_info=True)
         db.rollback()
+        # #region agent log
+        try:
+            import json, time
+            with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
+                _f.write(
+                    json.dumps(
+                        {
+                            "sessionId": "debug-session",
+                            "runId": "pre-import",
+                            "hypothesisId": "FK_DELETE",
+                            "location": "backend/app/services/solidworks_service.py:import_solidworks_assembly",
+                            "message": "delete_articles_error",
+                            "data": {"project_id": project_id, "bom_id": bom_id, "error": str(e)},
+                            "timestamp": int(time.time() * 1000),
+                        }
+                    )
+                    + "\n"
+                )
+        except Exception:
+            pass
+        # #endregion agent log
 
     # Aggregate parts by (filepath, configuration)
     aggregated = {}

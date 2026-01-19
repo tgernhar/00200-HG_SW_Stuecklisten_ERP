@@ -55,7 +55,7 @@ export const DocumentStatusRenderer: React.FC<DocumentStatusProps> = ({ value, e
     }
   }
 
-  const handleClick = async () => {
+  const handleOpen = async () => {
     // Allow open only when document exists (green).
     if (!exists) return
 
@@ -84,25 +84,66 @@ export const DocumentStatusRenderer: React.FC<DocumentStatusProps> = ({ value, e
 
   return (
     <div
-      onClick={handleClick}
+      onMouseDown={(e) => {
+        // Keep cells editable: normal click should edit; open via modifier click.
+        const modifier = (e.altKey || e.ctrlKey || e.metaKey) && !!exists
+        if (!modifier) return
+        e.preventDefault()
+        e.stopPropagation()
+        handleOpen()
+      }}
       style={{
         ...getStyle(),
         padding: '0px',
         fontSize: '12px',
         lineHeight: '13px',
         textAlign: 'center',
-        cursor: exists ? 'pointer' : 'default',
+        cursor: 'default',
         userSelect: 'none'
       }}
       title={
         exists
           ? openMode === 'openPdf'
-            ? (filePath || 'PDF öffnen')
-            : (getDirFromPath(solidworksPath) || solidworksPath || 'Ordner öffnen')
+            ? `${filePath || 'PDF öffnen'}\nAlt+Klick (oder Strg+Klick) zum Öffnen`
+            : `${getDirFromPath(solidworksPath) || solidworksPath || 'Ordner öffnen'}\nAlt+Klick (oder Strg+Klick) zum Öffnen`
           : ''
       }
     >
-      {displayText}
+      <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+        {/* Keep cell editable: open via small hotspot icon on the right edge. */}
+        {exists ? (
+          <span
+            onMouseDown={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+            }}
+            onClick={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              handleOpen()
+            }}
+            title={exists ? 'Öffnen' : ''}
+            style={{
+              position: 'absolute',
+              top: 0,
+              right: 0,
+              width: 12,
+              height: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: 10,
+              lineHeight: '10px',
+              cursor: 'pointer'
+            }}
+          >
+            ↗
+          </span>
+        ) : null}
+        <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          {displayText}
+        </div>
+      </div>
     </div>
   )
 }

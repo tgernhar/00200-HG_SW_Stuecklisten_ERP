@@ -35,6 +35,26 @@ function App() {
   const [departments, setDepartments] = useState<string[]>([])
   const [selectlistValues, setSelectlistValues] = useState<Record<number, string[]>>({})
 
+  // #region agent log
+  const _agentLog = (location: string, message: string, data: any) => {
+    try {
+      fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: 'debug-session',
+          runId: 'import-fk',
+          hypothesisId: 'IMPORT_FLOW',
+          location,
+          message,
+          data,
+          timestamp: Date.now()
+        })
+      }).catch(() => {})
+    } catch {}
+  }
+  // #endregion agent log
+
   const [hugwawiItems, setHugwawiItems] = useState<HugwawiOrderArticleItem[]>([])
   const [showHugwawiPicker, setShowHugwawiPicker] = useState(false)
   const [hugwawiSearch, setHugwawiSearch] = useState('')
@@ -291,6 +311,20 @@ function App() {
     const url = `${apiBase}/projects/${project.id}/print-pdf-queue-merged`
     const win = window.open(url, '_blank')
     if (!win) window.location.assign(url)
+
+    // After clicking "PDF drucken": mark all currently queued items (pdf_drucken="1" & pdf="x") as printed ("x")
+    // so the grid turns green and the user sees the action was executed.
+    ;(async () => {
+      try {
+        const queueResp = await api.get(`/projects/${project.id}/print-pdf-queue`)
+        const items = (queueResp?.data?.items || []) as Array<{ article_id?: number }>
+        const ids = items.map((it) => it.article_id).filter(Boolean) as number[]
+        if (!ids.length) return
+        await Promise.all(ids.map((id) => api.patch(`/articles/${id}/document-flags`, { pdf_drucken: 'x' })))
+        refetch()
+      } catch (e: any) {
+      }
+    })()
   }
 
   const handleExport = () => {
