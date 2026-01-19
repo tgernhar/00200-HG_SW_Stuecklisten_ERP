@@ -14,6 +14,9 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 logger.propagate = True
 
+def _agent_log(*args, **kwargs):
+    return
+
 def _is_windows_path(p: str) -> bool:
     return bool(p) and len(p) >= 3 and p[1] == ":" and (p[2] in ("\\", "/"))
 
@@ -313,6 +316,13 @@ async def batch_generate_documents(
         document_types = ["PDF", "Bestell_PDF", "DXF", "Bestell_DXF", "STEP", "X_T", "STL"]
 
     requested_types = set(document_types)
+
+    _agent_log(
+        "A",
+        "document_service.py:batch_generate_documents",
+        "start",
+        {"project_id": project_id, "requested_types": sorted(list(requested_types))},
+    )
     
     generated = []
     failed = []
@@ -338,13 +348,55 @@ async def batch_generate_documents(
         want_stl = flags.stl == "1" and "STL" in requested_types
 
         # Helper: existence check in container and on host
-        def _exists_backend(p: Optional[str]) -> bool:
+        is_docker = bool(os.path.exists("/.dockerenv") or os.getcwd() == "/app")
+
+        async def _remote_exists(p: str) -> bool:
+            """
+            In Docker: Windows-Pfade (z.B. G:\\...) sind nicht gemountet.
+            Wir fragen den SOLIDWORKS-Connector auf Windows, ob die Datei existiert.
+            """
             if not p:
                 return False
-            if os.path.exists(p):
-                return True
+            if not (is_docker and _is_windows_path(p)):
+                return False
+            try:
+                base = (settings.SOLIDWORKS_CONNECTOR_URL or "").rstrip("/")
+                candidates = []
+                if base.endswith("/api/solidworks"):
+                    candidates.append(f"{base}/paths-exist")
+                if base.endswith("/api"):
+                    candidates.append(f"{base}/solidworks/paths-exist")
+                candidates.append(f"{base}/api/solidworks/paths-exist")
+                candidates.append(f"{base}/paths-exist")
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    for url in candidates:
+                        try:
+                            resp = await client.post(url, json={"paths": [p]})
+                            if resp.status_code == 200:
+                                data = resp.json() if resp.content else {}
+                                exists_map = (data or {}).get("exists") or {}
+                                return bool(exists_map.get(p))
+                        except Exception:
+                            continue
+            except Exception:
+                return False
+            return False
+
+        async def _exists_backend_or_remote(p: Optional[str]) -> bool:
+            if not p:
+                return False
+            try:
+                if os.path.exists(p):
+                    return True
+            except Exception:
+                pass
             p_container = _to_container_path(p)
-            return bool(p_container and os.path.exists(p_container))
+            try:
+                if p_container and os.path.exists(p_container):
+                    return True
+            except Exception:
+                pass
+            return await _remote_exists(p)
 
         # 2D: eine Anfrage pro Artikel (minimiert Open/Close in SOLIDWORKS)
         if want_pdf or want_bestell_pdf or want_dxf or want_bestell_dxf:
@@ -357,10 +409,23 @@ async def batch_generate_documents(
                     if base_dir and base_name:
                         sw_drawing_path = os.path.join(base_dir, f"{base_name}.SLDDRW")
 
-            exists_backend = _exists_backend(sw_drawing_path) if sw_drawing_path else False
+            exists_backend = await _exists_backend_or_remote(sw_drawing_path) if sw_drawing_path else False
             sw_drawing_path_container = _to_container_path(sw_drawing_path) if sw_drawing_path else None
 
             if not sw_drawing_path or not exists_backend:
+                _agent_log(
+                    "A",
+                    "document_service.py:batch_generate_documents",
+                    "2d_missing_slddrw",
+                    {
+                        "article_id": article.id,
+                        "slddrw_pfad": article.slddrw_pfad,
+                        "sldasm_sldprt_pfad": article.sldasm_sldprt_pfad,
+                        "derived_slddrw": sw_drawing_path,
+                        "exists_backend": exists_backend,
+                        "derived_container": sw_drawing_path_container,
+                    },
+                )
                 for doc_type in ["PDF", "Bestell_PDF", "DXF", "Bestell_DXF"]:
                     if doc_type in requested_types and (
                         (doc_type == "PDF" and want_pdf)
@@ -381,17 +446,39 @@ async def batch_generate_documents(
                     # Default-httpx-timeout (~5s) führt sonst zu ReadTimeout, obwohl der Connector später erfolgreich fertig wird.
                     async with httpx.AsyncClient(timeout=300.0) as client:
                         url = f"{settings.SOLIDWORKS_CONNECTOR_URL}/api/solidworks/create-2d-documents"
-                        response = await client.post(
-                            url,
-                            json={
-                                "filepath": sw_drawing_path,
-                                "pdf": want_pdf,
-                                "dxf": want_dxf,
-                                "bestell_pdf": want_bestell_pdf,
-                                "bestell_dxf": want_bestell_dxf,
+                        payload = {
+                            "filepath": sw_drawing_path,
+                            "pdf": want_pdf,
+                            "dxf": want_dxf,
+                            "bestell_pdf": want_bestell_pdf,
+                            "bestell_dxf": want_bestell_dxf,
+                        }
+                        _agent_log(
+                            "A",
+                            "document_service.py:batch_generate_documents",
+                            "2d_call_connector",
+                            {
+                                "article_id": article.id,
+                                "url": url,
+                                "payload": payload,
+                                "slddrw_path_container": sw_drawing_path_container,
                             },
                         )
+                        response = await client.post(
+                            url,
+                            json=payload,
+                        )
 
+                    _agent_log(
+                        "A",
+                        "document_service.py:batch_generate_documents",
+                        "2d_connector_response",
+                        {
+                            "article_id": article.id,
+                            "status_code": response.status_code,
+                            "body_snippet": (response.text or "")[:400],
+                        },
+                    )
                     if response.status_code == 200:
                         data = response.json() if response.content else {}
                         created_files = data.get("created_files", []) or []
@@ -480,7 +567,14 @@ async def batch_generate_documents(
         # 3D: eine Anfrage pro Artikel (STEP/X_T/STL zusammen)
         if want_step or want_x_t or want_stl:
             sw_filepath = article.sldasm_sldprt_pfad
-            if not sw_filepath or not _exists_backend(sw_filepath):
+            exists_backend = await _exists_backend_or_remote(sw_filepath) if sw_filepath else False
+            if not sw_filepath or not exists_backend:
+                _agent_log(
+                    "A",
+                    "document_service.py:batch_generate_documents",
+                    "3d_missing_sldprt_sldasm",
+                    {"article_id": article.id, "sldasm_sldprt_pfad": sw_filepath, "exists_backend": exists_backend},
+                )
                 for doc_type, wanted in [("STEP", want_step), ("X_T", want_x_t), ("STL", want_stl)]:
                     if wanted:
                         failed.append(
@@ -490,16 +584,26 @@ async def batch_generate_documents(
                 try:
                     # 3D Exporte können ebenfalls länger dauern als Default-timeout
                     async with httpx.AsyncClient(timeout=300.0) as client:
-                        response = await client.post(
-                            f"{settings.SOLIDWORKS_CONNECTOR_URL}/api/solidworks/create-3d-documents",
-                            json={
-                                "filepath": sw_filepath,
-                                "step": want_step,
-                                "x_t": want_x_t,
-                                "stl": want_stl,
-                            },
+                        url = f"{settings.SOLIDWORKS_CONNECTOR_URL}/api/solidworks/create-3d-documents"
+                        payload = {"filepath": sw_filepath, "step": want_step, "x_t": want_x_t, "stl": want_stl}
+                        _agent_log(
+                            "A",
+                            "document_service.py:batch_generate_documents",
+                            "3d_call_connector",
+                            {"article_id": article.id, "url": url, "payload": payload},
                         )
+                        response = await client.post(url, json=payload)
 
+                    _agent_log(
+                        "A",
+                        "document_service.py:batch_generate_documents",
+                        "3d_connector_response",
+                        {
+                            "article_id": article.id,
+                            "status_code": response.status_code,
+                            "body_snippet": (response.text or "")[:400],
+                        },
+                    )
                     if response.status_code == 200:
                         data = response.json() if response.content else {}
                         created_files = data.get("created_files", []) or []
@@ -518,6 +622,17 @@ async def batch_generate_documents(
                         for doc_type, wanted in [("STEP", want_step), ("X_T", want_x_t), ("STL", want_stl)]:
                             if not wanted:
                                 continue
+                            fp = created_by_type.get(doc_type)
+                            if not fp:
+                                failed.append(
+                                    {
+                                        "article_id": article.id,
+                                        "document_type": doc_type,
+                                        "reason": "Connector meldet Erfolg, aber Output-Datei fehlt",
+                                    }
+                                )
+                                continue
+
                             setattr(flags, flag_field_by_type[doc_type], "x")
 
                             doc = (
@@ -527,13 +642,13 @@ async def batch_generate_documents(
                             )
                             if doc:
                                 doc.exists = True
-                                doc.file_path = created_by_type.get(doc_type)
+                                doc.file_path = fp
                             else:
                                 doc = Document(
                                     article_id=article.id,
                                     document_type=doc_type,
                                     exists=True,
-                                    file_path=created_by_type.get(doc_type),
+                                    file_path=fp,
                                 )
                                 db.add(doc)
 
@@ -555,6 +670,23 @@ async def batch_generate_documents(
                             failed.append({"article_id": article.id, "document_type": doc_type, "reason": reason})
     
     db.commit()
+
+    # Small summary for runtime evidence (avoid huge payloads)
+    try:
+        _agent_log(
+            "A",
+            "document_service.py:batch_generate_documents",
+            "summary",
+            {
+                "project_id": project_id,
+                "generated_count": len(generated),
+                "failed_count": len(failed),
+                "skipped_count": len(skipped),
+                "failed_sample": failed[:8],
+            },
+        )
+    except Exception:
+        pass
     
     return {
         "generated": generated,

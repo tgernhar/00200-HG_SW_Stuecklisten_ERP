@@ -45,6 +45,7 @@ function App() {
   const [bestellartikelSearch, setBestellartikelSearch] = useState('')
   const [selectedTemplateIds, setSelectedTemplateIds] = useState<Set<number>>(new Set())
 
+  // (debug instrumentation removed)
   const _log = () => {}
 
   useEffect(() => {
@@ -110,22 +111,13 @@ function App() {
   const loadProjects = async (params?: { au_nr?: string; artikel_nr?: string }) => {
     setProjectsLoading(true)
     setProjectsError(null)
-    // #region agent log
-    _log('App.tsx:loadProjects', 'request', {})
-    // #endregion agent log
     try {
       const resp = await api.get('/projects', { params })
       const list = (resp?.data || []) as Project[]
       setProjects(list)
-      // #region agent log
-      _log('App.tsx:loadProjects', 'response', { count: list.length })
-      // #endregion agent log
     } catch (e: any) {
       const msg = e?.response?.data?.detail || e?.message || 'Fehler beim Laden'
       setProjectsError(String(msg))
-      // #region agent log
-      _log('App.tsx:loadProjects', 'error', { message: String(msg), status: e?.response?.status })
-      // #endregion agent log
     } finally {
       setProjectsLoading(false)
     }
@@ -134,16 +126,10 @@ function App() {
   const loadProjectsByAu = async (au: string) => {
     const q = (au || '').trim()
     if (!q) return
-    // #region agent log
-    _log('App.tsx:loadProjectsByAu', 'request', { au: q })
-    // #endregion agent log
     try {
       await loadProjects({ au_nr: q })
     } catch (e: any) {
       const msg = e?.response?.data?.detail || e?.message || 'Projekt nicht gefunden'
-      // #region agent log
-      _log('App.tsx:loadProjectsByAu', 'error', { au: q, message: msg, status: e?.response?.status })
-      // #endregion agent log
       alert(String(msg))
     }
   }
@@ -151,22 +137,13 @@ function App() {
   const loadProjectByArtikelNr = async (artikelNr: string) => {
     const q = (artikelNr || '').trim()
     if (!q) return null
-    // #region agent log
-    _log('App.tsx:loadProjectByArtikelNr', 'request', { artikelNr: q })
-    // #endregion agent log
     try {
       const resp = await api.get('/projects', { params: { artikel_nr: q } })
       const list = (resp?.data || []) as Project[]
       const p = list[0] || null
-      // #region agent log
-      _log('App.tsx:loadProjectByArtikelNr', 'response', { artikelNr: q, projectId: p?.id })
-      // #endregion agent log
       return p
     } catch (e: any) {
       const msg = e?.response?.data?.detail || e?.message || 'Projekt nicht gefunden'
-      // #region agent log
-      _log('App.tsx:loadProjectByArtikelNr', 'error', { artikelNr: q, message: msg, status: e?.response?.status })
-      // #endregion agent log
       return null
     }
   }

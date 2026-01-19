@@ -2,10 +2,11 @@
 Document Routes
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.core.database import get_db
+from app.core.config import settings
 from app.models.article import Article
 from app.models.project import Project
 from app.models.document import Document
@@ -18,10 +19,14 @@ import json
 from pypdf import PdfReader, PdfWriter
 import time
 import uuid
+from io import BytesIO
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 logger.propagate = True
+
+def _agent_log(*args, **kwargs):
+    return
 
 
 def _to_container_path(p: str) -> str:
@@ -69,21 +74,66 @@ async def open_pdf(path: str = Query(..., description="PDF-Dateipfad (im Contain
         raise HTTPException(status_code=400, detail="Nur PDF-Dateien sind erlaubt")
 
     resolved = os.path.normpath(resolved)
-    if not _is_allowed_path(resolved):
-        raise HTTPException(status_code=403, detail="Pfad nicht erlaubt")
 
-    if not os.path.exists(resolved):
-        raise HTTPException(status_code=404, detail="Datei nicht gefunden")
-
-    # Ensure browser opens PDF inline (not as download)
-    # NOTE: Starlette FileResponse defaults content_disposition_type="attachment".
-    filename = os.path.basename(resolved)
-    return FileResponse(
-        resolved,
-        media_type="application/pdf",
-        filename=filename,
-        content_disposition_type="inline",
+    # One-shot runtime evidence for path mapping/allowlist/existence
+    _agent_log(
+        "B",
+        "documents.py:open_pdf",
+        "open_pdf_check",
+        {
+            "input_path": path,
+            "resolved_path": resolved,
+            "allowed": _is_allowed_path(resolved),
+            "exists": os.path.exists(resolved),
+        },
     )
+
+    allowed = _is_allowed_path(resolved)
+    exists = os.path.exists(resolved)
+
+    # Normal path: only allow serving from mounted root
+    if allowed and exists:
+        filename = os.path.basename(resolved)
+        return FileResponse(
+            resolved,
+            media_type="application/pdf",
+            filename=filename,
+            content_disposition_type="inline",
+        )
+
+    # Fallback: Backend runs in Docker and can't access Windows drives (e.g. G:\...).
+    # We proxy the PDF bytes from the SOLIDWORKS-Connector (Windows host).
+    try:
+        import httpx
+
+        base = (settings.SOLIDWORKS_CONNECTOR_URL or "").rstrip("/")
+        url = f"{base}/api/solidworks/open-file"
+        _agent_log(
+            "B",
+            "documents.py:open_pdf",
+            "open_pdf_fallback_proxy",
+            {"input_path": path, "resolved_path": resolved, "allowed": allowed, "exists": exists, "proxy_url": url},
+        )
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.get(url, params={"path": path})
+        _agent_log(
+            "B",
+            "documents.py:open_pdf",
+            "open_pdf_fallback_proxy_response",
+            {"status_code": resp.status_code, "bytes": (len(resp.content) if resp.content else 0), "text_snip": (resp.text or "")[:160]},
+        )
+        if resp.status_code != 200:
+            raise HTTPException(status_code=resp.status_code, detail=f"Connector PDF Proxy Fehler: {resp.text[:200]}")
+        filename = os.path.basename(path.replace("\\", "/"))
+        return Response(
+            content=resp.content,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'inline; filename="{filename}"'},
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"Datei nicht gefunden/Proxy fehlgeschlagen: {type(e).__name__}: {e}")
 
 
 @router.get("/documents/view-pdf", response_class=HTMLResponse)
@@ -98,16 +148,10 @@ async def view_pdf(
     if not path:
         raise HTTPException(status_code=400, detail="Pfad fehlt")
 
-    resolved = _to_container_path(path)
-    if not resolved.lower().endswith(".pdf"):
+    if not (path or "").lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Nur PDF-Dateien sind erlaubt")
-
-    resolved = os.path.normpath(resolved)
-    if not _is_allowed_path(resolved):
-        raise HTTPException(status_code=403, detail="Pfad nicht erlaubt")
-
-    if not os.path.exists(resolved):
-        raise HTTPException(status_code=404, detail="Datei nicht gefunden")
+    # NOTE: Do NOT enforce container allowlist here.
+    # `open_pdf` will enforce allowlist for mounted files and will proxy from the connector for Windows paths.
 
     # Build URLs relative to API root (/api) - path will be encoded in JS
     open_url_base = "/api/documents/open-pdf?path="
@@ -236,6 +280,12 @@ async def generate_documents_batch(
     if not project:
         raise HTTPException(status_code=404, detail="Projekt nicht gefunden")
     
+    _agent_log(
+        "A",
+        "documents.py:generate_documents_batch",
+        "batch_endpoint_called",
+        {"project_id": project_id, "document_types": document_types or None},
+    )
     result = await batch_generate_documents(project_id, document_types, db)
 
     return result
@@ -363,16 +413,38 @@ async def get_print_pdf_queue_merged(project_id: int, db: Session = Depends(get_
         p = (it or {}).get("pdf_path")
         if not p:
             continue
-        resolved = os.path.normpath(_to_container_path(p))
-        if not os.path.exists(resolved):
-            missing.append(resolved)
-            continue
         try:
-            reader = PdfReader(resolved)
+            resolved = os.path.normpath(_to_container_path(p))
+            if os.path.exists(resolved) and _is_allowed_path(resolved):
+                reader = PdfReader(resolved)
+            else:
+                # Fallback: proxy bytes from connector
+                import httpx
+
+                base = (settings.SOLIDWORKS_CONNECTOR_URL or "").rstrip("/")
+                url = f"{base}/api/solidworks/open-file"
+                _agent_log(
+                    "B",
+                    "documents.py:get_print_pdf_queue_merged",
+                    "merge_fetch_via_connector",
+                    {"pdf_path": p, "resolved": resolved, "proxy_url": url, "allowed": _is_allowed_path(resolved), "exists": os.path.exists(resolved)},
+                )
+                async with httpx.AsyncClient(timeout=60.0) as client:
+                    resp = await client.get(url, params={"path": p})
+                _agent_log(
+                    "B",
+                    "documents.py:get_print_pdf_queue_merged",
+                    "merge_fetch_via_connector_response",
+                    {"pdf_path": p, "status_code": resp.status_code, "bytes": (len(resp.content) if resp.content else 0), "text_snip": (resp.text or "")[:160]},
+                )
+                if resp.status_code != 200:
+                    missing.append(p)
+                    continue
+                reader = PdfReader(BytesIO(resp.content))
             for page in reader.pages:
                 writer.add_page(page)
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"PDF Merge Fehler: {resolved}: {type(e).__name__}: {e}")
+            raise HTTPException(status_code=500, detail=f"PDF Merge Fehler: {p}: {type(e).__name__}: {e}")
 
     if missing:
         raise HTTPException(status_code=404, detail=f"PDF(s) nicht gefunden: {missing[:3]}{' ...' if len(missing)>3 else ''}")

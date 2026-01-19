@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.core.database import get_db
+from app.core.config import settings
 from app.models.article import Article
 from app.models.project import Project
 from app.models.bom import Bom
@@ -17,6 +18,9 @@ from pypdf import PdfReader
 import math
 
 router = APIRouter()
+
+def _agent_log(*args, **kwargs):
+    return
 
 def _to_container_path(p: str) -> str:
     p2 = (p or "").replace("\\", "/")
@@ -31,11 +35,66 @@ def _pdf_format_from_path(pdf_path: str) -> Optional[str]:
     """
     if not pdf_path:
         return None
+    def _is_windows_path(p: str) -> bool:
+        return bool(p) and len(p) >= 3 and p[1] == ":" and (p[2] in ("\\", "/"))
+
+    def _fetch_pdf_bytes_via_connector(p: str) -> Optional[bytes]:
+        try:
+            import urllib.parse as _up
+            import urllib.request as _ur
+
+            base = (getattr(settings, "SOLIDWORKS_CONNECTOR_URL", "") or "").rstrip("/")
+            if not base:
+                _agent_log("B", "articles.py:_pdf_format_from_path", "pdf_proxy_no_base", {"pdf_path": p})
+                return None
+            url = f"{base}/api/solidworks/open-file?path={_up.quote(p)}"
+            _agent_log("B", "articles.py:_pdf_format_from_path", "pdf_proxy_request", {"pdf_path": p, "url": url})
+            with _ur.urlopen(url, timeout=8.0) as r:
+                status = getattr(r, "status", 200)
+                data = r.read()
+                _agent_log(
+                    "B",
+                    "articles.py:_pdf_format_from_path",
+                    "pdf_proxy_response",
+                    {"pdf_path": p, "status": status, "bytes": (len(data) if data else 0)},
+                )
+                if status != 200 or not data:
+                    return None
+                return data
+        except Exception:
+            try:
+                import traceback as _tb
+                _agent_log("B", "articles.py:_pdf_format_from_path", "pdf_proxy_exception", {"pdf_path": p, "err": _tb.format_exc()[-800:]})
+            except Exception:
+                pass
+            return None
+
     resolved = os.path.normpath(_to_container_path(pdf_path))
-    if not os.path.exists(resolved):
+    exists = os.path.exists(resolved)
+    # sample only first N calls to avoid log spam
+    try:
+        cnt = getattr(_pdf_format_from_path, "_agent_cnt", 0)
+        if cnt < 12:
+            setattr(_pdf_format_from_path, "_agent_cnt", cnt + 1)
+            _agent_log(
+                "B",
+                "articles.py:_pdf_format_from_path",
+                "pdf_format_probe",
+                {"pdf_path": pdf_path, "resolved": resolved, "exists": exists},
+            )
+    except Exception:
+        pass
+    remote_used = False
+    pdf_bytes = None
+    if not exists and _is_windows_path(pdf_path):
+        # Fallback for Docker: PDF liegt auf Windows-Host (z.B. G:\...), Container kann sie nicht lesen.
+        pdf_bytes = _fetch_pdf_bytes_via_connector(pdf_path)
+        remote_used = pdf_bytes is not None
+        exists = remote_used
+    if not exists:
         return None
     try:
-        reader = PdfReader(resolved)
+        reader = PdfReader(resolved) if not remote_used else PdfReader(__import__("io").BytesIO(pdf_bytes))
         if not reader.pages:
             return None
         mb = reader.pages[0].mediabox
@@ -58,9 +117,31 @@ def _pdf_format_from_path(pdf_path: str) -> Optional[str]:
         }
         for name, (sa, sb) in sizes.items():
             if abs(a - sa) <= tol and abs(b - sb) <= tol:
+                _agent_log(
+                    "B",
+                    "articles.py:_pdf_format_from_path",
+                    "pdf_format_match",
+                    {"pdf_path": pdf_path, "remote_used": remote_used, "a_mm": a, "b_mm": b, "match": name},
+                )
                 return name
+        _agent_log(
+            "B",
+            "articles.py:_pdf_format_from_path",
+            "pdf_format_custom",
+            {"pdf_path": pdf_path, "remote_used": remote_used, "a_mm": a, "b_mm": b},
+        )
         return "Custom"
     except Exception:
+        try:
+            import traceback as _tb
+            _agent_log(
+                "B",
+                "articles.py:_pdf_format_from_path",
+                "pdf_format_parse_exception",
+                {"pdf_path": pdf_path, "remote_used": remote_used, "err": _tb.format_exc()[-800:]},
+            )
+        except Exception:
+            pass
         return None
 
 
@@ -99,12 +180,28 @@ async def update_document_flags(article_id: int, payload: DocumentFlagsUpdate, d
 
     allowed = {"", "1", "x"}
     update_data = payload.model_dump(exclude_unset=True)
+    _agent_log(
+        "A",
+        "articles.py:update_document_flags",
+        "flags_patch_request",
+        {"article_id": article_id, "fields": list(update_data.keys())},
+    )
     for field, value in update_data.items():
         if value is None:
             continue
         if value not in allowed:
             raise HTTPException(status_code=400, detail=f"Ungültiger Wert für {field}: {value!r}")
+        try:
+            old = getattr(flags, field, None)
+        except Exception:
+            old = None
         setattr(flags, field, value)
+        _agent_log(
+            "A",
+            "articles.py:update_document_flags",
+            "flags_patch_set",
+            {"article_id": article_id, "field": field, "old": old, "new": value},
+        )
 
     db.commit()
     db.refresh(flags)

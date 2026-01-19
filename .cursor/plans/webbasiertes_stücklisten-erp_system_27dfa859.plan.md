@@ -20,7 +20,7 @@ graph TB
         subgraph Docker["Docker Container"]
             Backend[Python FastAPI<br/>Backend API]
             FrontendSrv[Frontend Server<br/>Nginx/Node]
-            MySQL[(MySQL<br/>Datenbank)]
+            MySQL[(MySQL<br/>Datenbank<br/>Project/BOM/Article)]
         end
     end
     
@@ -38,6 +38,10 @@ graph TB
     Backend -->|HTTP/REST| SWConnector
     SWConnector -->|COM API| SOLIDWORKS
     Backend -->|ODBC/SQL| ERPDB
+    
+    MySQL -.->|"Project (artikel_nr)"| Project[Project]
+    Project -.->|"1:N"| BOM[BOM]
+    BOM -.->|"1:N"| Article[Article]
 ```
 
 ## Projektstruktur
@@ -51,8 +55,10 @@ graph TB
 │   │   ├── models/                 # SQLAlchemy Models
 │   │   │   ├── __init__.py
 │   │   │   ├── project.py
+│   │   │   ├── bom.py              # BOM Model
 │   │   │   ├── article.py
 │   │   │   ├── document.py
+│   │   │   ├── document_flag.py    # Document Generation Flags
 │   │   │   └── order.py
 │   │   ├── schemas/                # Pydantic Schemas
 │   │   │   ├── __init__.py
@@ -63,14 +69,18 @@ graph TB
 │   │   │   ├── routes/
 │   │   │   │   ├── __init__.py
 │   │   │   │   ├── projects.py
+│   │   │   │   ├── boms.py          # BOM Routes
 │   │   │   │   ├── articles.py
 │   │   │   │   ├── documents.py
-│   │   │   │   └── erp.py
+│   │   │   │   ├── erp.py
+│   │   │   │   └── hugwawi.py       # HUGWAWI Read-Only Routes
 │   │   ├── services/
 │   │   │   ├── __init__.py
 │   │   │   ├── solidworks_service.py
+│   │   │   ├── solidworks_property_mapping.py  # Custom Properties Mapping
 │   │   │   ├── erp_service.py
-│   │   │   └── document_service.py
+│   │   │   ├── document_service.py
+│   │   │   └── hugwawi_csv_export.py           # CSV-Export für HUGWAWI
 │   │   └── core/
 │   │       ├── __init__.py
 │   │       ├── config.py
@@ -114,38 +124,64 @@ graph TB
 
 ## Datenmodell (MySQL)
 
+### Datenstruktur-Hierarchie
+
+Das System verwendet eine dreistufige Hierarchie:
+- **Project** (eindeutig über `artikel_nr`) - Ein Projekt entspricht einer Artikelnummer
+- **Bom** (mehrere BOMs pro Projekt möglich) - Eine BOM entspricht einer Auftrags-Artikel-Kombination
+- **Article** (gehört zu einer BOM) - Einzelne Stücklistenzeilen
+
+**Wichtig**: Projekte werden eindeutig über die **Artikelnummer (`artikel_nr`)** geführt. Die `au_nr` ist Zusatzinfo und darf mehrfach vorkommen.
+
 ### Haupttabellen
 
 **projects**
 
 - id (PK)
-- au_nr (AU-NR)
-- project_path
+- artikel_nr (String, unique, nullable=False) - **Eindeutige Projekt-Identifikation**
+- au_nr (String, nullable) - AU-NR (Zusatzinfo, kann mehrfach vorkommen)
+- project_path (String)
 - created_at, updated_at
+
+**boms** (Stückliste-Header pro Auftrag+Artikel Kombination)
+
+- id (PK)
+- project_id (FK zu projects)
+- hugwawi_order_id (Integer, nullable) - HUGWAWI Auftrags-ID
+- hugwawi_order_name (String, nullable) - AU-Nr aus ordertable.name
+- hugwawi_order_article_id (Integer, nullable) - order_article_ref.orderArticleId
+- hugwawi_article_id (Integer, nullable) - article.id
+- hugwawi_articlenumber (String, nullable) - article.articlenumber
+- created_at, updated_at
+- **Unique Constraint**: `(project_id, hugwawi_order_id, hugwawi_order_article_id)`
 
 **articles** (Haupttabelle für Stücklistenzeilen)
 
 - id (PK)
-- project_id (FK)
-- pos_nr
-- hg_artikelnummer
-- benennung
-- konfiguration
-- teilenummer
-- menge
-- abteilung_lieferant
-- werkstoff
-- werkstoff_nr
-- oberflaeche
-- oberflaechenschutz
-- farbe
-- lieferzeit
-- laenge, breite, hoehe, gewicht
-- pfad
-- sldasm_sldprt_pfad
-- slddrw_pfad
-- in_stueckliste_anzeigen (Boolean)
-- teiletyp_fertigungsplan
+- project_id (FK zu projects)
+- bom_id (FK zu boms, nullable=False) - **Artikel gehört zu einer BOM**
+- pos_nr (Integer) - Positionsnummer (0 = Hauptbaugruppe, 1..n = weitere Positionen)
+- pos_sub (Integer, default=0) - Sub-Position für Bestellartikel (0 = Basisposition, 1..n = eingefügte Zeilen)
+- hg_artikelnummer (String, index) - C2
+- benennung (String) - C3
+- konfiguration (String) - C4
+- teilenummer (String) - C5
+- menge (Integer, default=1) - C6: Menge aus SOLIDWORKS (read-only, standardmäßig ausgeblendet)
+- p_menge (Integer, default=1) - C6b: Produktionsmenge (editierbar, wird beim Import initial auf menge gesetzt)
+- teiletyp_fertigungsplan (String(150)) - C7: Editierbar
+- abteilung_lieferant (String(150)) - C8: Editierbar
+- werkstoff (String(150)) - C9: Editierbar
+- werkstoff_nr (String(150)) - C10: Editierbar
+- oberflaeche (String(150)) - C11: Editierbar
+- oberflaechenschutz (String(150)) - C12: Editierbar
+- farbe (String(150)) - C13: Editierbar
+- lieferzeit (String(150)) - C14: Editierbar
+- laenge, breite, hoehe, gewicht (Float) - C15-C18: Editierbar
+- pfad (String) - C19
+- sldasm_sldprt_pfad (String) - C20
+- slddrw_pfad (String) - C21
+- in_stueckliste_anzeigen (Boolean, default=True) - C22: Filter-Flag
+- erp_exists (Boolean, nullable) - ERP-Status (wird durch check-all-articlenumbers gesetzt)
 
 **orders** (Bestellinformationen)
 
@@ -167,84 +203,136 @@ graph TB
 - exists (Boolean)
 - generated_at
 
-**document_generation_flags** (Druck-/Generierungsflags)
+**document_generation_flags** (Druck-/Generierungsflags - Block B)
 
 - id (PK)
-- article_id (FK)
-- pdf_drucken (Boolean)
-- pdf_bestell_pdf (Boolean)
-- dxf (Boolean)
-- bestell_dxf (Boolean)
-- step (Boolean)
-- x_t (Boolean)
-- stl (Boolean)
+- article_id (FK, unique) - Ein Flag-Set pro Artikel
+- pdf_drucken (String(1), default="") - B1: leer, "1", "x"
+- pdf (String(1), default="") - B2: leer, "1", "x"
+- pdf_bestell_pdf (String(1), default="") - B3: leer, "1", "x"
+- dxf (String(1), default="") - B4: leer, "1", "x"
+- bestell_dxf (String(1), default="") - B5: leer, "1", "x"
+- step (String(1), default="") - B8: leer, "1", "x"
+- x_t (String(1), default="") - B9: leer, "1", "x"
+- stl (String(1), default="") - B10: leer, "1", "x"
+- bn_ab (String(1), default="") - B12: leer, "x"
+
+**Hinweis**: Die Flags verwenden String-Werte ("", "1", "x") statt Boolean, um Excel-kompatibel zu sein.
 
 ## API-Endpunkte
 
+**Hinweis**: Detaillierte Dokumentation zu Import-Workflow, Dokumentenprüfung, Grid-Spalten und weiteren Features siehe `docs/README.md` und die einzelnen Dokumentationsdateien.
+
 ### Projekte
 
-- `GET /api/projects` - Liste aller Projekte
+- `GET /api/projects?skip=0&limit=100&au_nr=...&artikel_nr=...` - Liste aller Projekte (optional gefiltert)
+- `GET /api/projects/by-au?au_nr=...` - Projekt per AU-Nr laden (erstes Ergebnis)
 - `GET /api/projects/{id}` - Projektdetails
-- `POST /api/projects` - Neues Projekt erstellen
-- `POST /api/projects/{id}/import-solidworks` - SOLIDWORKS-Daten importieren
+- `POST /api/projects` - Neues Projekt erstellen (Body: `{ "artikel_nr": "...", "au_nr": "...", "project_path": "..." }`)
+- `PATCH /api/projects/{id}` - Projekt aktualisieren
+
+### BOMs (Stücklisten)
+
+- `GET /api/projects/{id}/boms` - Alle BOMs eines Projekts auflisten
+- `POST /api/projects/{id}/boms` - BOM erstellen oder bestehende zurückgeben
+        - Body: `{ "hugwawi_order_id": ..., "hugwawi_order_name": "...", "hugwawi_order_article_id": ..., "hugwawi_article_id": ..., "hugwawi_articlenumber": "...", "overwrite_password": "1" }`
+        - Wenn BOM bereits existiert: nur mit `overwrite_password="1"` wird sie überschrieben (Artikel gelöscht)
+- `POST /api/projects/{id}/boms/{bom_id}/import-solidworks?assembly_filepath=...` - SOLIDWORKS-Assembly in BOM importieren
+        - Siehe auch: `docs/01_import_workflow.md`
 
 ### Artikel/Stückliste
 
-- `GET /api/projects/{id}/articles` - Alle Artikel eines Projekts
+- `GET /api/projects/{id}/articles?bom_id=...` - Alle Artikel einer BOM abrufen
+        - Wenn `bom_id` leer und es gibt genau 1 BOM im Projekt, wird diese verwendet
+        - Response: `List[ArticleGridRow]` mit allen Feldern inkl. Dokument-Flags und Existence-Feldern
 - `GET /api/articles/{id}` - Einzelner Artikel
 - `PATCH /api/articles/{id}` - Artikel aktualisieren
-- `POST /api/articles` - Neuen Artikel erstellen
-- `DELETE /api/articles/{id}` - Artikel löschen
-- `POST /api/articles/batch-update` - Batch-Update mehrerer Artikel
+- `POST /api/articles` - Neuen Artikel erstellen (manuelle Zeile)
+- `DELETE /api/articles/{id}?overwrite_password=...` - Artikel löschen (Passwort "1" erforderlich, nur wenn nicht aus SOLIDWORKS importiert)
+- `PATCH /api/articles/{id}/document-flags` - Dokument-Flags aktualisieren (Body: `{ "pdf_drucken": "1", "pdf": "x", ... }`)
 
 ### ERP-Integration
 
 - `POST /api/articles/{id}/check-erp` - Artikelnummer im ERP prüfen (Einzelprüfung)
-- `POST /api/projects/{id}/check-all-articlenumbers` - Batch-Prüfung: Durchläuft alle Artikel, prüft Artikelnummern in ERP (entspricht VBA `Check_Articlenumber_Exists`)
-        - Response: `{ "checked": [...], "exists": [...], "not_exists": [...] }`
-        - Logik: Prüft für jede Zeile Spalte C2 (H+G Artikelnummer) in MySQL-Datenbank, setzt Status (grün=vorhanden, rot=fehlt)
-- `GET /api/articles/{id}/orders` - Bestellungen abrufen
-- `POST /api/projects/{id}/sync-orders` - Bestellungen synchronisieren
+        - Setzt `article.erp_exists` in Datenbank
+- `POST /api/projects/{id}/check-all-articlenumbers` - Batch-Prüfung aller Artikelnummern im ERP
+        - Response: `{ "checked": [...], "exists": [...], "not_exists": [...], "total_checked": ..., "exists_count": ..., "not_exists_count": ... }`
+        - Setzt `article.erp_exists` für alle Artikel
+        - Frontend färbt Spalte C2 (H+G Artikelnummer) grün/rot basierend auf `erp_exists`
+- `GET /api/articles/{id}/orders` - Bestellungen eines Artikels abrufen
+- `POST /api/projects/{id}/sync-orders` - Bestellungen aus HUGWAWI synchronisieren (BN-Sync)
+        - Erstellt automatisch Artikel-Zeilen für Bestellungen ohne zugehörigen Artikel
 
 ### Dokumente
 
-- `GET /api/articles/{id}/documents` - Dokumentstatus abrufen
-- `POST /api/articles/{id}/check-documents` - Dokumente prüfen (Dateisystem-Check)
-- `POST /api/articles/{id}/generate-documents` - Einzelnes Dokument generieren (für spezifischen Dokumenttyp)
-- `POST /api/projects/{id}/generate-documents-batch` - Batch-Generierung: Durchläuft alle Artikel, generiert Dokumente wo Wert="1"
-        - Request Body: `{ "document_types": ["PDF", "Bestell_PDF", "DXF", "Bestell_DXF", "STEP", "X_T", "STL"] }` (optional, wenn leer: alle Typen)
+- `GET /api/articles/{id}/documents` - Dokumentstatus eines Artikels abrufen
+- `POST /api/projects/{id}/check-documents-batch` - Projektweite Dokumentprüfung (Dateisystem-Check)
+        - Siehe: `docs/02_documents_check.md`
+        - Setzt `documents.exists` und `documents.file_path` für alle Dokumenttypen
+        - Setzt Flags auf "x" nur wenn Datei existiert
+- `POST /api/projects/{id}/generate-documents-batch` - Batch-Generierung: Durchläuft alle Artikel, generiert Dokumente wo Flag="1"
+        - Request Body: `{ "document_types": ["PDF", "Bestell_PDF", "DXF", "Bestell_DXF", "STEP", "X_T", "STL"] }` (optional)
         - Response: `{ "generated": [...], "failed": [...], "skipped": [...] }`
-        - Logik: Prüft für jede Zeile alle Dokument-Spalten (B2, B3, B4, B5, B8, B9, B10), wenn Wert="1" wird Dokument generiert, nach Erfolg wird Wert auf "x" gesetzt
-- `POST /api/projects/{id}/batch-print-pdf` - Batch-PDF-Druck: Durchläuft alle Artikel, druckt PDFs wo B1="1" UND B2="x"
-        - Request Body: `{ "confirm_printer_setup": true }` (optional, Frontend zeigt Bestätigungsdialog)
-        - Response: `{ "printed": [...], "failed": [...], "skipped": [...] }`
-        - Logik:
-                - Prüft für jede Zeile: B1 (PDF Drucken) = "1" UND B2 (PDF) = "x"
-                - Liest PDF-Hyperlink aus B2
-                - Baut vollständigen Dateipfad: `pfad` + Dateiname aus Hyperlink
-                - Sendet Druckauftrag an System-Drucker
-                - Setzt nach erfolgreichem Druck: B1 = "x" (als "gedruckt" markiert)
+        - Logik: Prüft für jede Zeile alle Dokument-Flags (B2, B3, B4, B5, B8, B9, B10), wenn Wert="1" wird Dokument generiert, nach Erfolg wird Wert auf "x" gesetzt
+        - Siehe: `docs/05_document_export.md`
+- `GET /api/documents/open-pdf?path=...` - PDF über HTTP ausliefern (für Browser-Öffnung)
+        - Pfad wird von Windows-Pfad auf Container-Pfad gemappt (`C:/Thomas/Solidworks/...` → `/mnt/solidworks/...`)
+- `GET /api/documents/view-pdf?path=...&return_to=...&autoprint=1` - PDF-Viewer-Seite (HTML mit embed)
+        - `autoprint=1`: Triggert `window.print()` nach Laden
+- `GET /api/projects/{id}/print-pdf-queue-page` - Queue-Seite mit Liste aller markierten PDFs
+- `GET /api/projects/{id}/print-pdf-queue-merged` - Alle markierten PDFs als eine gemergte PDF
+        - **Empfohlener Workflow**: Browser öffnet gemergte PDF, Benutzer druckt einmal mit Strg+P
+        - Siehe: `docs/04_printing.md`
 
-### SOLIDWORKS-Connector
+### HUGWAWI-Integration (Read-Only)
 
-- `POST /api/solidworks/read-properties` - Custom Properties lesen
-- `POST /api/solidworks/write-properties` - Custom Properties schreiben
-- `POST /api/solidworks/generate-documents` - PDF/DXF generieren
-- `POST /api/solidworks/get-all-parts-from-assembly` - Liest alle Teile und Properties aus Assembly (entspricht `Main_Get_All_Parts_and_Properties_From_Assembly`)
+- `GET /api/hugwawi/orders/{au_nr}/articles` - Artikel-Zuordnungen eines Auftrags aus HUGWAWI
+- `GET /api/hugwawi/departments` - Abteilungen aus HUGWAWI (department.name)
+- `GET /api/hugwawi/selectlist-values/{selectlist_id}` - Selectlist-Werte (z.B. 17=Werkstoff, 18=Oberfläche)
+- `GET /api/hugwawi/bestellartikel-templates` - Bestellartikel-Templates (099900-* Artikel)
+
+### Export
+
+- `GET /api/projects/{id}/export-hugwawi-articles-csv?article_ids=1,2,3` - CSV-Export für HUGWAWI-Artikel-Import
+        - Exportiert nur Artikel mit `erp_exists=false`
+        - Optional: `article_ids` Query-Parameter für Auswahl
+        - Siehe: `docs/07_hugwawi_article_import_csv.md`
+
+### SOLIDWORKS-Integration
+
+- `POST /api/projects/{id}/push-solidworks` - Zurückschreiben von Custom Properties nach SOLIDWORKS
+        - Body: `{ "confirm": true }`
+        - Siehe: `docs/06_solidworks_custom_properties.md`
+- `POST /api/boms/{id}/create-bestellartikel` - Bestellartikel aus Templates erstellen
+        - Body: `{ "template_ids": [123, 456] }` (HUGWAWI article.id)
+
+### SOLIDWORKS-Connector (Windows Service)
+
+Der SOLIDWORKS-Connector läuft als separater Service auf Windows und stellt folgende Endpunkte bereit:
+
+- `POST /api/solidworks/get-all-parts-from-assembly` - Liest alle Teile und Properties aus Assembly
         - Request Body: `{ "assembly_filepath": "C:/Pfad/zur/Assembly.SLDASM" }`
-        - Response: 2D-Array mit Struktur:
-                - `Results[0][j]` = Child/Position (0, 1, 2, ...)
-                - `Results[1][j]` = Partname
-                - `Results[2][j]` = Configuration
-                - `Results[4][i]` = Property Name (für Properties-Schleife)
-                - `Results[5][i]` = Property Value
-                - `Results[7][j]` = X-Dimension (Länge)
-                - `Results[8][j]` = Y-Dimension (Breite)
-                - `Results[9][j]` = Z-Dimension (Höhe)
-                - `Results[10][j]` = Gewicht
-                - `Results[11][j]` = Filepath Part/ASM
-                - `Results[12][j]` = Filepath Drawing
-                - `Results[13][j]` = Exclude from Boom Flag (1 = ausgeschlossen)
+        - Response: 2D-Array mit Struktur (siehe Backend-Implementierung)
+- `POST /api/solidworks/set-custom-properties` - Schreibt Custom Properties in SOLIDWORKS-Dateien
+        - Request Body: `{ "filepath": "...", "config_name": "...", "properties": {...} }`
+- `POST /api/solidworks/create-2d-documents` - Erstellt 2D-Dokumente (PDF, DXF, Bestell-PDF, Bestell-DXF)
+        - Request Body: `{ "filepath": "...", "pdf": true, "dxf": true, "bestell_pdf": true, "bestell_dxf": true }`
+- `POST /api/solidworks/create-3d-documents` - Erstellt 3D-Dokumente (STEP, X_T, STL)
+        - Request Body: `{ "filepath": "...", "step": true, "x_t": true, "stl": true }`
+
+**Hinweis**: Die Response-Struktur von `get-all-parts-from-assembly` ist ein 2D-Array:
+- `Results[0][j]` = Child/Position (0, 1, 2, ...)
+- `Results[1][j]` = Partname
+- `Results[2][j]` = Configuration
+- `Results[4][i]` = Property Name (für Properties-Schleife)
+- `Results[5][i]` = Property Value
+- `Results[7][j]` = X-Dimension (Länge)
+- `Results[8][j]` = Y-Dimension (Breite)
+- `Results[9][j]` = Z-Dimension (Höhe)
+- `Results[10][j]` = Gewicht
+- `Results[11][j]` = Filepath Part/ASM
+- `Results[12][j]` = Filepath Drawing
+- `Results[13][j]` = Exclude from Boom Flag (1 = ausgeschlossen)
 
 ## Frontend-Features (React + AG Grid)
 
@@ -351,35 +439,36 @@ Die Haupttabelle ist sehr breit (ca. 40+ Spalten) und erfordert horizontales Scr
             - Zeige Fehlermeldung in Status-Bar oder als Toast-Notification
             - Zelle bleibt rot markiert
 
-**PDF-Druck-Workflow** (entspricht VBA `Main_Print_PDF`):
+**PDF-Druck-Workflow** (Browser-basiert, siehe auch `docs/04_printing.md`):
 
-1. Benutzer markiert Zeilen zum Drucken: B1 (PDF Drucken) = "1"
-2. Voraussetzung: B2 (PDF) muss = "x" sein (PDF muss existieren)
-3. Benutzer klickt auf Button "PDF Drucken" in der Toolbar
-4. **Bestätigungsdialog** wird angezeigt:
-   ```
-   "Bitte vor der Verwendung eine PDF öffnen und den passenden Drucker 
-   und Druckeinstellungen wählen und Datei Drucken. 
-   Ist der Drucker korrekt gewählt? Falls Nein dies tun und die Funktion erneut ausführen"
-   ```
+1. Benutzer markiert Zeilen zum Drucken: B1 (`pdf_drucken`) = "1"
+2. Benutzer klickt auf Button "PDF Drucken" in der Toolbar
+3. **Zwei Optionen**:
 
-5. Wenn Benutzer bestätigt:
+   **Option A: Queue-Seite (Einzeldruck)**
+   - Frontend öffnet `/api/projects/{id}/print-pdf-queue-page`
+   - Seite listet alle markierten PDFs auf
+   - Jede PDF kann einzeln geöffnet und gedruckt werden
+   - PDFs werden über `/api/documents/view-pdf?path=...&autoprint=1` geöffnet
+   - Browser-Druckdialog wird automatisch geöffnet (`window.print()`)
 
-            - System durchläuft alle Zeilen der Tabelle (auch gefilterte, wenn Filter aktiv)
-            - Für jede Zeile prüfen:
-                    - **Bedingung**: B1 = "1" UND B2 = "x"
-            - Wenn Bedingung erfüllt:
-                    - Lese PDF-Hyperlink aus B2 (Zelle enthält Hyperlink zur PDF-Datei)
-                    - Extrahiere Dateiname aus Hyperlink (alles nach dem letzten "/")
-                    - Baue vollständigen Dateipfad: `pfad` (aus Spalte C19) + Dateiname
-                    - Prüfe ob Dateipfad existiert
-                    - Wenn Datei existiert:
-                            - Sende Druckauftrag an System-Standarddrucker (über Backend/System-API)
-                            - Nach erfolgreichem Druck: Setze B1 = "x" (als "gedruckt" markiert)
-                            - Speichere Änderung in Datenbank
-                    - Bei Fehler: Zeige Fehlermeldung, B1 bleibt "1"
+   **Option B: Merged PDF (empfohlen)**
+   - Frontend öffnet `/api/projects/{id}/print-pdf-queue-merged`
+   - Backend merged alle markierten PDFs zu einer einzigen PDF (mit `pypdf`)
+   - Browser öffnet die gemergte PDF inline
+   - Benutzer druckt **einmal** mit Strg+P
+   - Vorteil: Ein Druckdialog für alle PDFs, stabiler Workflow
 
-6. Status-Bar zeigt Ergebnis: Anzahl gedruckter, fehlgeschlagener und übersprungener PDFs
+4. **Technische Details**:
+   - PDFs werden über HTTP ausgeliefert (`/api/documents/open-pdf?path=...`)
+   - Browser blockiert `file://` URLs, daher HTTP-basierte Auslieferung
+   - Pfad-Mapping: Windows-Pfade (`C:/Thomas/Solidworks/...`) werden auf Container-Pfade (`/mnt/solidworks/...`) gemappt
+   - Nach Druck: Benutzer kann B1 manuell auf "x" setzen (oder automatisch nach Bestätigung)
+
+5. **Hinweis**: Der Druck erfolgt im Browser (Chrome empfohlen), damit der Benutzer:
+   - Papierformat (A4/A3/...) wählen kann
+   - Ausrichtung (Hoch/Quer) wählen kann
+   - Druckereinstellungen anpassen kann
 
 #### Block C: Stücklisten-/Artikelinformationen (Spalten 17-40+)
 
@@ -698,13 +787,23 @@ def create_3d_documents(
 
 ## Backend-Implementierung: SOLIDWORKS-Import
 
-### Workflow (entspricht VBA `Main_Create_Projektsheet`)
+**Wichtig**: Siehe `docs/01_import_workflow.md` für detaillierte Beschreibung des BOM-basierten Import-Workflows.
 
-1. **Prüfung**: Assembly-Filepath muss vorhanden sein
-2. **Datenabfrage**: Aufruf SOLIDWORKS-Connector `get-all-parts-from-assembly`
-3. **Datenverarbeitung**: Mapping der SOLIDWORKS-Daten zu Artikel-Struktur
-4. **Aggregation**: Gruppierung nach Name + Konfiguration, Summierung der Mengen
-5. **Speicherung**: Artikel in Datenbank speichern
+### Workflow (BOM-basiert, entspricht VBA `Main_Create_Projektsheet`)
+
+1. **BOM erstellen**: `POST /api/projects/{id}/boms` - Legt BOM für Auftrags-Artikel-Kombination an
+2. **Import starten**: `POST /api/projects/{id}/boms/{bom_id}/import-solidworks?assembly_filepath=...`
+3. **Datenabfrage**: Aufruf SOLIDWORKS-Connector `get-all-parts-from-assembly`
+4. **Datenverarbeitung**: Mapping der SOLIDWORKS-Daten zu Artikel-Struktur
+5. **Aggregation**: Gruppierung nach Name + Konfiguration, Summierung der Mengen
+6. **Positionsnummern**: Nach Aggregation werden Positionen neu durchnummeriert (1..n), Hauptbaugruppe erhält `pos_nr=0`
+7. **Speicherung**: Artikel werden in Datenbank gespeichert (mit `bom_id`)
+
+**Hinweise**:
+- Import läuft rekursiv über alle Ebenen (Unterbaugruppen + Teile)
+- Hauptbaugruppe (die importierte `.SLDASM`) wird als eigener Eintrag mit `pos_nr=0` importiert
+- `menge` wird aus SOLIDWORKS importiert (read-only, standardmäßig ausgeblendet)
+- `p_menge` wird initial auf `menge` gesetzt (editierbar)
 
 ### Custom Properties Mapping
 
@@ -736,131 +835,33 @@ Die folgenden SOLIDWORKS Custom Properties werden zu Datenbankfeldern gemappt:
 
 ### Service-Layer: `solidworks_service.py`
 
-```python
-async def import_solidworks_assembly(project_id: int, assembly_filepath: str) -> dict:
-    """
-    Importiert SOLIDWORKS-Assembly entsprechend VBA Main_Create_Projektsheet()
-    
-    Workflow:
-    1. Ruft SOLIDWORKS-Connector auf: get-all-parts-from-assembly
-    2. Verarbeitet Ergebnis-Array (entspricht Main_GET_ALL_FROM_SW)
-    3. Aggregiert Teile nach Name + Konfiguration (entspricht Main_SW_Import_To_Projectsheet)
-    4. Speichert Artikel in Datenbank
-    """
-    # 1. SOLIDWORKS-Connector aufrufen
-    connector_response = await call_solidworks_connector(
-        "get-all-parts-from-assembly",
-        {"assembly_filepath": assembly_filepath}
-    )
-    
-    results = connector_response["results"]  # 2D-Array
-    
-    # 2. Verarbeitung (entspricht Main_GET_ALL_FROM_SW)
-    articles_data = []
-    child = 0
-    begin_properties = 0
-    end_properties = 0
-    
-    for j in range(len(results[0])):
-        if results[0][j] != child:
-            # Neues Teil gefunden - vorheriges Teil abschließen
-            if j > 0:
-                article = {
-                    "pos_nr": results[0][j-1] if results[0][j-1] else "-",
-                    "partname": results[1][j-1] if results[1][j-1] else "-",
-                    "konfiguration": results[2][j-1] if results[2][j-1] else "-",
-                    "laenge": str(results[7][j-1]) if results[7][j-1] else "-",
-                    "breite": str(results[8][j-1]) if results[8][j-1] else "-",
-                    "hoehe": str(results[9][j-1]) if results[9][j-1] else "-",
-                    "gewicht": str(results[10][j-1]) if results[10][j-1] else "-",
-                    "pfad": results[11][j-1].rsplit("\\", 1)[0] if results[11][j-1] else "-",
-                    "sldasm_sldprt_pfad": results[11][j-1] if results[11][j-1] else "-",
-                    "slddrw_pfad": results[12][j-1] if results[12][j-1] else "-",
-                    "in_stueckliste_anzeigen": not bool(results[13][j-1])  # 1 = ausgeschlossen
-                }
-                
-                # Custom Properties verarbeiten (Schleife von begin_properties bis end_properties)
-                for i in range(begin_properties, end_properties):
-                    prop_name = results[4][i]
-                    prop_value = results[5][i] if results[5][i] else "-"
-                    
-                    # Mapping Custom Properties zu Spalten
-                    if prop_name == "H+G Artikelnummer":
-                        article["hg_artikelnummer"] = prop_value
-                    elif prop_name == "Teilenummer":
-                        article["teilenummer"] = prop_value
-                    elif prop_name == "Material":
-                        article["werkstoff"] = prop_value
-                    elif prop_name == "HUGWAWI - Abteilung":
-                        article["abteilung_lieferant"] = prop_value
-                    elif prop_name == "Werkstoffgruppe":
-                        article["werkstoff_nr"] = prop_value
-                    elif prop_name in ["Oberfläche_ZSB", "Oberfläche"]:
-                        article["oberflaeche"] = prop_value
-                    elif prop_name == "Oberflächenschutz":
-                        article["oberflaechenschutz"] = prop_value
-                    elif prop_name == "Farbe":
-                        article["farbe"] = prop_value
-                    elif prop_name in ["Lieferzeit", "Lieferzeit - geschätzt"]:
-                        article["lieferzeit"] = prop_value
-                
-                articles_data.append(article)
-            
-            begin_properties = end_properties
-            end_properties = j
-            child += 1
-    
-    # 3. Aggregation (entspricht Main_SW_Import_To_Projectsheet)
-    # Gruppiere nach Name + Konfiguration und summiere Mengen
-    aggregated_articles = {}
-    
-    for article in articles_data:
-        key = f"{article['partname']} {article['konfiguration']}"
-        
-        if key not in aggregated_articles:
-            aggregated_articles[key] = article.copy()
-            aggregated_articles[key]["menge"] = 1
-        else:
-            aggregated_articles[key]["menge"] += 1
-    
-    # 4. Speicherung in Datenbank
-    created_articles = []
-    for article_data in aggregated_articles.values():
-        article = Article(
-            project_id=project_id,
-            **article_data
-        )
-        db.add(article)
-        created_articles.append(article)
-    
-    db.commit()
-    
-    return {
-        "success": True,
-        "imported_count": len(created_articles),
-        "total_parts_count": len(articles_data),
-        "aggregated_count": len(aggregated_articles)
-    }
-```
+**Hinweis**: Die tatsächliche Implementierung ist BOM-basiert. Artikel werden mit `bom_id` gespeichert, nicht direkt mit `project_id`.
+
+Siehe `docs/01_import_workflow.md` für Details zum Import-Workflow und `docs/06_solidworks_custom_properties.md` für Custom Properties Mapping.
 
 ### API-Route: `routes/projects.py`
 
 ```python
-@router.post("/projects/{project_id}/import-solidworks")
+@router.post("/projects/{project_id}/boms/{bom_id}/import-solidworks")
 async def import_solidworks(
     project_id: int,
-    assembly_filepath: str,
+    bom_id: int,
+    assembly_filepath: str = Query(...),
     db: Session = Depends(get_db)
 ):
     """
-    Importiert SOLIDWORKS-Assembly in Projekt
+    Importiert SOLIDWORKS-Assembly in BOM
     
     Entspricht VBA Main_Create_Projektsheet()
     """
-    # Prüfe ob Projekt existiert
+    # Prüfe ob Projekt und BOM existieren
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Projekt nicht gefunden")
+    
+    bom = db.query(Bom).filter(Bom.id == bom_id, Bom.project_id == project_id).first()
+    if not bom:
+        raise HTTPException(status_code=404, detail="BOM nicht gefunden")
     
     # Prüfe ob Assembly-Filepath vorhanden
     if not assembly_filepath or not os.path.exists(assembly_filepath):
@@ -870,7 +871,7 @@ async def import_solidworks(
         )
     
     result = await solidworks_service.import_solidworks_assembly(
-        project_id,
+        bom_id,  # Wichtig: bom_id statt project_id
         assembly_filepath
     )
     
@@ -1217,201 +1218,48 @@ const articleNumberRenderer = (params: any) => {
 };
 ```
 
-## Backend-Implementierung: PDF-Druck
+## Backend-Implementierung: PDF-Druck (Browser-basiert)
 
-### Service-Layer: `document_service.py`
+**Wichtig**: Der PDF-Druck erfolgt **Browser-basiert**, nicht über System-Drucker. Siehe `docs/04_printing.md` für Details.
 
-```python
-# Beispiel-Implementierung für PDF-Druck
-async def batch_print_pdf(project_id: int, confirm_printer_setup: bool = True) -> dict:
-    """
-    Batch-PDF-Druck entsprechend VBA Main_Print_PDF()
-    
-    Bedingung für jede Zeile:
-    - B1 (pdf_drucken) = "1" UND B2 (pdf) = "x"
-    
-    Workflow:
-    1. Hole alle Artikel des Projekts
-    2. Filtere Artikel wo pdf_drucken="1" UND pdf="x"
-    3. Für jeden Artikel:
-       - Lese PDF-Hyperlink aus pdf-Feld
-       - Extrahiere Dateiname (alles nach letztem "/")
-       - Baue vollständigen Pfad: article.pfad + Dateiname
-       - Prüfe Datei-Existenz
-       - Drucke PDF über System-Drucker
-       - Setze pdf_drucken="x" nach erfolgreichem Druck
-    4. Rückgabe: Liste gedruckter, fehlgeschlagener, übersprungener Artikel
-    """
-    articles = await get_articles_by_project(project_id)
-    
-    printed = []
-    failed = []
-    skipped = []
-    
-    for article in articles:
-        # Prüfe Bedingung: B1="1" UND B2="x"
-        if article.pdf_drucken == "1" and article.pdf == "x":
-            try:
-                # Lese PDF-Hyperlink (aus documents Tabelle oder article.pdf_link)
-                pdf_hyperlink = article.pdf_link  # oder aus documents Tabelle
-                
-                if not pdf_hyperlink:
-                    skipped.append({"article_id": article.id, "reason": "Kein PDF-Link vorhanden"})
-                    continue
-                
-                # Extrahiere Dateiname aus Hyperlink
-                # Beispiel: "file:///C:/Pfad/datei.pdf" -> "datei.pdf"
-                filename = pdf_hyperlink.split("/")[-1]
-                
-                # Baue vollständigen Dateipfad
-                full_path = os.path.join(article.pfad, filename)
-                
-                # Prüfe Datei-Existenz
-                if not os.path.exists(full_path):
-                    failed.append({
-                        "article_id": article.id,
-                        "reason": f"Datei nicht gefunden: {full_path}"
-                    })
-                    continue
-                
-                # Drucke PDF über System-Drucker
-                print_result = print_pdf_file(full_path)
-                
-                if print_result:
-                    # Setze B1 auf "x" (gedruckt)
-                    article.pdf_drucken = "x"
-                    await db.commit()
-                    
-                    printed.append({
-                        "article_id": article.id,
-                        "file_path": full_path
-                    })
-                else:
-                    failed.append({
-                        "article_id": article.id,
-                        "reason": "Druck fehlgeschlagen"
-                    })
-                    
-            except Exception as e:
-                failed.append({
-                    "article_id": article.id,
-                    "reason": str(e)
-                })
-        else:
-            skipped.append({
-                "article_id": article.id,
-                "reason": "Bedingung nicht erfüllt (B1!=1 oder B2!=x)"
-            })
-    
-    return {
-        "printed": printed,
-        "failed": failed,
-        "skipped": skipped
-    }
+### API-Routen: `routes/documents.py`
 
-def print_pdf_file(file_path: str) -> bool:
-    """
-    Druckt eine PDF-Datei über den System-Standarddrucker.
-    
-    Plattform-spezifische Implementierung:
-    - Windows: subprocess mit Adobe Reader / Windows PDF Printer
-    - Linux: lp/lpr Command
-    """
-    import platform
-    import subprocess
-    
-    system = platform.system()
-    
-    if system == "Windows":
-        # Option 1: Adobe Reader (wenn installiert)
-        # subprocess.run(['AcroRd32.exe', '/t', file_path])
-        
-        # Option 2: Windows Standard-PDF-Drucker über PowerShell
-        # subprocess.run(['powershell', '-Command', 
-        #                f'Start-Process -FilePath "{file_path}" -Verb Print'])
-        
-        # Option 3: Direkt über Windows API (empfohlen für Server)
-        try:
-            import win32api
-            win32api.ShellExecute(0, "print", file_path, None, ".", 0)
-            return True
-        except ImportError:
-            # Fallback: subprocess
-            subprocess.run(['powershell', '-Command', 
-                           f'Start-Process -FilePath "{file_path}" -Verb Print'])
-            return True
-            
-    elif system == "Linux":
-        # Linux: lp Command
-        result = subprocess.run(['lp', file_path], capture_output=True)
-        return result.returncode == 0
-    
-    return False
-```
+- `GET /api/documents/open-pdf?path=...` - Liefert PDF als HTTP-Response (inline)
+        - Mappt Windows-Pfade auf Container-Pfade
+        - Content-Type: `application/pdf`
+        - Content-Disposition: `inline` (nicht Download)
 
-### API-Route: `routes/documents.py`
+- `GET /api/documents/view-pdf?path=...&return_to=...&autoprint=1` - HTML-Viewer-Seite
+        - Lädt PDF als Blob per `fetch()`
+        - Setzt `<embed src="blob:...">` für inline-Anzeige
+        - `autoprint=1`: Triggert `window.print()` nach Laden
 
-```python
-@router.post("/projects/{project_id}/batch-print-pdf")
-async def batch_print_pdf_endpoint(
-    project_id: int,
-    confirm_printer_setup: bool = True,
-    db: Session = Depends(get_db)
-):
-    """
-    Batch-PDF-Druck Endpoint
-    
-    Entspricht VBA Main_Print_PDF()
-    """
-    result = await document_service.batch_print_pdf(project_id, confirm_printer_setup)
-    
-    return {
-        "success": True,
-        "printed_count": len(result["printed"]),
-        "failed_count": len(result["failed"]),
-        "skipped_count": len(result["skipped"]),
-        "details": result
-    }
-```
+- `GET /api/projects/{id}/print-pdf-queue-page` - Queue-Seite mit Liste aller markierten PDFs
+        - Zeigt alle Artikel mit `pdf_drucken="1"` an
+        - Jede PDF kann einzeln geöffnet werden
+
+- `GET /api/projects/{id}/print-pdf-queue-merged` - Alle markierten PDFs als gemergte PDF
+        - Backend merged PDFs mit `pypdf` (PdfWriter)
+        - Liefert eine einzige PDF-Datei
+        - **Empfohlener Workflow**: Ein Druckdialog für alle PDFs
 
 ### Frontend-Implementierung: PDF-Druck Button
 
 ```typescript
 // In ArticleGrid.tsx oder Toolbar-Komponente
-const handleBatchPrintPDF = async () => {
-  // Bestätigungsdialog (entspricht VBA MsgBox)
-  const confirmed = window.confirm(
-    "Bitte vor der Verwendung eine PDF öffnen und den passenden Drucker " +
-    "und Druckeinstellungen wählen und Datei Drucken. " +
-    "Ist der Drucker korrekt gewählt? Falls Nein dies tun und die Funktion erneut ausführen"
-  );
+const handlePrintPDF = () => {
+  // Öffne gemergte PDF (empfohlener Workflow)
+  window.open(`/api/projects/${projectId}/print-pdf-queue-merged`, '_blank');
   
-  if (!confirmed) {
-    return;
-  }
-  
-  try {
-    const response = await api.post(
-      `/api/projects/${projectId}/batch-print-pdf`,
-      { confirm_printer_setup: true }
-    );
-    
-    // Zeige Ergebnis in Status-Bar oder Toast
-    const { printed_count, failed_count, skipped_count } = response.data;
-    
-    showNotification(
-      `PDF-Druck abgeschlossen: ${printed_count} gedruckt, ` +
-      `${failed_count} fehlgeschlagen, ${skipped_count} übersprungen`
-    );
-    
-    // Aktualisiere Tabelle (B1 wird auf "x" gesetzt für gedruckte Zeilen)
-    await refreshArticles();
-    
-  } catch (error) {
-    showError("Fehler beim PDF-Druck: " + error.message);
-  }
+  // Alternative: Queue-Seite für Einzeldruck
+  // window.open(`/api/projects/${projectId}/print-pdf-queue-page`, '_blank');
 };
 ```
+
+**Hinweis**: Der Druck erfolgt im Browser-Druckdialog. Der Benutzer kann dort:
+- Papierformat wählen (A4/A3/...)
+- Ausrichtung wählen (Hoch/Quer)
+- Druckereinstellungen anpassen
 
 ## Implementierungsphasen
 
@@ -1495,10 +1343,24 @@ const handleBatchPrintPDF = async () => {
 - `UPLOAD_PATH`: Pfad für Dokumente
 - `SECRET_KEY`: JWT Secret
 
+## Dokumentation
+
+Detaillierte Dokumentation zu einzelnen Features befindet sich im `docs/` Verzeichnis:
+
+- **`docs/README.md`** - Übersicht über alle Dokumentationsdateien
+- **`docs/01_import_workflow.md`** - BOM-basierter Import-Workflow
+- **`docs/02_documents_check.md`** - Dokumentenprüfung (Dateisystem-Check)
+- **`docs/03_grid_columns_and_status.md`** - Grid-Spalten, Dokumentstatus, Tastatur-Navigation
+- **`docs/04_printing.md`** - Browser-basiertes PDF-Drucken
+- **`docs/05_document_export.md`** - Dokument-Export (PDF/DXF/STEP/...)
+- **`docs/06_solidworks_custom_properties.md`** - Custom Properties Import & Zurückschreiben
+- **`docs/07_hugwawi_article_import_csv.md`** - CSV-Export für HUGWAWI
+- **`docs/08_manual_rows_and_bn_sync.md`** - Manuelle Zeilen & Bestellungen-Sync
+
 ## Nächste Schritte
 
 1. Projektstruktur erstellen
 2. Docker-Compose Setup
-3. Datenbank-Schema implementieren
+3. Datenbank-Schema implementieren (inkl. BOM-Tabelle)
 4. Basis-Backend mit ersten Endpunkten
 5. Frontend-Grundgerüst mit AG Grid

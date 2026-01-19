@@ -1,9 +1,9 @@
 """
 SOLIDWORKS Connector - FastAPI Server
 """
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Query
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel
 from typing import List, Optional, Dict
 from SolidWorksConnector import SolidWorksConnector
@@ -12,6 +12,10 @@ import logging
 import threading
 from logging.handlers import RotatingFileHandler
 from datetime import datetime
+
+# NOTE: previously used for debug-mode ingest; kept as no-op to avoid churn.
+def _agent_log(*args, **kwargs):
+    return
 
 # Konfiguriere Logging
 connector_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -73,28 +77,6 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         )
     except Exception:
         pass
-
-    # region agent log
-    try:
-        import json, time
-        with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
-            _f.write(
-                json.dumps(
-                    {
-                        "sessionId": "debug-session",
-                        "runId": "run1",
-                        "hypothesisId": "H5",
-                        "location": "solidworks-connector/src/main.py:validation_exception_handler",
-                        "message": "422 validation error",
-                        "data": {"errors": exc.errors(), "body_preview": body_preview},
-                        "timestamp": int(time.time() * 1000),
-                    }
-                )
-                + "\n"
-            )
-    except Exception:
-        pass
-    # endregion agent log
 
     return JSONResponse(status_code=422, content={"detail": exc.errors()})
 
@@ -185,6 +167,12 @@ def create_3d_documents(request: Create3DDocumentsRequest):
     Erstellt 3D-Dokumente (STEP, X_T, STL)
     """
     try:
+        _agent_log(
+            "C",
+            "solidworks-connector/src/main.py:create_3d_documents",
+            "enter",
+            {"filepath": request.filepath, "step": request.step, "x_t": request.x_t, "stl": request.stl},
+        )
         connector = get_connector()
         success = connector.create_3d_documents(
             request.filepath,
@@ -194,22 +182,73 @@ def create_3d_documents(request: Create3DDocumentsRequest):
         )
         
         if success:
-            created_files = []
             base_path = request.filepath[:-7]  # Entferne Endung
+            created_files: list[str] = []
+            missing: list[str] = []
+
+            def _pick_existing(variants: list[str]) -> list[str]:
+                existing = []
+                for p in variants:
+                    try:
+                        if os.path.exists(p):
+                            existing.append(p)
+                    except Exception:
+                        continue
+                return existing
+
             if request.step:
-                created_files.append(f"{base_path}.stp")
+                step_variants = [f"{base_path}.stp", f"{base_path}.step", f"{base_path}.STP", f"{base_path}.STEP"]
+                existing = _pick_existing(step_variants)
+                if existing:
+                    created_files.extend(existing)
+                else:
+                    # show a concise missing hint (not every variant needed)
+                    missing.extend([f"{base_path}.stp", f"{base_path}.step"])
+
             if request.x_t:
-                created_files.append(f"{base_path}.x_t")
+                xt_variants = [f"{base_path}.x_t", f"{base_path}.X_T"]
+                existing = _pick_existing(xt_variants)
+                if existing:
+                    created_files.extend(existing)
+                else:
+                    missing.append(f"{base_path}.x_t")
+
             if request.stl:
-                created_files.append(f"{base_path}.stl")
-            
-            return {
-                "success": True,
-                "created_files": created_files
-            }
+                stl_variants = [f"{base_path}.stl", f"{base_path}.STL"]
+                existing = _pick_existing(stl_variants)
+                if existing:
+                    created_files.extend(existing)
+                else:
+                    missing.append(f"{base_path}.stl")
+
+            # de-dup but keep stable order
+            created_files = list(dict.fromkeys(created_files))
+
+            if missing:
+                _agent_log(
+                    "C",
+                    "solidworks-connector/src/main.py:create_3d_documents",
+                    "missing_outputs",
+                    {"missing": missing, "created_files": created_files},
+                )
+                raise HTTPException(status_code=500, detail=f"3D Export unvollständig, fehlend: {missing[:3]}")
+
+            return {"success": True, "created_files": created_files}
         else:
+            _agent_log(
+                "C",
+                "solidworks-connector/src/main.py:create_3d_documents",
+                "exit_false",
+                {"filepath": request.filepath},
+            )
             raise HTTPException(status_code=500, detail="Fehler beim Erstellen der 3D-Dokumente")
     except Exception as e:
+        _agent_log(
+            "C",
+            "solidworks-connector/src/main.py:create_3d_documents",
+            "exception",
+            {"err": f"{type(e).__name__}: {e}"},
+        )
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -274,6 +313,28 @@ def paths_exist(request: PathsExistRequest):
     except Exception as e:
         connector_logger.error(f"Fehler in paths-exist: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/solidworks/open-file")
+def open_file(path: str = Query(..., description="Absoluter Dateipfad auf dem Windows-Host (z.B. G:\\... oder C:\\...)")):
+    """
+    Liefert eine Datei (aktuell nur PDF) als HTTP-Response.
+    Gedacht als Proxy-Quelle für das Backend, wenn es in Docker läuft und Host-Pfade nicht gemountet sind.
+    """
+    if not path:
+        raise HTTPException(status_code=400, detail="Pfad fehlt")
+    p = str(path)
+    if not p.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Nur PDF-Dateien sind erlaubt")
+    if not os.path.exists(p):
+        raise HTTPException(status_code=404, detail="Datei nicht gefunden")
+    filename = os.path.basename(p)
+    return FileResponse(
+        p,
+        media_type="application/pdf",
+        filename=filename,
+        content_disposition_type="inline",
+    )
 
 
 @app.post("/api/solidworks/set-custom-properties")

@@ -7,14 +7,21 @@ from typing import List, Dict, Any, Optional
 import logging
 import threading
 import pythoncom
+import time
 import getpass
 import pywintypes
 import ctypes
 import winerror
+import win32event
+import win32con
 # (duplicate typing import removed above)
 
 # Logger für SOLIDWORKS-Connector
 connector_logger = logging.getLogger('solidworks_connector')
+
+# NOTE: previously used for debug-mode ingest; kept as no-op to avoid churn.
+def _agent_log(*args, **kwargs):
+    return
 
 
 class SolidWorksConnector:
@@ -114,13 +121,32 @@ class SolidWorksConnector:
 
             title = _get_str_member(model, "GetTitle") or _get_str_member(model, "Title")
             basename = os.path.basename(filepath) if filepath else None
-            candidates = [c for c in [title, basename, filepath] if c]
+            candidates = [c for c in [basename, title, filepath] if c]
+
+            _agent_log(
+                "C",
+                "SolidWorksConnector.py:_close_doc_best_effort",
+                "close_candidates",
+                {"filepath": filepath, "title": title, "basename": basename, "candidates": candidates},
+            )
 
             closed_with = None
             for cand in candidates:
                 try:
+                    _agent_log(
+                        "C",
+                        "SolidWorksConnector.py:_close_doc_best_effort",
+                        "close_attempt",
+                        {"cand": cand},
+                    )
                     self.sw_app.CloseDoc(cand)
                     closed_with = cand
+                    _agent_log(
+                        "C",
+                        "SolidWorksConnector.py:_close_doc_best_effort",
+                        "close_attempt_done",
+                        {"cand": cand},
+                    )
                     break
                 except Exception:
                     continue
@@ -164,6 +190,41 @@ class SolidWorksConnector:
                     self.sw_app.CloseDoc(filepath)
             except Exception:
                 pass
+
+    def _wait_for_file(
+        self,
+        primary_path: str,
+        alt_paths: list[str] | None = None,
+        timeout_s: float = 12.0,
+        step_ms: int = 75,
+        location: str = "SolidWorksConnector.py:_wait_for_file",
+    ) -> tuple[bool, str | None]:
+        """
+        Wartet ereignisbasiert bis eine Datei existiert (und Größe > 0 hat).
+        Hintergrund: SaveAs2 kann "ok=true" liefern, obwohl das Schreiben erst später fertig wird.
+        """
+        alts = [p for p in (alt_paths or []) if p]
+        candidates = [primary_path] + [p for p in alts if p != primary_path]
+        deadline = time.monotonic() + float(timeout_s)
+        _agent_log("C", location, "wait_for_file_start", {"candidates": candidates[:6], "timeout_s": timeout_s})
+        while time.monotonic() < deadline:
+            for p in candidates:
+                try:
+                    if os.path.exists(p) and os.path.getsize(p) > 0:
+                        _agent_log("C", location, "wait_for_file_ok", {"path": p})
+                        return True, p
+                except Exception:
+                    continue
+            try:
+                pythoncom.PumpWaitingMessages()
+            except Exception:
+                pass
+            try:
+                win32event.MsgWaitForMultipleObjects([], False, step_ms, win32con.QS_ALLEVENTS)
+            except Exception:
+                pass
+        _agent_log("C", location, "wait_for_file_timeout", {"primary": primary_path})
+        return False, None
     
     def get_all_parts_and_properties_from_assembly(self, assembly_filepath: str) -> List[List[Any]]:
         """
@@ -187,23 +248,7 @@ class SolidWorksConnector:
             - results[13][j] = Exclude from Boom Flag
         """
         connector_logger.info(f"get_all_parts_and_properties_from_assembly aufgerufen mit: {assembly_filepath}")
-        # region agent log
-        try:
-            import json, time
-            with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
-                _f.write(json.dumps({"sessionId":"debug-session","runId":"pre-fix","hypothesisId":"H1","location":"SolidWorksConnector.py:get_all_parts_and_properties_from_assembly","message":"enter","data":{"assembly_filepath":str(assembly_filepath or "")},"timestamp":int(time.time()*1000)}) + "\n")
-            try:
-                connector_logger.info("agent-log: wrote enter event to .cursor/debug.log")
-            except Exception:
-                pass
-        except Exception:
-            try:
-                import sys as _sys
-                connector_logger.warning(f"agent-log: FAILED writing enter event to .cursor/debug.log ({type(_sys.exc_info()[1]).__name__})")
-            except Exception:
-                pass
-            pass
-        # endregion agent log
+        # (debug instrumentation removed)
 
         # Robustness: callers sometimes pass a directory instead of a .SLDASM file.
         # In that case, try to auto-pick a single .SLDASM in that directory.
@@ -283,14 +328,6 @@ class SolidWorksConnector:
                 sw_warnings
             )
         except Exception as e:
-            # #region agent log
-            try:
-                import json, time
-                with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
-                    _f.write(json.dumps({"sessionId":"debug-session","runId":"run7","hypothesisId":"COM_RPC","location":"SolidWorksConnector.py:OpenDoc6:asm","message":"error", "data":{"path":assembly_filepath,"err":str(e)}, "timestamp":int(time.time()*1000)}) + "\n")
-            except Exception:
-                pass
-            # #endregion agent log
             # retry once after reconnect
             try:
                 self.connect()
@@ -305,23 +342,7 @@ class SolidWorksConnector:
                     sw_errors,
                     sw_warnings
                 )
-                # #region agent log
-                try:
-                    import json, time
-                    with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
-                        _f.write(json.dumps({"sessionId":"debug-session","runId":"run7","hypothesisId":"COM_RPC","location":"SolidWorksConnector.py:OpenDoc6:asm","message":"retry-ok", "data":{"path":assembly_filepath}, "timestamp":int(time.time()*1000)}) + "\n")
-                except Exception:
-                    pass
-                # #endregion agent log
             except Exception as e2:
-                # #region agent log
-                try:
-                    import json, time
-                    with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
-                        _f.write(json.dumps({"sessionId":"debug-session","runId":"run7","hypothesisId":"COM_RPC","location":"SolidWorksConnector.py:OpenDoc6:asm","message":"retry-fail", "data":{"path":assembly_filepath,"err":str(e2)}, "timestamp":int(time.time()*1000)}) + "\n")
-                except Exception:
-                    pass
-                # #endregion agent log
                 raise
         connector_logger.debug(f"OpenDoc6(ASM) errors={sw_errors.value} warnings={sw_warnings.value}")
         
@@ -652,19 +673,6 @@ class SolidWorksConnector:
                     # Damit kann das Backend deduplizieren und die Zeile wird sichtbar.
                     safe_name = (part_name or "").strip() or "UNKNOWN"
                     part_path = f"VIRTUAL:{safe_name}"
-                    # region agent log
-                    try:
-                        import json, time
-                        with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
-                            _f.write(json.dumps({"sessionId":"debug-session","runId":"pre-fix","hypothesisId":"H4","location":"SolidWorksConnector.py:missing_path_fallback","message":"using VIRTUAL path","data":{"part_name":safe_name,"config":str(config_name or ""),"virtual_path":part_path},"timestamp":int(time.time()*1000)}) + "\n")
-                    except Exception:
-                        try:
-                            import sys as _sys
-                            connector_logger.warning(f"agent-log: FAILED writing VIRTUAL fallback to .cursor/debug.log ({type(_sys.exc_info()[1]).__name__})")
-                        except Exception:
-                            pass
-                        pass
-                    # endregion agent log
 
                 # Öffne Part/Assembly für Dimensions-/Property-Abfrage (best effort)
                 x_dim = 0
@@ -849,23 +857,6 @@ class SolidWorksConnector:
             connector_logger.info(
                 f"Assembly scan done. hidden_count={hidden_count}, missing_path_count={missing_path_count}, total_components={len(components)}"
             )
-            # region agent log
-            try:
-                import json, time
-                with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
-                    _f.write(json.dumps({"sessionId":"debug-session","runId":"pre-fix","hypothesisId":"H4","location":"SolidWorksConnector.py:scan_summary","message":"scan finished","data":{"hidden_count":int(hidden_count or 0),"missing_path_count":int(missing_path_count or 0),"total_components":int(len(components) if components is not None else 0),"results_count":int(len(results) if results is not None else 0)},"timestamp":int(time.time()*1000)}) + "\n")
-                try:
-                    connector_logger.info("agent-log: wrote scan_summary to .cursor/debug.log")
-                except Exception:
-                    pass
-            except Exception:
-                try:
-                    import sys as _sys
-                    connector_logger.warning(f"agent-log: FAILED writing scan_summary to .cursor/debug.log ({type(_sys.exc_info()[1]).__name__})")
-                except Exception:
-                    pass
-                pass
-            # endregion agent log
         finally:
             try:
                 self._close_doc_best_effort(sw_model, assembly_filepath)
@@ -1132,9 +1123,34 @@ class SolidWorksConnector:
         
         Entspricht VBA Create_3D_Documents()
         """
+        _agent_log(
+            "C",
+            "SolidWorksConnector.py:create_3d_documents",
+            "enter",
+            {"filepath": sw_filepath_with_documentname, "step": step, "x_t": x_t, "stl": stl},
+        )
+
         if not self.sw_app:
             if not self.connect():
+                _agent_log("C", "SolidWorksConnector.py:create_3d_documents", "connect_failed", {})
                 return False
+
+        # Ensure COM initialized on the current thread (FastAPI threadpool may change threads).
+        try:
+            pythoncom.CoInitialize()
+            _agent_log(
+                "C",
+                "SolidWorksConnector.py:create_3d_documents",
+                "coinitialize_ok",
+                {"thread": threading.get_ident(), "owner_thread": getattr(self, "_owner_thread_id", None)},
+            )
+        except Exception as _ci:
+            _agent_log(
+                "C",
+                "SolidWorksConnector.py:create_3d_documents",
+                "coinitialize_failed",
+                {"err": f"{type(_ci).__name__}: {_ci}", "thread": threading.get_ident(), "owner_thread": getattr(self, "_owner_thread_id", None)},
+            )
         
         # Prüfe ob Datei .SLDPRT oder .SLDASM ist
         if not (sw_filepath_with_documentname.endswith(".SLDPRT") or 
@@ -1151,6 +1167,7 @@ class SolidWorksConnector:
         # Öffne Dokument
         part_errors = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
         part_warnings = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
+        _t_open0 = time.monotonic()
         sw_part = self.sw_app.OpenDoc6(
             sw_filepath_with_documentname,
             doc_type,
@@ -1159,41 +1176,363 @@ class SolidWorksConnector:
             part_errors,
             part_warnings
         )
+        _agent_log(
+            "C",
+            "SolidWorksConnector.py:create_3d_documents",
+            "open_done",
+            {
+                "elapsed_ms": int((time.monotonic() - _t_open0) * 1000),
+                "errors": getattr(part_errors, "value", None),
+                "warnings": getattr(part_warnings, "value", None),
+                "opened": bool(sw_part),
+            },
+        )
         
         if not sw_part:
+            _agent_log(
+                "C",
+                "SolidWorksConnector.py:create_3d_documents",
+                "open_failed",
+                {"errors": getattr(part_errors, "value", None), "warnings": getattr(part_warnings, "value", None)},
+            )
             return False
         
         try:
             # Aktiviere Dokument
-            self.sw_app.ActivateDoc(sw_filepath_with_documentname)
+            _t_act0 = time.monotonic()
+            try:
+                self.sw_app.ActivateDoc(sw_filepath_with_documentname)
+            finally:
+                _agent_log(
+                    "C",
+                    "SolidWorksConnector.py:create_3d_documents",
+                    "activate_done",
+                    {"elapsed_ms": int((time.monotonic() - _t_act0) * 1000)},
+                )
             
             # STEP-Datei erstellen
             if step:
                 # Setze STEP-Export-Optionen (AP214)
                 self.sw_app.SetUserPreferenceIntegerValue(214, 214)  # swStepAP = 214
                 # Speichere als STEP
-                sw_part.SaveAs2(f"{s_pathname}.stp", 0, True, False)
+                out = f"{s_pathname}.stp"
+                _agent_log("C", "SolidWorksConnector.py:create_3d_documents", "saveas_step_start", {"out": out})
+                # Avoid overwrite prompts / locked file issues.
+                try:
+                    if os.path.exists(out):
+                        os.remove(out)
+                        _agent_log("C", "SolidWorksConnector.py:create_3d_documents", "predelete_ok", {"out": out})
+                except Exception as _pd:
+                    _agent_log("C", "SolidWorksConnector.py:create_3d_documents", "predelete_failed", {"out": out, "err": f"{type(_pd).__name__}: {_pd}"})
+                _t_save0 = time.monotonic()
+                ok = sw_part.SaveAs2(out, 0, True, False)
+                elapsed_ms = int((time.monotonic() - _t_save0) * 1000)
+                exists_immediate = False
+                size_immediate = None
+                try:
+                    exists_immediate = os.path.exists(out)
+                    size_immediate = os.path.getsize(out) if exists_immediate else None
+                except Exception:
+                    pass
+                _agent_log(
+                    "C",
+                    "SolidWorksConnector.py:create_3d_documents",
+                    "saveas_step_return",
+                    {"out": out, "ok": bool(ok), "elapsed_ms": elapsed_ms, "exists_immediate": exists_immediate, "size_immediate": size_immediate},
+                )
+                # Some SOLIDWORKS versions return True but finish writing asynchronously.
+                step_alts = [f"{s_pathname}.step", f"{s_pathname}.STP", f"{s_pathname}.STEP"]
+                # Even if ok==False, a file might still appear.
+                ok_wait, realized = self._wait_for_file(out, step_alts, timeout_s=18.0, location="SolidWorksConnector.py:create_3d_documents")
+                if realized and realized != out:
+                    out = realized
+
+                # Fallback: Extension.SaveAs (sometimes blocks more reliably) – only if still missing.
+                if not os.path.exists(out):
+                    try:
+                        e = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
+                        w = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
+                        # exportData is optional; pass None (VT_EMPTY) – pythoncom.Missing can't be converted to VARIANT.
+                        try:
+                            _t_ext0 = time.monotonic()
+                            ok2 = sw_part.Extension.SaveAs(out, 0, 0, None, e, w)
+                            _agent_log(
+                                "C",
+                                "SolidWorksConnector.py:create_3d_documents",
+                                "saveas_step_ext_variant",
+                                {"variant": "exportData=None"},
+                            )
+                        except Exception:
+                            _t_ext0 = time.monotonic()
+                            export_data = win32com.client.VARIANT(pythoncom.VT_DISPATCH, None)
+                            ok2 = sw_part.Extension.SaveAs(out, 0, 0, export_data, e, w)
+                            _agent_log(
+                                "C",
+                                "SolidWorksConnector.py:create_3d_documents",
+                                "saveas_step_ext_variant",
+                                {"variant": "exportData=VT_DISPATCH(None)"},
+                            )
+                        _agent_log(
+                            "C",
+                            "SolidWorksConnector.py:create_3d_documents",
+                            "saveas_step_ext_return",
+                            {
+                                "out": out,
+                                "ok": bool(ok2),
+                                "elapsed_ms": int((time.monotonic() - _t_ext0) * 1000),
+                                "errors": getattr(e, "value", None),
+                                "warnings": getattr(w, "value", None),
+                            },
+                        )
+                    except Exception as _e2:
+                        _agent_log(
+                            "C",
+                            "SolidWorksConnector.py:create_3d_documents",
+                            "saveas_step_ext_exception",
+                            {"out": out, "err": f"{type(_e2).__name__}: {_e2}"},
+                        )
+                # Final wait after fallback attempt
+                if not os.path.exists(out):
+                    ok_wait2, realized2 = self._wait_for_file(out, step_alts, timeout_s=12.0, location="SolidWorksConnector.py:create_3d_documents")
+                    if realized2 and realized2 != out:
+                        out = realized2
+                # If still missing, scan directory for unexpected output variants (e.g. encoding/case differences)
+                if not os.path.exists(out):
+                    try:
+                        out_dir = os.path.dirname(out) or "."
+                        base = os.path.basename(s_pathname).lower()
+                        found = []
+                        for fn in os.listdir(out_dir):
+                            lfn = fn.lower()
+                            if (lfn.endswith(".stp") or lfn.endswith(".step")) and base and lfn.startswith(base):
+                                found.append(fn)
+                        _agent_log(
+                            "C",
+                            "SolidWorksConnector.py:create_3d_documents",
+                            "saveas_step_dir_scan",
+                            {"dir": out_dir, "base": base, "found": found[:10], "found_count": len(found)},
+                        )
+                    except Exception as _e3:
+                        _agent_log(
+                            "C",
+                            "SolidWorksConnector.py:create_3d_documents",
+                            "saveas_step_dir_scan_exception",
+                            {"out": out, "err": f"{type(_e3).__name__}: {_e3}"},
+                        )
+                # Extension variant (.step) fallback
+                if (not os.path.exists(out)) and os.path.exists(f"{s_pathname}.step"):
+                    out = f"{s_pathname}.step"
+                try:
+                    _agent_log(
+                        "C",
+                        "SolidWorksConnector.py:create_3d_documents",
+                        "saveas_step_done",
+                        {"out": out, "exists": os.path.exists(out), "size": os.path.getsize(out) if os.path.exists(out) else None},
+                    )
+                except Exception:
+                    pass
+                if not os.path.exists(out):
+                    raise Exception(f"STEP Export fehlgeschlagen (SaveAs2_ok={bool(ok)}), fehlend: {out}")
             
             # X_T-Datei erstellen
             if x_t:
                 # Speichere als X_T
-                sw_part.SaveAs2(f"{s_pathname}.x_t", 0, True, False)
+                out = f"{s_pathname}.x_t"
+                _agent_log("C", "SolidWorksConnector.py:create_3d_documents", "saveas_xt_start", {"out": out})
+                try:
+                    if os.path.exists(out):
+                        os.remove(out)
+                        _agent_log("C", "SolidWorksConnector.py:create_3d_documents", "predelete_ok", {"out": out})
+                except Exception as _pd:
+                    _agent_log("C", "SolidWorksConnector.py:create_3d_documents", "predelete_failed", {"out": out, "err": f"{type(_pd).__name__}: {_pd}"})
+
+                _t_save0 = time.monotonic()
+                ok = sw_part.SaveAs2(out, 0, True, False)
+                elapsed_ms = int((time.monotonic() - _t_save0) * 1000)
+                exists_immediate = False
+                size_immediate = None
+                try:
+                    exists_immediate = os.path.exists(out)
+                    size_immediate = os.path.getsize(out) if exists_immediate else None
+                except Exception:
+                    pass
+                _agent_log(
+                    "C",
+                    "SolidWorksConnector.py:create_3d_documents",
+                    "saveas_xt_return",
+                    {"out": out, "ok": bool(ok), "elapsed_ms": elapsed_ms, "exists_immediate": exists_immediate, "size_immediate": size_immediate},
+                )
+
+                xt_alts = [f"{s_pathname}.X_T"]
+                self._wait_for_file(out, xt_alts, timeout_s=18.0, location="SolidWorksConnector.py:create_3d_documents")
+                if not os.path.exists(out):
+                    try:
+                        e = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
+                        w = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
+                        try:
+                            _t_ext0 = time.monotonic()
+                            ok2 = sw_part.Extension.SaveAs(out, 0, 0, None, e, w)
+                            _agent_log(
+                                "C",
+                                "SolidWorksConnector.py:create_3d_documents",
+                                "saveas_xt_ext_variant",
+                                {"variant": "exportData=None"},
+                            )
+                        except Exception:
+                            _t_ext0 = time.monotonic()
+                            export_data = win32com.client.VARIANT(pythoncom.VT_DISPATCH, None)
+                            ok2 = sw_part.Extension.SaveAs(out, 0, 0, export_data, e, w)
+                            _agent_log(
+                                "C",
+                                "SolidWorksConnector.py:create_3d_documents",
+                                "saveas_xt_ext_variant",
+                                {"variant": "exportData=VT_DISPATCH(None)"},
+                            )
+                        _agent_log(
+                            "C",
+                            "SolidWorksConnector.py:create_3d_documents",
+                            "saveas_xt_ext_return",
+                            {
+                                "out": out,
+                                "ok": bool(ok2),
+                                "elapsed_ms": int((time.monotonic() - _t_ext0) * 1000),
+                                "errors": getattr(e, "value", None),
+                                "warnings": getattr(w, "value", None),
+                            },
+                        )
+                    except Exception as _e2:
+                        _agent_log(
+                            "C",
+                            "SolidWorksConnector.py:create_3d_documents",
+                            "saveas_xt_ext_exception",
+                            {"out": out, "err": f"{type(_e2).__name__}: {_e2}"},
+                        )
+                if not os.path.exists(out):
+                    raise Exception(f"X_T Export fehlgeschlagen (SaveAs2_ok={bool(ok)}), fehlend: {out}")
+                try:
+                    _agent_log(
+                        "C",
+                        "SolidWorksConnector.py:create_3d_documents",
+                        "saveas_xt_done",
+                        {"out": out, "exists": os.path.exists(out), "size": os.path.getsize(out) if os.path.exists(out) else None},
+                    )
+                except Exception:
+                    pass
             
             # STL-Datei erstellen
             if stl:
                 # Speichere als STL
-                sw_part.SaveAs2(f"{s_pathname}.stl", 0, True, False)
+                out = f"{s_pathname}.stl"
+                _agent_log("C", "SolidWorksConnector.py:create_3d_documents", "saveas_stl_start", {"out": out})
+                try:
+                    if os.path.exists(out):
+                        os.remove(out)
+                        _agent_log("C", "SolidWorksConnector.py:create_3d_documents", "predelete_ok", {"out": out})
+                except Exception as _pd:
+                    _agent_log("C", "SolidWorksConnector.py:create_3d_documents", "predelete_failed", {"out": out, "err": f"{type(_pd).__name__}: {_pd}"})
+
+                _t_save0 = time.monotonic()
+                ok = sw_part.SaveAs2(out, 0, True, False)
+                elapsed_ms = int((time.monotonic() - _t_save0) * 1000)
+                exists_immediate = False
+                size_immediate = None
+                try:
+                    exists_immediate = os.path.exists(out)
+                    size_immediate = os.path.getsize(out) if exists_immediate else None
+                except Exception:
+                    pass
+                _agent_log(
+                    "C",
+                    "SolidWorksConnector.py:create_3d_documents",
+                    "saveas_stl_return",
+                    {"out": out, "ok": bool(ok), "elapsed_ms": elapsed_ms, "exists_immediate": exists_immediate, "size_immediate": size_immediate},
+                )
+
+                stl_alts = [f"{s_pathname}.STL"]
+                self._wait_for_file(out, stl_alts, timeout_s=18.0, location="SolidWorksConnector.py:create_3d_documents")
+                if not os.path.exists(out):
+                    try:
+                        e = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
+                        w = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
+                        try:
+                            _t_ext0 = time.monotonic()
+                            ok2 = sw_part.Extension.SaveAs(out, 0, 0, None, e, w)
+                            _agent_log(
+                                "C",
+                                "SolidWorksConnector.py:create_3d_documents",
+                                "saveas_stl_ext_variant",
+                                {"variant": "exportData=None"},
+                            )
+                        except Exception:
+                            _t_ext0 = time.monotonic()
+                            export_data = win32com.client.VARIANT(pythoncom.VT_DISPATCH, None)
+                            ok2 = sw_part.Extension.SaveAs(out, 0, 0, export_data, e, w)
+                            _agent_log(
+                                "C",
+                                "SolidWorksConnector.py:create_3d_documents",
+                                "saveas_stl_ext_variant",
+                                {"variant": "exportData=VT_DISPATCH(None)"},
+                            )
+                        _agent_log(
+                            "C",
+                            "SolidWorksConnector.py:create_3d_documents",
+                            "saveas_stl_ext_return",
+                            {
+                                "out": out,
+                                "ok": bool(ok2),
+                                "elapsed_ms": int((time.monotonic() - _t_ext0) * 1000),
+                                "errors": getattr(e, "value", None),
+                                "warnings": getattr(w, "value", None),
+                            },
+                        )
+                    except Exception as _e2:
+                        _agent_log(
+                            "C",
+                            "SolidWorksConnector.py:create_3d_documents",
+                            "saveas_stl_ext_exception",
+                            {"out": out, "err": f"{type(_e2).__name__}: {_e2}"},
+                        )
+                if not os.path.exists(out):
+                    raise Exception(f"STL Export fehlgeschlagen (SaveAs2_ok={bool(ok)}), fehlend: {out}")
+                try:
+                    _agent_log(
+                        "C",
+                        "SolidWorksConnector.py:create_3d_documents",
+                        "saveas_stl_done",
+                        {"out": out, "exists": os.path.exists(out), "size": os.path.getsize(out) if os.path.exists(out) else None},
+                    )
+                except Exception:
+                    pass
             
+            _agent_log("C", "SolidWorksConnector.py:create_3d_documents", "exit_true", {})
             return True
             
         finally:
+            _agent_log("C", "SolidWorksConnector.py:create_3d_documents", "finally_close_start", {"filepath": sw_filepath_with_documentname})
             try:
+                # Avoid hidden modal dialogs during CloseDoc (macro best practice)
+                prev_cmd = None
+                try:
+                    prev_cmd = getattr(self.sw_app, "CommandInProgress", None)
+                    self.sw_app.CommandInProgress = True
+                    _agent_log("C", "SolidWorksConnector.py:create_3d_documents", "command_in_progress_set", {"prev": prev_cmd})
+                except Exception as _e:
+                    _agent_log("C", "SolidWorksConnector.py:create_3d_documents", "command_in_progress_set_failed", {"err": f"{type(_e).__name__}: {_e}"})
+
                 self._close_doc_best_effort(sw_part, sw_filepath_with_documentname)
+
+                try:
+                    if prev_cmd is not None:
+                        self.sw_app.CommandInProgress = prev_cmd
+                        _agent_log("C", "SolidWorksConnector.py:create_3d_documents", "command_in_progress_restored", {"restored": prev_cmd})
+                except Exception:
+                    pass
             except Exception:
                 try:
                     self.sw_app.CloseDoc(sw_filepath_with_documentname)
                 except Exception:
                     pass
+            _agent_log("C", "SolidWorksConnector.py:create_3d_documents", "finally_close_done", {"filepath": sw_filepath_with_documentname})
 
     def create_2d_documents(
         self,
