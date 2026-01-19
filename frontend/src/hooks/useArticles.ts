@@ -10,7 +10,8 @@ export const useArticles = (projectId: number | null, bomId: number | null) => {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const _log = () => {}
+  // Optional debug logger (no-op). Keep signature flexible so callsites don't break typechecking.
+  const _log = (..._args: any[]) => {}
 
   const fetchArticles = async () => {
     if (!projectId) return

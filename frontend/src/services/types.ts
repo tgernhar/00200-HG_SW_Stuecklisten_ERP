@@ -28,7 +28,7 @@ export interface HugwawiOrderArticleItem {
   hugwawi_order_name: string
   hugwawi_order_reference?: string
   hugwawi_order_article_id: number
-  hugwawi_article_id: number
+  hugwawi_article_id?: number
   hugwawi_articlenumber: string
   hugwawi_description?: string
 }

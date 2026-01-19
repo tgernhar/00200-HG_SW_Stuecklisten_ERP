@@ -45,8 +45,8 @@ function App() {
   const [bestellartikelSearch, setBestellartikelSearch] = useState('')
   const [selectedTemplateIds, setSelectedTemplateIds] = useState<Set<number>>(new Set())
 
-  // (debug instrumentation removed)
-  const _log = () => {}
+  // Optional debug logger (no-op). Keep signature flexible so callsites don't break typechecking.
+  const _log = (..._args: any[]) => {}
 
   useEffect(() => {
     try {
@@ -143,7 +143,6 @@ function App() {
       const p = list[0] || null
       return p
     } catch (e: any) {
-      const msg = e?.response?.data?.detail || e?.message || 'Projekt nicht gefunden'
       return null
     }
   }
@@ -221,7 +220,12 @@ function App() {
     _log('App.tsx:handleImportSolidworks', 'start', { projectId: project.id, au_nr: project.au_nr })
     // #endregion agent log
     try {
-      await openHugwawiPickerForAu(project.au_nr)
+      const au = (project.au_nr || '').trim()
+      if (!au) {
+        alert('Dieses Projekt hat keine AU-Nr. Bitte Projekt über AU laden oder AU-Nr ergänzen.')
+        return
+      }
+      await openHugwawiPickerForAu(au)
     } catch (error: any) {
       // #region agent log
       _log('App.tsx:handleImportSolidworks', 'error', { message: error?.message || String(error) })
@@ -910,7 +914,7 @@ function App() {
             />
           </div>
           <div style={{ display: 'flex', gap: '10px', marginBottom: '10px' }}>
-            <button onClick={loadProjects} disabled={projectsLoading}>
+            <button onClick={() => loadProjects()} disabled={projectsLoading}>
               {projectsLoading ? 'Lade...' : 'Projekte laden'}
             </button>
             <button onClick={() => loadProjectsByAu(projectsSearch)} disabled={!projectsSearch.trim()}>

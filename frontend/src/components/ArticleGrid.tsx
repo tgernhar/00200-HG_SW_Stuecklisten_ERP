@@ -392,8 +392,8 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
       headerName: 'Dokumentstatus',
       headerClass: 'rotated-header-group',
       children: [
-        { field: 'pdf_drucken', headerName: 'PDF Drucken', width: 45, editable: true, headerClass: 'rotated-header' },
-        { field: 'pdf_format', headerName: 'PDF Format', width: 45, editable: false, headerClass: 'rotated-header' },
+        { field: 'pdf_drucken', headerName: 'PDF Drucken', width: 45, minWidth: 45, maxWidth: 45, editable: true, headerClass: 'rotated-header' },
+        { field: 'pdf_format', headerName: 'PDF Format', width: 45, minWidth: 45, maxWidth: 45, editable: false, headerClass: 'rotated-header' },
         { 
           field: 'pdf', 
           headerName: 'PDF', 
@@ -504,7 +504,7 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
           headerClass: 'rotated-header',
           cellRenderer: makeDocRenderer({ existsField: 'esp_exists', pathField: 'esp_path', openMode: 'openSwDir' })
         },
-        { field: 'bn_ab', headerName: 'BN-AB', width: 50, editable: true, headerClass: 'rotated-header' }
+        { field: 'bn_ab', headerName: 'BN-AB', width: 45, minWidth: 45, maxWidth: 45, editable: true, headerClass: 'rotated-header' }
       ]
     },
     // Block C: Stücklisteninformationen
