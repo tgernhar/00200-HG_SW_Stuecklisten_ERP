@@ -70,6 +70,7 @@ export interface Article {
   pfad?: string
   sldasm_sldprt_pfad?: string
   slddrw_pfad?: string
+  sw_origin: boolean
   in_stueckliste_anzeigen: boolean
   erp_exists?: boolean
 

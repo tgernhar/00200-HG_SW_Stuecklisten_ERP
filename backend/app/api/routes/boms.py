@@ -93,6 +93,7 @@ async def create_bestellartikel(bom_id: int, payload: CreateBestellartikelReques
                 bom_id=bom_id,
                 pos_nr=base_pos,
                 pos_sub=next_sub,
+                sw_origin=False,
                 hg_artikelnummer=(str(src.hg_artikelnummer or "") + suffix) or None,
                 benennung=(prefix + " zu:\n" + str(src.benennung or "")) if (prefix or src.benennung) else None,
                 konfiguration="",
@@ -111,9 +112,10 @@ async def create_bestellartikel(bom_id: int, payload: CreateBestellartikelReques
                 breite=src.breite,
                 hoehe=None,  # nicht gefordert
                 gewicht=src.gewicht,
-                pfad=None,
-                sldasm_sldprt_pfad=None,
-                slddrw_pfad=None,
+                # SW-Pfade vom Quellartikel übernehmen (damit Dokumentaktionen weiterhin funktionieren)
+                pfad=src.pfad,
+                sldasm_sldprt_pfad=src.sldasm_sldprt_pfad,
+                slddrw_pfad=src.slddrw_pfad,
                 in_stueckliste_anzeigen=True,
                 erp_exists=None,
             )

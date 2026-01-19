@@ -354,6 +354,7 @@ async def get_articles(
             pfad=a.pfad,
             sldasm_sldprt_pfad=a.sldasm_sldprt_pfad,
             slddrw_pfad=a.slddrw_pfad,
+            sw_origin=getattr(a, "sw_origin", False),
             in_stueckliste_anzeigen=a.in_stueckliste_anzeigen,
             erp_exists=a.erp_exists,
 
@@ -432,6 +433,7 @@ async def create_manual_article(bom_id: int, payload: ManualArticleCreate, db: S
         bom_id=bom_id,
         pos_nr=payload.pos_nr,
         pos_sub=0,
+        sw_origin=False,
         hg_artikelnummer=None,
         benennung=None,
         konfiguration=None,
@@ -488,6 +490,7 @@ async def create_manual_article(bom_id: int, payload: ManualArticleCreate, db: S
         pfad=a.pfad,
         sldasm_sldprt_pfad=a.sldasm_sldprt_pfad,
         slddrw_pfad=a.slddrw_pfad,
+        sw_origin=getattr(a, "sw_origin", False),
         in_stueckliste_anzeigen=a.in_stueckliste_anzeigen,
         erp_exists=a.erp_exists,
         hg_bnr=None,
@@ -513,8 +516,8 @@ async def delete_article_with_password(
     if not article:
         raise HTTPException(status_code=404, detail="Artikel nicht gefunden")
 
-    # only allow delete if not imported from SolidWorks (no SW paths)
-    if article.sldasm_sldprt_pfad or article.slddrw_pfad or article.pfad:
+    # Only allow delete if not imported from SolidWorks (use explicit flag, not path heuristics)
+    if getattr(article, "sw_origin", False):
         raise HTTPException(status_code=409, detail="Artikel stammt aus SOLIDWORKS und kann nicht gelöscht werden")
 
     db.delete(article)
@@ -562,16 +565,9 @@ async def update_article(
     return db_article
 
 
-@router.delete("/articles/{article_id}")
-async def delete_article(article_id: int, db: Session = Depends(get_db)):
-    """Artikel löschen"""
-    db_article = db.query(Article).filter(Article.id == article_id).first()
-    if not db_article:
-        raise HTTPException(status_code=404, detail="Artikel nicht gefunden")
-    
-    db.delete(db_article)
-    db.commit()
-    return {"message": "Artikel gelöscht"}
+#
+# NOTE: There used to be a second delete route for the same path without password checks.
+# This is intentionally removed to avoid ambiguous routing and to keep deletion rules consistent.
 
 
 @router.post("/articles/batch-update")

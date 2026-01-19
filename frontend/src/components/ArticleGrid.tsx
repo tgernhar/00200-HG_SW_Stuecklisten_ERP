@@ -37,7 +37,6 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
   const [showBestellinfo, setShowBestellinfo] = useState(true)
   const [showDokumentstatus, setShowDokumentstatus] = useState(true)
   const [showMenge, setShowMenge] = useState(false)
-  const _agentLog = useCallback((..._args: any[]) => {}, [])
   const makeDocRenderer = useCallback(
     (opts: {
       existsField?: keyof Article
@@ -512,6 +511,7 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
       headerName: 'Stücklisteninformationen',
       children: [
         { field: 'pos_nr_display', headerName: 'Pos-Nr', width: 80, editable: false, headerClass: 'rotated-header' },
+        { field: 'sw_origin', headerName: 'SW Origin', width: 90, editable: false, cellRenderer: 'agCheckboxCellRenderer' },
         { 
           field: 'hg_artikelnummer', 
           headerName: 'H+G Artikelnummer', 
@@ -788,21 +788,11 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
     }
   }, [onAfterBulkUpdate])
 
-  // #region agent log
   const rowData = useMemo(() => {
     const list = Array.isArray(articles) ? articles : []
-    const hiddenCount = list.filter((a: any) => a?.in_stueckliste_anzeigen === false).length
     const out = showHidden ? list : list.filter(a => (a as any)?.in_stueckliste_anzeigen !== false)
-    _agentLog('ArticleGrid.tsx:rowData', 'computed', {
-      projectId,
-      showHidden,
-      total: list.length,
-      hiddenCount,
-      shown: out.length
-    })
     return out
-  }, [articles, showHidden, projectId, _agentLog])
-  // #endregion agent log
+  }, [articles, showHidden])
 
   return (
     <div style={{ width: '100%', height: '100%' }} onKeyDownCapture={handleKeyDownCapture}>
@@ -903,9 +893,6 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
             onChange={(e) => {
               const v = !!e.target.checked
               setShowHidden(v)
-              // #region agent log
-              _agentLog('ArticleGrid.tsx:showHidden', 'toggle', { projectId, value: v })
-              // #endregion agent log
             }}
           />
           Ausgeblendete anzeigen

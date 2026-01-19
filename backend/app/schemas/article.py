@@ -29,6 +29,7 @@ class ArticleBase(BaseModel):
     pfad: Optional[str] = None
     sldasm_sldprt_pfad: Optional[str] = None
     slddrw_pfad: Optional[str] = None
+    sw_origin: bool = False
     in_stueckliste_anzeigen: bool = True
     erp_exists: Optional[bool] = None
 
@@ -60,6 +61,7 @@ class ArticleUpdate(BaseModel):
     pfad: Optional[str] = None
     sldasm_sldprt_pfad: Optional[str] = None
     slddrw_pfad: Optional[str] = None
+    sw_origin: Optional[bool] = None
     in_stueckliste_anzeigen: Optional[bool] = None
     erp_exists: Optional[bool] = None
 

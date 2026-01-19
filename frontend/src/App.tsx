@@ -171,20 +171,11 @@ function App() {
     } catch {}
     await refreshBoms(p.id)
     refetch()
-    // #region agent log
-    _log('App.tsx:openProject', 'selected', { projectId: p.id })
-    // #endregion agent log
   }
 
   const openHugwawiPickerForAu = async (au: string) => {
-    // #region agent log
-    _log('App.tsx:openHugwawiPickerForAu', 'request', { au })
-    // #endregion agent log
     const resp = await api.get(`/hugwawi/orders/${encodeURIComponent(au)}/articles`)
     const items = (resp?.data?.items || []) as HugwawiOrderArticleItem[]
-    // #region agent log
-    _log('App.tsx:openHugwawiPickerForAu', 'response', { au, count: items.length })
-    // #endregion agent log
     if (!items.length) {
       throw new Error('Keine Artikel für diesen Auftrag in HUGWAWI gefunden.')
     }
@@ -216,9 +207,6 @@ function App() {
   const handleImportSolidworks = async () => {
     if (!project) return
     
-    // #region agent log
-    _log('App.tsx:handleImportSolidworks', 'start', { projectId: project.id, au_nr: project.au_nr })
-    // #endregion agent log
     try {
       const au = (project.au_nr || '').trim()
       if (!au) {
@@ -227,9 +215,6 @@ function App() {
       }
       await openHugwawiPickerForAu(au)
     } catch (error: any) {
-      // #region agent log
-      _log('App.tsx:handleImportSolidworks', 'error', { message: error?.message || String(error) })
-      // #endregion agent log
       alert('Fehler: ' + (error.response?.data?.detail || error.message))
     }
   }
@@ -251,25 +236,11 @@ function App() {
     if (!project) return
 
     try {
-      // #region agent log
-      _log('App.tsx:bnSync', 'start', { projectId: project.id, selectedBomId })
-      // #endregion agent log
       const bomQuery = selectedBomId ? `?bom_id=${selectedBomId}` : ''
       const resp = await api.post(`/projects/${project.id}/sync-orders${bomQuery}`)
-      // #region agent log
-      _log('App.tsx:bnSync', 'success', { projectId: project.id, data: resp?.data })
-      // #endregion agent log
       alert('Bestellungen synchronisiert!')
       refetch()
     } catch (error: any) {
-      // #region agent log
-      _log('App.tsx:bnSync', 'error', {
-        projectId: project?.id,
-        message: error?.message,
-        status: error?.response?.status,
-        detail: error?.response?.data?.detail
-      })
-      // #endregion agent log
       alert('Fehler beim Synchronisieren: ' + error.message)
     }
   }
@@ -585,18 +556,7 @@ function App() {
                   (!project && !(pendingAuNr || auNr))
                 }
                 onClick={async () => {
-                  // #region agent log
-                  _log('App.tsx:importModal', 'click', {
-                    selectedHugwawiKey,
-                    hasProject: !!project,
-                    pendingAuNr,
-                    auNr
-                  })
-                  // #endregion agent log
                   if (!selectedHugwawiKey) {
-                    // #region agent log
-                    _log('App.tsx:importModal', 'blocked-no-selection', {})
-                    // #endregion agent log
                     return
                   }
                   let picked = (hugwawiItems || []).find(
@@ -659,16 +619,6 @@ function App() {
                       path = p.trim()
                       setAssemblyPath(path)
                     }
-
-                    // #region agent log
-                    _log('App.tsx:importModal', 'start', {
-                      projectId: activeProject.id,
-                      au_nr: activeProject.au_nr,
-                      hugwawi_order_id: picked.hugwawi_order_id,
-                      hugwawi_order_article_id: picked.hugwawi_order_article_id,
-                      assemblyPath: path
-                    })
-                    // #endregion agent log
                     let bomResp
                     try {
                       setImportStep('BOM anlegen')
@@ -701,15 +651,9 @@ function App() {
                     if (!bom || !bom.id) {
                       throw new Error('BOM konnte nicht erstellt werden (keine ID)')
                     }
-                    // #region agent log
-                    _log('App.tsx:importModal', 'bom-created', { bomId: bom.id })
-                    // #endregion agent log
 
                     try {
                       setImportStep('Import läuft')
-                      // #region agent log
-                      _log('App.tsx:importModal', 'import-call', { bomId: bom.id, assemblyPath: path })
-                      // #endregion agent log
                       const importResp = await api.post(`/projects/${activeProject.id}/boms/${bom.id}/import-solidworks`, null, {
                         params: { assembly_filepath: path }
                       })
@@ -740,9 +684,6 @@ function App() {
                     setImportStep('Fertig')
                     alert('Import erfolgreich!')
                   } catch (e: any) {
-                    // #region agent log
-                    _log('App.tsx:importModal', 'error', { message: e?.message || String(e), status: e?.response?.status, detail: e?.response?.data?.detail })
-                    // #endregion agent log
                     setImportStep(null)
                     alert('Fehler: ' + (e?.response?.data?.detail || e?.message || String(e)))
                   }
@@ -750,23 +691,6 @@ function App() {
               >
                 Import starten
               </button>
-              {/* #region agent log */}
-              {(() => {
-                try {
-                  _log('App.tsx:importModal', 'button-state', {
-                    selectedHugwawiKey,
-                    hasProject: !!project,
-                    pendingAuNr,
-                    auNr,
-                    disabled:
-                      !selectedHugwawiKey ||
-                      (selectedHugwawiKey === 'manual' && !manualArtikelNr.trim()) ||
-                      (!project && !(pendingAuNr || auNr))
-                  })
-                } catch {}
-                return null
-              })()}
-              {/* #endregion agent log */}
             </div>
           </div>
         </div>
@@ -923,30 +847,15 @@ function App() {
             {lastProjectId && (
               <button
                 onClick={async () => {
-                  // #region agent log
-                  _log('App.tsx:lastProject', 'click', { lastProjectId, projectsCount: projects.length })
-                  // #endregion agent log
                   const p = projects.find((x) => x.id === lastProjectId)
                   if (p) {
-                    // #region agent log
-                    _log('App.tsx:lastProject', 'found-in-list', { lastProjectId })
-                    // #endregion agent log
                     await openProject(p)
                   } else {
-                    // #region agent log
-                    _log('App.tsx:lastProject', 'not-found-in-list', { lastProjectId })
-                    // #endregion agent log
                     await loadProjects()
                     const again = projects.find((x) => x.id === lastProjectId)
                     if (again) {
-                      // #region agent log
-                      _log('App.tsx:lastProject', 'found-after-reload', { lastProjectId })
-                      // #endregion agent log
                       await openProject(again)
                     } else {
-                      // #region agent log
-                      _log('App.tsx:lastProject', 'still-missing', { lastProjectId })
-                      // #endregion agent log
                       if (pendingAuNr || auNr) {
                         await loadProjectsByAu((pendingAuNr || auNr) as string)
                       }
@@ -977,9 +886,6 @@ function App() {
                   </span>
                   <button
                     onClick={async () => {
-                      // #region agent log
-                      _log('App.tsx:openProject', 'click', { projectId: p.id, au_nr: p.au_nr })
-                      // #endregion agent log
                       await openProject(p)
                     }}
                   >

@@ -196,6 +196,8 @@ async def import_solidworks_assembly(
                 "pfad": _dirname_any(key[0]) if key[0] else None,
                 "sldasm_sldprt_pfad": key[0],
                 "slddrw_pfad": str(drawing_path) if drawing_path else None,
+                # Herkunftsflag: alles was aus dem SOLIDWORKS Import kommt
+                "sw_origin": True,
                 "in_stueckliste_anzeigen": False if exclude_flag else True,
             }
         else:

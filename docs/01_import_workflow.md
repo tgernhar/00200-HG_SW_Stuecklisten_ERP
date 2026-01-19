@@ -40,6 +40,13 @@ Zusätzlich wird die **Hauptbaugruppe** (die beim Import angegebene `.SLDASM`) a
 - **Hauptbaugruppe**: `pos_nr = 0`
 - **Alle weiteren (deduplizierten) Positionen**: `pos_nr = 1..n`
 
+### SOLIDWORKS Herkunftsflag (`sw_origin`)
+Für jede Stücklistenzeile gibt es das Flag **`sw_origin`** (boolean):
+- **`sw_origin = true`**: Zeile stammt aus dem SOLIDWORKS‑Import (inkl. Hauptbaugruppe `pos_nr=0`).
+- **`sw_origin = false`**: Zeile wurde **manuell** angelegt oder ist ein **Bestellartikel** (Unterartikel).
+
+Wichtig: Bestellartikel übernehmen zwar die SOLIDWORKS‑Pfade vom Quellartikel (damit 2D/3D/PDF Aktionen funktionieren), bleiben aber trotzdem **`sw_origin=false`**.
+
 ### Mengen: `menge` vs. `p_menge`
 - **`menge`**: Menge laut SOLIDWORKS‑Stückliste (wird importiert, **read‑only**). Im Grid ist diese Spalte **standardmäßig ausgeblendet**, kann aber bei Bedarf wieder eingeblendet werden.
 - **`p_menge`**: Produktionsmenge für die Fertigung (**editierbar**). Beim Import wird `p_menge` initial mit `menge` vorbelegt.

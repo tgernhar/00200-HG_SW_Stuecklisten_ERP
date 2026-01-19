@@ -13,6 +13,15 @@ Im Block „Stücklisteninformationen“ stehen:
 - `hg_artikelnummer` (H+G Artikelnummer)
 - `benennung`
 
+## SOLIDWORKS Herkunft (`sw_origin`) und Löschen
+Im Block „Stücklisteninformationen“ gibt es die Checkbox‑Spalte **`sw_origin`**:
+- **`true`**: Zeile stammt aus dem SOLIDWORKS‑Import.
+- **`false`**: Zeile ist manuell oder ein Bestellartikel (Unterartikel).
+
+### Zeilen löschen (Regel)
+- Löschbar sind nur Zeilen mit **`sw_origin = false`** (manuell / Bestellartikel).
+- Zeilen aus SOLIDWORKS (`sw_origin=true`) sind gesperrt.
+
 ## Editierbare Felder (Stücklisteninformationen)
 Viele Spalten sind reine Status-/Existenzfelder und daher nicht editierbar. Editierbar sind insbesondere:
 - **Custom‑Property Felder (werden in SOLIDWORKS zurückgeschrieben)**:

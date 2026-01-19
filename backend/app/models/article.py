@@ -47,6 +47,10 @@ class Article(Base):
     pfad = Column(String(500))  # C19
     sldasm_sldprt_pfad = Column(String(500))  # C20
     slddrw_pfad = Column(String(500))  # C21
+
+    # Herkunft: True wenn Zeile aus SOLIDWORKS-Import stammt (inkl. Root Pos 0)
+    # Bestellartikel und manuelle Zeilen setzen dies explizit auf False.
+    sw_origin = Column(Boolean, default=False, nullable=False)
     
     # Flags
     in_stueckliste_anzeigen = Column(Boolean, default=True)  # C22
