@@ -145,18 +145,102 @@ def get_all_parts_from_assembly(request: AssemblyRequest):
     Liest alle Teile und Properties aus Assembly
     """
     try:
+        # #region agent log
+        try:
+            import json, time
+            with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
+                _f.write(
+                    json.dumps(
+                        {
+                            "sessionId": "debug-session",
+                            "runId": "connector",
+                            "hypothesisId": "CONNECTOR_CALL",
+                            "location": "solidworks-connector/src/main.py:get_all_parts_from_assembly",
+                            "message": "request_received",
+                            "data": {"assembly_filepath": request.assembly_filepath},
+                            "timestamp": int(time.time() * 1000),
+                        }
+                    )
+                    + "\n"
+                )
+        except Exception:
+            pass
+        # #endregion agent log
         connector_logger.info(f"get-all-parts-from-assembly aufgerufen mit filepath: {request.assembly_filepath}")
         connector = get_connector()
         connector_logger.info(f"Connector-Instanz erhalten, rufe get_all_parts_and_properties_from_assembly auf...")
+        # #region agent log
+        try:
+            import json, time
+            with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
+                _f.write(
+                    json.dumps(
+                        {
+                            "sessionId": "debug-session",
+                            "runId": "connector",
+                            "hypothesisId": "CONNECTOR_CALL",
+                            "location": "solidworks-connector/src/main.py:get_all_parts_from_assembly",
+                            "message": "before_connector_call",
+                            "data": {},
+                            "timestamp": int(time.time() * 1000),
+                        }
+                    )
+                    + "\n"
+                )
+        except Exception:
+            pass
+        # #endregion agent log
         results = connector.get_all_parts_and_properties_from_assembly(
             request.assembly_filepath
         )
+        # #region agent log
+        try:
+            import json, time
+            with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
+                _f.write(
+                    json.dumps(
+                        {
+                            "sessionId": "debug-session",
+                            "runId": "connector",
+                            "hypothesisId": "CONNECTOR_CALL",
+                            "location": "solidworks-connector/src/main.py:get_all_parts_from_assembly",
+                            "message": "after_connector_call",
+                            "data": {"results_count": len(results) if results else 0},
+                            "timestamp": int(time.time() * 1000),
+                        }
+                    )
+                    + "\n"
+                )
+        except Exception:
+            pass
+        # #endregion agent log
         connector_logger.info(f"Erfolgreich: {len(results) if results else 0} Ergebnisse erhalten")
         return {
             "success": True,
             "results": results
         }
     except Exception as e:
+        # #region agent log
+        try:
+            import json, time
+            with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
+                _f.write(
+                    json.dumps(
+                        {
+                            "sessionId": "debug-session",
+                            "runId": "connector",
+                            "hypothesisId": "CONNECTOR_CALL",
+                            "location": "solidworks-connector/src/main.py:get_all_parts_from_assembly",
+                            "message": "connector_error",
+                            "data": {"error": str(e)},
+                            "timestamp": int(time.time() * 1000),
+                        }
+                    )
+                    + "\n"
+                )
+        except Exception:
+            pass
+        # #endregion agent log
         connector_logger.error(f"Fehler in get-all-parts-from-assembly: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 

@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     # SOLIDWORKS Connector
     SOLIDWORKS_CONNECTOR_URL: str = "http://localhost:8001"
     SOLIDWORKS_VERSION: str = "2025"
+    # Connector HTTP timeout for long-running imports (seconds). For very large assemblies (hours),
+    # raise this value. If your environment supports it, you may also set this to a very high value.
+    SOLIDWORKS_IMPORT_HTTP_TIMEOUT_S: int = 14400  # 4 hours
     
     # File Paths
     UPLOAD_PATH: str = "./uploads"

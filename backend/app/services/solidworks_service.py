@@ -75,7 +75,8 @@ async def import_solidworks_assembly(
     logger.info(f"Full URL: {settings.SOLIDWORKS_CONNECTOR_URL}/api/solidworks/get-all-parts-from-assembly")
     logger.info(f"Request JSON: {{'assembly_filepath': '{assembly_filepath}'}}")
     
-    async with httpx.AsyncClient(timeout=300.0) as client:  # 5 Minuten Timeout für große Assemblies
+    timeout_s = getattr(settings, "SOLIDWORKS_IMPORT_HTTP_TIMEOUT_S", 300) or 300
+    async with httpx.AsyncClient(timeout=float(timeout_s)) as client:
         try:
             request_url = f"{settings.SOLIDWORKS_CONNECTOR_URL}/api/solidworks/get-all-parts-from-assembly"
             request_json = {"assembly_filepath": assembly_filepath}
@@ -107,6 +108,43 @@ async def import_solidworks_assembly(
         results = connector_data.get("results", [])
     
     # 2. Verarbeitung (entspricht Main_GET_ALL_FROM_SW)
+    # #region agent log
+    try:
+        import json, time
+        part_rows = [r for r in rows if isinstance(r, (list, tuple)) and len(r) >= 14 and not r[4]]
+        exclude_count = sum(1 for r in part_rows if r[13])
+        virtual_count_rows = sum(1 for r in part_rows if str(r[11] or "").lower().startswith("virtual:"))
+        payload = {
+            "sessionId": "debug-session",
+            "runId": "import-job",
+            "hypothesisId": "MISSING_PARTS",
+            "location": "backend/app/services/solidworks_service.py:import_solidworks_assembly",
+            "message": "rows_summary",
+            "data": {
+                "project_id": project_id,
+                "bom_id": bom_id,
+                "rows_total": len(rows),
+                "part_rows": len(part_rows),
+                "exclude_flag_count": exclude_count,
+                "virtual_path_count": virtual_count_rows,
+            },
+            "timestamp": int(time.time() * 1000),
+        }
+        try:
+            with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
+                _f.write(json.dumps(payload) + "\n")
+        except Exception:
+            try:
+                httpx.post(
+                    "http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70",
+                    json=payload,
+                    timeout=2,
+                )
+            except Exception:
+                pass
+    except Exception:
+        pass
+    # #endregion agent log
     if not results or len(results) == 0:
         return {
             "success": False,
@@ -125,101 +163,12 @@ async def import_solidworks_assembly(
             rows = results
 
     # Clear existing articles for this BOM to make import idempotent
-    # #region agent log
-    try:
-        import json, time
-        existing_count = db.query(Article.id).filter(Article.bom_id == bom_id).count()
-        order_count = (
-            db.query(Order.id)
-            .join(Article, Order.article_id == Article.id)
-            .filter(Article.bom_id == bom_id)
-            .count()
-        )
-        doc_count = (
-            db.query(Document.id)
-            .join(Article, Document.article_id == Article.id)
-            .filter(Article.bom_id == bom_id)
-            .count()
-        )
-        flag_count = (
-            db.query(DocumentGenerationFlag.id)
-            .join(Article, DocumentGenerationFlag.article_id == Article.id)
-            .filter(Article.bom_id == bom_id)
-            .count()
-        )
-        with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
-            _f.write(
-                json.dumps(
-                    {
-                        "sessionId": "debug-session",
-                        "runId": "pre-import",
-                        "hypothesisId": "FK_DELETE",
-                        "location": "backend/app/services/solidworks_service.py:import_solidworks_assembly",
-                        "message": "pre_delete_counts",
-                        "data": {
-                            "project_id": project_id,
-                            "bom_id": bom_id,
-                            "articles": existing_count,
-                            "orders": order_count,
-                            "documents": doc_count,
-                            "document_flags": flag_count,
-                        },
-                        "timestamp": int(time.time() * 1000),
-                    }
-                )
-                + "\n"
-            )
-    except Exception:
-        pass
-    # #endregion agent log
     try:
         db.query(Article).filter(Article.bom_id == bom_id).delete(synchronize_session=False)
         db.commit()
-        # #region agent log
-        try:
-            import json, time
-            with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
-                _f.write(
-                    json.dumps(
-                        {
-                            "sessionId": "debug-session",
-                            "runId": "pre-import",
-                            "hypothesisId": "FK_DELETE",
-                            "location": "backend/app/services/solidworks_service.py:import_solidworks_assembly",
-                            "message": "delete_articles_success",
-                            "data": {"project_id": project_id, "bom_id": bom_id},
-                            "timestamp": int(time.time() * 1000),
-                        }
-                    )
-                    + "\n"
-                )
-        except Exception:
-            pass
-        # #endregion agent log
     except Exception as e:
         logger.error(f"Failed clearing old articles for bom {bom_id} (project {project_id}): {e}", exc_info=True)
         db.rollback()
-        # #region agent log
-        try:
-            import json, time
-            with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
-                _f.write(
-                    json.dumps(
-                        {
-                            "sessionId": "debug-session",
-                            "runId": "pre-import",
-                            "hypothesisId": "FK_DELETE",
-                            "location": "backend/app/services/solidworks_service.py:import_solidworks_assembly",
-                            "message": "delete_articles_error",
-                            "data": {"project_id": project_id, "bom_id": bom_id, "error": str(e)},
-                            "timestamp": int(time.time() * 1000),
-                        }
-                    )
-                    + "\n"
-                )
-        except Exception:
-            pass
-        # #endregion agent log
 
     # Aggregate parts by (filepath, configuration)
     aggregated = {}
@@ -356,6 +305,39 @@ async def import_solidworks_assembly(
 
     from app.services.solidworks_property_mapping import SW_PROP_NORMALIZED_TO_FIELD as prop_to_field
 
+    # #region agent log
+    try:
+        import json, time
+        exclude_false = sum(1 for _k, _d in aggregated.items() if _d.get("in_stueckliste_anzeigen") is False)
+        payload = {
+            "sessionId": "debug-session",
+            "runId": "import-job",
+            "hypothesisId": "MISSING_PARTS",
+            "location": "backend/app/services/solidworks_service.py:import_solidworks_assembly",
+            "message": "aggregated_summary",
+            "data": {
+                "project_id": project_id,
+                "bom_id": bom_id,
+                "aggregated_count": len(aggregated),
+                "in_stueckliste_false": exclude_false,
+            },
+            "timestamp": int(time.time() * 1000),
+        }
+        try:
+            with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
+                _f.write(json.dumps(payload) + "\n")
+        except Exception:
+            try:
+                httpx.post(
+                    "http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70",
+                    json=payload,
+                    timeout=2,
+                )
+            except Exception:
+                pass
+    except Exception:
+        pass
+    # #endregion agent log
     created_articles = []
     for key, data in aggregated.items():
         for prop_name, field in prop_to_field.items():

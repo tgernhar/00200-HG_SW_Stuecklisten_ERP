@@ -37,6 +37,25 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
   const [showBestellinfo, setShowBestellinfo] = useState(true)
   const [showDokumentstatus, setShowDokumentstatus] = useState(true)
   const [showMenge, setShowMenge] = useState(false)
+  // #region agent log
+  const _agentLog = useCallback((location: string, message: string, data: any) => {
+    try {
+      fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: 'debug-session',
+          runId: 'import-missing',
+          hypothesisId: 'FRONTEND_FILTER',
+          location,
+          message,
+          data,
+          timestamp: Date.now()
+        })
+      }).catch(() => {})
+    } catch {}
+  }, [])
+  // #endregion agent log
   const makeDocRenderer = useCallback(
     (opts: {
       existsField?: keyof Article
@@ -894,6 +913,22 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
     const out = showHidden ? list : list.filter(a => (a as any)?.in_stueckliste_anzeigen !== false)
     return out
   }, [articles, showHidden])
+
+  // #region agent log
+  useEffect(() => {
+    try {
+      const list = Array.isArray(articles) ? articles : []
+      const hiddenCount = list.filter(a => (a as any)?.in_stueckliste_anzeigen === false).length
+      const filteredCount = showHidden ? list.length : list.filter(a => (a as any)?.in_stueckliste_anzeigen !== false).length
+      _agentLog('ArticleGrid.tsx:rowData', 'filter_counts', {
+        total: list.length,
+        hiddenCount,
+        showHidden,
+        filteredCount
+      })
+    } catch {}
+  }, [articles, showHidden, _agentLog])
+  // #endregion agent log
 
   return (
     <div style={{ width: '100%', height: '100%' }} onKeyDownCapture={handleKeyDownCapture} onMouseDownCapture={handleMouseDownCapture}>

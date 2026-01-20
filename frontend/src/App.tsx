@@ -26,6 +26,8 @@ function App() {
   const [isImporting, setIsImporting] = useState(false)
   const [importError, setImportError] = useState<string | null>(null)
   const [importStep, setImportStep] = useState<string | null>(null)
+  const [importPercent, setImportPercent] = useState<number | null>(null)
+  const [importJobId, setImportJobId] = useState<number | null>(null)
   const [boms, setBoms] = useState<Bom[]>([])
   const [selectedBomId, setSelectedBomId] = useState<number | null>(null)
   const { articles, loading, error, refetch } = useArticles(project?.id || null, selectedBomId)
@@ -76,6 +78,75 @@ function App() {
       if (rawBom) setLastSelectedBomId(Number(rawBom))
     } catch {}
   }, [])
+
+  // #region agent log
+  useEffect(() => {
+    const onError = (event: ErrorEvent) => {
+      _agentLog('App.tsx:window', 'error', {
+        message: event.message,
+        filename: event.filename,
+        lineno: event.lineno,
+        colno: event.colno
+      })
+    }
+    const onRejection = (event: PromiseRejectionEvent) => {
+      const reason: any = event.reason
+      _agentLog('App.tsx:window', 'unhandledrejection', {
+        message: reason?.message || String(reason),
+        name: reason?.name,
+        stack: reason?.stack
+      })
+    }
+    window.addEventListener('error', onError)
+    window.addEventListener('unhandledrejection', onRejection)
+    return () => {
+      window.removeEventListener('error', onError)
+      window.removeEventListener('unhandledrejection', onRejection)
+    }
+  }, [])
+  // #endregion agent log
+
+  const pollImportJob = async (jobId: number) => {
+    // #region agent log
+    _agentLog('App.tsx:importFlow', 'poll_request', { jobId })
+    // #endregion agent log
+    const resp = await api.get(`/import-jobs/${jobId}`)
+    const j = resp?.data || {}
+    const status = String(j.status || '')
+    const step = String(j.step || '')
+    const msg = (j.message ? String(j.message) : '') || ''
+    const pct = (typeof j.percent === 'number' ? j.percent : null) as number | null
+    // #region agent log
+    _agentLog('App.tsx:importFlow', 'poll_response', {
+      jobId,
+      status,
+      step,
+      percent: pct,
+      message: msg
+    })
+    // #endregion agent log
+
+    setImportJobId(jobId)
+    setImportPercent(pct)
+    if (status === 'queued') {
+      setImportStep('Wartet…')
+      return { done: false, failed: false }
+    }
+    if (status === 'running') {
+      setImportStep(msg || (step ? `Import läuft (${step})…` : 'Import läuft…'))
+      return { done: false, failed: false }
+    }
+    if (status === 'done') {
+      setImportStep('Fertig')
+      return { done: true, failed: false }
+    }
+    if (status === 'failed') {
+      setImportStep('Fehlgeschlagen')
+      setImportError(String(j.error || 'SOLIDWORKS-Import fehlgeschlagen'))
+      return { done: false, failed: true }
+    }
+    return { done: false, failed: false }
+  }
 
   useEffect(() => {
     const restore = async () => {
@@ -649,6 +720,12 @@ function App() {
                     let path = assemblyPath.trim()
                     if (!path) {
                       const p = prompt('Bitte geben Sie den Pfad zur SOLIDWORKS-Assembly ein:')
+                      // #region agent log
+                      _agentLog('App.tsx:importFlow', 'path_prompt_result', {
+                        projectId: activeProject.id,
+                        hasValue: Boolean(p && p.trim())
+                      })
+                      // #endregion agent log
                       if (!p) return
                       path = p.trim()
                       setAssemblyPath(path)
@@ -656,6 +733,13 @@ function App() {
                     let bomResp
                     try {
                       setImportStep('BOM anlegen')
+                      // #region agent log
+                      _agentLog('App.tsx:importFlow', 'create_bom_request', {
+                        projectId: activeProject.id,
+                        hugwawi_order_id: picked.hugwawi_order_id,
+                        hugwawi_order_article_id: picked.hugwawi_order_article_id
+                      })
+                      // #endregion agent log
                       bomResp = await api.post(`/projects/${activeProject.id}/boms`, {
                         hugwawi_order_id: picked.hugwawi_order_id,
                         hugwawi_order_name: picked.hugwawi_order_name,
@@ -663,52 +747,163 @@ function App() {
                         hugwawi_article_id: picked.hugwawi_article_id,
                         hugwawi_articlenumber: picked.hugwawi_articlenumber
                       })
+                      // #region agent log
+                      _agentLog('App.tsx:importFlow', 'create_bom_success', {
+                        projectId: activeProject.id,
+                        bomId: bomResp?.data?.bom?.id,
+                        overwritten: bomResp?.data?.overwritten === true
+                      })
+                      // #endregion agent log
                     } catch (e: any) {
                       if (e?.response?.status === 409) {
+                        // #region agent log
+                        _agentLog('App.tsx:importFlow', 'create_bom_conflict', {
+                          projectId: activeProject.id,
+                          status: e?.response?.status,
+                          detail: e?.response?.data?.detail
+                        })
+                        // #endregion agent log
                         const pw = prompt('Stückliste existiert bereits. Passwort zum Überschreiben (aktuell: 1):') || ''
                         if (!pw) return
                         setImportStep('BOM überschreiben')
-                        bomResp = await api.post(`/projects/${activeProject.id}/boms`, {
+                        // #region agent log
+                        _agentLog('App.tsx:importFlow', 'create_bom_overwrite_request', {
+                          projectId: activeProject.id,
                           hugwawi_order_id: picked.hugwawi_order_id,
-                          hugwawi_order_name: picked.hugwawi_order_name,
-                          hugwawi_order_article_id: picked.hugwawi_order_article_id,
-                          hugwawi_article_id: picked.hugwawi_article_id,
-                          hugwawi_articlenumber: picked.hugwawi_articlenumber,
-                          overwrite_password: pw
+                          hugwawi_order_article_id: picked.hugwawi_order_article_id
                         })
+                        // #endregion agent log
+                        try {
+                          bomResp = await api.post(`/projects/${activeProject.id}/boms`, {
+                            hugwawi_order_id: picked.hugwawi_order_id,
+                            hugwawi_order_name: picked.hugwawi_order_name,
+                            hugwawi_order_article_id: picked.hugwawi_order_article_id,
+                            hugwawi_article_id: picked.hugwawi_article_id,
+                            hugwawi_articlenumber: picked.hugwawi_articlenumber,
+                            overwrite_password: pw
+                          })
+                          // #region agent log
+                          _agentLog('App.tsx:importFlow', 'create_bom_overwrite_success', {
+                            projectId: activeProject.id,
+                            bomId: bomResp?.data?.bom?.id,
+                            overwritten: bomResp?.data?.overwritten === true
+                          })
+                          // #endregion agent log
+                        } catch (e2: any) {
+                          // #region agent log
+                          _agentLog('App.tsx:importFlow', 'create_bom_overwrite_error', {
+                            projectId: activeProject.id,
+                            status: e2?.response?.status,
+                            detail: e2?.response?.data?.detail,
+                            message: e2?.message
+                          })
+                          // #endregion agent log
+                          throw e2
+                        }
                       } else {
+                        // #region agent log
+                        _agentLog('App.tsx:importFlow', 'create_bom_error', {
+                          projectId: activeProject.id,
+                          status: e?.response?.status,
+                          detail: e?.response?.data?.detail,
+                          message: e?.message
+                        })
+                        // #endregion agent log
                         throw e
                       }
                     }
 
                     const bom = (bomResp?.data?.bom || null) as Bom | null
+                    // #region agent log
+                    _agentLog('App.tsx:importFlow', 'bom_from_response', {
+                      projectId: activeProject.id,
+                      bomId: bom?.id,
+                      hasBom: Boolean(bom && bom.id)
+                    })
+                    // #endregion agent log
                     if (!bom || !bom.id) {
                       throw new Error('BOM konnte nicht erstellt werden (keine ID)')
                     }
 
-                    try {
-                      setImportStep('Import läuft')
-                      const importResp = await api.post(`/projects/${activeProject.id}/boms/${bom.id}/import-solidworks`, null, {
-                        params: { assembly_filepath: path }
+                    setIsImporting(true)
+                    setImportError(null)
+                    setImportPercent(null)
+                    setImportJobId(null)
+
+                    const startJob = async (overwritePassword?: string) => {
+                      const params: any = { assembly_filepath: path }
+                      if (overwritePassword) params.overwrite_password = overwritePassword
+                      // #region agent log
+                      _agentLog('App.tsx:importFlow', 'start_job_request', {
+                        projectId: activeProject.id,
+                        bomId: bom.id,
+                        overwrite: Boolean(overwritePassword)
                       })
-                      if (importResp?.data?.success === false) {
-                        throw new Error(importResp?.data?.error || 'SOLIDWORKS-Import fehlgeschlagen')
-                      }
+                      // #endregion agent log
+                      const resp = await api.post(
+                        `/projects/${activeProject.id}/boms/${bom.id}/import-solidworks-job`,
+                        null,
+                        { params }
+                      )
+                      const jobId = Number(resp?.data?.job_id)
+                      // #region agent log
+                      _agentLog('App.tsx:importFlow', 'start_job_response', {
+                        projectId: activeProject.id,
+                        bomId: bom.id,
+                        jobId
+                      })
+                      // #endregion agent log
+                      if (!jobId) throw new Error('Import-Job konnte nicht gestartet werden (keine job_id)')
+                      return jobId
+                    }
+
+                    let jobId: number
+                    try {
+                      setImportStep('Job wird gestartet…')
+                      jobId = await startJob()
                     } catch (e: any) {
+                      // #region agent log
+                      _agentLog('App.tsx:importFlow', 'start_job_error', {
+                        projectId: activeProject.id,
+                        bomId: bom.id,
+                        status: e?.response?.status,
+                        detail: e?.response?.data?.detail,
+                        message: e?.message
+                      })
+                      // #endregion agent log
                       if (e?.response?.status === 409) {
                         const pw = prompt('Import existiert bereits. Passwort zum Überschreiben (aktuell: 1):') || ''
-                        if (!pw) return
-                        setImportStep('Import überschreiben')
-                        const importResp = await api.post(`/projects/${activeProject.id}/boms/${bom.id}/import-solidworks`, null, {
-                          params: { assembly_filepath: path, overwrite_password: pw }
-                        })
-                        if (importResp?.data?.success === false) {
-                          throw new Error(importResp?.data?.error || 'SOLIDWORKS-Import fehlgeschlagen')
+                        if (!pw) {
+                          setIsImporting(false)
+                          return
                         }
+                        setImportStep('Job wird gestartet (Überschreiben)…')
+                        jobId = await startJob(pw)
                       } else {
                         throw e
                       }
                     }
+
+                    setImportJobId(jobId)
+                    setImportStep('Import läuft…')
+
+                    await new Promise<void>((resolve, reject) => {
+                      const intervalMs = 3000
+                      const interval = window.setInterval(async () => {
+                        try {
+                          const r = await pollImportJob(jobId)
+                          if (r.done) {
+                            window.clearInterval(interval)
+                            resolve()
+                          } else if (r.failed) {
+                            window.clearInterval(interval)
+                            reject(new Error(importError || 'SOLIDWORKS-Import fehlgeschlagen'))
+                          }
+                        } catch (err: any) {
+                          // transient network errors: keep polling
+                        }
+                      }, intervalMs)
+                    })
 
                     setShowHugwawiPicker(false)
                     await refreshBoms(activeProject.id)
@@ -717,9 +912,19 @@ function App() {
                     refetch()
                     setImportStep('Fertig')
                     alert('Import erfolgreich!')
+                    setIsImporting(false)
                   } catch (e: any) {
                     setImportStep(null)
+                    // #region agent log
+                    _agentLog('App.tsx:importFlow', 'import_flow_error', {
+                      projectId: activeProject?.id,
+                      message: e?.message,
+                      detail: e?.response?.data?.detail,
+                      status: e?.response?.status
+                    })
+                    // #endregion agent log
                     alert('Fehler: ' + (e?.response?.data?.detail || e?.message || String(e)))
+                    setIsImporting(false)
                   }
                 }}
               >
@@ -1027,11 +1232,14 @@ function App() {
                   style={{
                     height: '100%',
                     width:
-                      importStep === 'BOM anlegen' ? '20%' :
-                      importStep === 'BOM überschreiben' ? '30%' :
-                      importStep === 'Import läuft' ? '70%' :
-                      importStep === 'Import überschreiben' ? '80%' :
-                      importStep === 'Fertig' ? '100%' : '40%',
+                      typeof importPercent === 'number'
+                        ? `${Math.max(0, Math.min(100, importPercent))}%`
+                        : importStep === 'BOM anlegen' ? '20%' :
+                        importStep === 'BOM überschreiben' ? '30%' :
+                        (importStep || '').startsWith('Job wird gestartet') ? '35%' :
+                        (importStep || '').startsWith('Import läuft') ? '70%' :
+                        importStep === 'Import überschreiben' ? '80%' :
+                        importStep === 'Fertig' ? '100%' : '40%',
                     background: '#4caf50',
                     transition: 'width 0.3s ease'
                   }}

@@ -9,6 +9,9 @@ from app.models.project import Project
 from app.models.bom import Bom
 from app.schemas.project import Project as ProjectSchema, ProjectCreate, ProjectUpdate, SolidworksPushRequest
 from app.models.article import Article
+from app.models.document_flag import DocumentGenerationFlag
+from app.models.document import Document
+from app.models.order import Order
 from app.core.config import settings
 import httpx
 import os
@@ -358,33 +361,6 @@ async def import_solidworks(
             detail="Für diese Stückliste existiert bereits ein Import. Zum Überschreiben bitte overwrite_password=1 setzen.",
         )
 
-    # #region agent log
-    try:
-        import json, time
-        with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
-            _f.write(
-                json.dumps(
-                    {
-                        "sessionId": "debug-session",
-                        "runId": "pre-import",
-                        "hypothesisId": "IMPORT_ROUTE",
-                        "location": "backend/app/api/routes/projects.py:import_solidworks",
-                        "message": "guard_passed",
-                        "data": {
-                            "project_id": project_id,
-                            "bom_id": bom.id,
-                            "existing_count": existing_count,
-                            "overwrite_password_set": overwrite_password == "1",
-                        },
-                        "timestamp": int(time.time() * 1000),
-                    }
-                )
-                + "\n"
-            )
-    except Exception:
-        pass
-    # #endregion agent log
-
     from app.services.solidworks_service import import_solidworks_assembly
     result = await import_solidworks_assembly(project_id, bom.id, assembly_filepath, db)
     # Wenn der Service einen "success": False liefert, sollte das im HTTP-Status sichtbar sein,
@@ -444,84 +420,43 @@ async def create_or_get_bom(project_id: int, payload: dict, db: Session = Depend
                 status_code=409,
                 detail="Für diese Kombination existiert bereits eine Stückliste. Zum Überschreiben bitte overwrite_password=1 setzen.",
             )
-        # #region agent log
         try:
-            import json, time
-            with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
-                _f.write(
-                    json.dumps(
-                        {
-                            "sessionId": "debug-session",
-                            "runId": "pre-import",
-                            "hypothesisId": "IMPORT_ROUTE",
-                            "location": "backend/app/api/routes/projects.py:create_or_get_bom",
-                            "message": "guard_passed",
-                            "data": {
-                                "project_id": project_id,
-                                "bom_id": bom.id,
-                                "overwrite_password_set": overwrite_password == "1",
-                            },
-                            "timestamp": int(time.time() * 1000),
-                        }
-                    )
-                    + "\n"
-                )
-        except Exception:
-            pass
-        # #endregion agent log
-        try:
+            # Ensure child rows are removed before deleting articles (FK constraints)
+            article_ids = [
+                row[0]
+                for row in db.query(Article.id).filter(Article.bom_id == bom.id).all()
+            ]
+            if article_ids:
+                db.query(DocumentGenerationFlag).filter(
+                    DocumentGenerationFlag.article_id.in_(article_ids)
+                ).delete(synchronize_session=False)
+                db.query(Document).filter(
+                    Document.article_id.in_(article_ids)
+                ).delete(synchronize_session=False)
+                db.query(Order).filter(
+                    Order.article_id.in_(article_ids)
+                ).delete(synchronize_session=False)
             db.query(Article).filter(Article.bom_id == bom.id).delete(synchronize_session=False)
             # update stored labels for traceability
             bom.hugwawi_order_name = str(hugwawi_order_name)
             bom.hugwawi_article_id = int(hugwawi_article_id)
             bom.hugwawi_articlenumber = str(hugwawi_articlenumber)
             db.commit()
-            # #region agent log
-            try:
-                import json, time
-                with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
-                    _f.write(
-                        json.dumps(
-                            {
-                                "sessionId": "debug-session",
-                                "runId": "pre-import",
-                                "hypothesisId": "IMPORT_ROUTE",
-                                "location": "backend/app/api/routes/projects.py:create_or_get_bom",
-                                "message": "overwrite_delete_success",
-                                "data": {"project_id": project_id, "bom_id": bom.id},
-                                "timestamp": int(time.time() * 1000),
-                            }
-                        )
-                        + "\n"
-                    )
-            except Exception:
-                pass
-            # #endregion agent log
         except Exception as e:
             db.rollback()
-            # #region agent log
-            try:
-                import json, time
-                with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
-                    _f.write(
-                        json.dumps(
-                            {
-                                "sessionId": "debug-session",
-                                "runId": "pre-import",
-                                "hypothesisId": "IMPORT_ROUTE",
-                                "location": "backend/app/api/routes/projects.py:create_or_get_bom",
-                                "message": "overwrite_delete_error",
-                                "data": {"project_id": project_id, "bom_id": bom.id, "error": str(e)},
-                                "timestamp": int(time.time() * 1000),
-                            }
-                        )
-                        + "\n"
-                    )
-            except Exception:
-                pass
-            # #endregion agent log
             raise HTTPException(status_code=500, detail=f"Fehler beim Überschreiben: {e}")
-        return {"bom": bom, "overwritten": True}
+        return {
+            "bom": {
+                "id": bom.id,
+                "project_id": bom.project_id,
+                "hugwawi_order_id": bom.hugwawi_order_id,
+                "hugwawi_order_name": bom.hugwawi_order_name,
+                "hugwawi_order_article_id": bom.hugwawi_order_article_id,
+                "hugwawi_article_id": bom.hugwawi_article_id,
+                "hugwawi_articlenumber": bom.hugwawi_articlenumber,
+            },
+            "overwritten": True,
+        }
 
     bom = Bom(
         project_id=project_id,
@@ -534,7 +469,18 @@ async def create_or_get_bom(project_id: int, payload: dict, db: Session = Depend
     db.add(bom)
     db.commit()
     db.refresh(bom)
-    return {"bom": bom, "created": True}
+    return {
+        "bom": {
+            "id": bom.id,
+            "project_id": bom.project_id,
+            "hugwawi_order_id": bom.hugwawi_order_id,
+            "hugwawi_order_name": bom.hugwawi_order_name,
+            "hugwawi_order_article_id": bom.hugwawi_order_article_id,
+            "hugwawi_article_id": bom.hugwawi_article_id,
+            "hugwawi_articlenumber": bom.hugwawi_articlenumber,
+        },
+        "created": True,
+    }
 
 
 @router.post("/projects/{project_id}/boms/{bom_id}/import-solidworks")
@@ -572,33 +518,6 @@ async def import_solidworks_into_bom(
             status_code=409,
             detail="Für diese Stückliste existiert bereits ein Import. Zum Überschreiben bitte overwrite_password=1 setzen.",
         )
-    # #region agent log
-    try:
-        import json, time
-        with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
-            _f.write(
-                json.dumps(
-                    {
-                        "sessionId": "debug-session",
-                        "runId": "pre-import",
-                        "hypothesisId": "IMPORT_ROUTE",
-                        "location": "backend/app/api/routes/projects.py:import_solidworks_into_bom",
-                        "message": "guard_passed",
-                        "data": {
-                            "project_id": project_id,
-                            "bom_id": bom_id,
-                            "existing_count": existing_count,
-                            "overwrite_password_set": overwrite_password == "1",
-                        },
-                        "timestamp": int(time.time() * 1000),
-                    }
-                )
-                + "\n"
-            )
-    except Exception:
-        pass
-    # #endregion agent log
-
     # reuse existing normalization logic by delegating to the legacy route's helper path.
     # (copy minimal normalization for connector; keep Windows path for connector)
     import urllib.parse
@@ -632,6 +551,27 @@ async def import_solidworks_into_bom(
         check_path_obj = pathlib.Path(check_path)
         if not (os.path.exists(check_path) or check_path_obj.exists()):
             raise HTTPException(status_code=400, detail=f"Assembly-Datei existiert nicht: {normalized_path}")
+        if os.path.isdir(check_path):
+            try:
+                files = os.listdir(check_path)
+            except Exception:
+                files = []
+            sldasm_files = [f for f in files if f.lower().endswith(".sldasm")]
+            if not sldasm_files:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Assembly-Pfad ist ein Ordner ohne .SLDASM: {normalized_path}",
+                )
+            if len(sldasm_files) > 1:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "Assembly-Pfad ist ein Ordner mit mehreren .SLDASM. "
+                        f"Bitte eine konkrete .SLDASM-Datei angeben. Gefunden: {', '.join(sldasm_files)}"
+                    ),
+                )
+            connector_dir = normalized_path
+            normalized_path = ntpath.normpath(os.path.join(connector_dir, sldasm_files[0]))
 
     from app.services.solidworks_service import import_solidworks_assembly
 
@@ -639,6 +579,154 @@ async def import_solidworks_into_bom(
     if isinstance(result, dict) and result.get("success") is False:
         raise HTTPException(status_code=502, detail=result.get("error") or "SOLIDWORKS-Import fehlgeschlagen")
     return result
+
+
+@router.post("/projects/{project_id}/boms/{bom_id}/import-solidworks-job")
+async def import_solidworks_into_bom_job(
+    project_id: int,
+    bom_id: int,
+    request: Request,
+    assembly_filepath: str = Query(None, description="Pfad zur SOLIDWORKS Assembly-Datei"),
+    overwrite_password: str | None = Query(default=None, description="Passwort zum Überschreiben (aktuell: '1')"),
+    db: Session = Depends(get_db),
+):
+    """
+    Startet einen SOLIDWORKS-Import als Background-Job und liefert sofort eine Job-ID.
+    Status wird via GET /import-jobs/{job_id} abgefragt.
+    """
+    query_params = dict(request.query_params)
+    if not assembly_filepath:
+        assembly_filepath = query_params.get("assembly_filepath")
+
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Projekt nicht gefunden")
+
+    bom = db.query(Bom).filter(Bom.id == bom_id, Bom.project_id == project_id).first()
+    if not bom:
+        raise HTTPException(status_code=404, detail="BOM nicht gefunden")
+
+    if not assembly_filepath:
+        raise HTTPException(status_code=400, detail="Assembly-Filepath fehlt")
+
+    # Guard: only allow overwrite with password (same as sync route)
+    existing_count = db.query(Article).filter(Article.bom_id == bom_id).count()
+    if existing_count > 0 and overwrite_password != "1":
+        raise HTTPException(
+            status_code=409,
+            detail="Für diese Stückliste existiert bereits ein Import. Zum Überschreiben bitte overwrite_password=1 setzen.",
+        )
+    # #region agent log
+    try:
+        import json, time
+        with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
+            _f.write(
+                json.dumps(
+                    {
+                        "sessionId": "debug-session",
+                        "runId": "pre-import",
+                        "hypothesisId": "IMPORT_JOB",
+                        "location": "backend/app/api/routes/projects.py:import_solidworks_into_bom_job",
+                        "message": "guard_passed",
+                        "data": {
+                            "project_id": project_id,
+                            "bom_id": bom_id,
+                            "existing_count": existing_count,
+                            "overwrite_password_set": overwrite_password == "1",
+                        },
+                        "timestamp": int(time.time() * 1000),
+                    }
+                )
+                + "\n"
+            )
+    except Exception:
+        pass
+    # #endregion agent log
+
+    # Normalize path similar to sync endpoint (keep Windows path for connector)
+    import urllib.parse
+    import pathlib
+    import os
+    import ntpath
+
+    normalized_path = assembly_filepath
+    if "%" in normalized_path or ("+" in normalized_path and " " not in normalized_path):
+        normalized_path = urllib.parse.unquote_plus(normalized_path)
+
+    is_docker = os.getcwd() == "/app" or os.path.exists("/.dockerenv")
+    is_windows_drive_path = bool(ntpath.splitdrive(normalized_path or "")[0]) and ntpath.isabs(normalized_path or "")
+    skip_fs_exists_check = bool(is_docker and is_windows_drive_path)
+
+    check_path = normalized_path
+    if is_docker and normalized_path.startswith("C:\\"):
+        if normalized_path.startswith("C:\\Thomas\\Solidworks\\"):
+            relative_path = normalized_path[len("C:\\Thomas\\Solidworks\\") :]
+            check_path = f"/mnt/solidworks/{relative_path}".replace("\\", "/")
+        else:
+            check_path = normalized_path.replace("C:\\", "/mnt/solidworks/").replace("\\", "/")
+        skip_fs_exists_check = False
+    else:
+        if not is_docker:
+            normalized_path = normalized_path.replace("/", "\\")
+        normalized_path = os.path.normpath(normalized_path)
+        check_path = normalized_path
+
+    if not skip_fs_exists_check:
+        check_path_obj = pathlib.Path(check_path)
+        if not (os.path.exists(check_path) or check_path_obj.exists()):
+            raise HTTPException(status_code=400, detail=f"Assembly-Datei existiert nicht: {normalized_path}")
+        if os.path.isdir(check_path):
+            try:
+                files = os.listdir(check_path)
+            except Exception:
+                files = []
+            sldasm_files = [f for f in files if f.lower().endswith(".sldasm")]
+            if not sldasm_files:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Assembly-Pfad ist ein Ordner ohne .SLDASM: {normalized_path}",
+                )
+            if len(sldasm_files) > 1:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "Assembly-Pfad ist ein Ordner mit mehreren .SLDASM. "
+                        f"Bitte eine konkrete .SLDASM-Datei angeben. Gefunden: {', '.join(sldasm_files)}"
+                    ),
+                )
+            connector_dir = normalized_path
+            normalized_path = ntpath.normpath(os.path.join(connector_dir, sldasm_files[0]))
+    # #region agent log
+    try:
+        import json, time
+        with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
+            _f.write(
+                json.dumps(
+                    {
+                        "sessionId": "debug-session",
+                        "runId": "pre-import",
+                        "hypothesisId": "IMPORT_JOB",
+                        "location": "backend/app/api/routes/projects.py:import_solidworks_into_bom_job",
+                        "message": "normalized_path",
+                        "data": {
+                            "project_id": project_id,
+                            "bom_id": bom_id,
+                            "normalized_path": normalized_path,
+                        },
+                        "timestamp": int(time.time() * 1000),
+                    }
+                )
+                + "\n"
+            )
+    except Exception:
+        pass
+    # #endregion agent log
+
+    from app.services.import_job_service import create_import_job, start_import_job
+
+    job = create_import_job(db, project_id=project_id, bom_id=bom_id, assembly_filepath=normalized_path)
+    start_import_job(job.id)
+    return {"job_id": job.id}
 
 
 @router.post("/projects/{project_id}/push-solidworks")

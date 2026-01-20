@@ -591,6 +591,7 @@ class SolidWorksConnector:
             # Root-component traversal fallback (robust when GetComponents returns empty)
             # Some environments return a SAFEARRAY with None placeholders (len>0 but all entries None).
             components = [c for c in components if c is not None]
+            initial_components_count = len(components)
             if not components:
                 try:
                     root = None
@@ -623,6 +624,33 @@ class SolidWorksConnector:
                         _walk(root)
                 except Exception:
                     pass
+
+            # Ensure nested components are included even if GetComponents() returned only top-level.
+            try:
+                seen_ids: set[int] = set()
+                all_components: list[Any] = []
+
+                def _walk_children(c):
+                    if c is None:
+                        return
+                    cid = id(c)
+                    if cid in seen_ids:
+                        return
+                    seen_ids.add(cid)
+                    all_components.append(c)
+                    try:
+                        kids = getattr(c, "GetChildren", None)
+                        kids = kids() if callable(kids) else kids
+                    except Exception:
+                        kids = None
+                    for k in _to_list_safe(kids):
+                        _walk_children(k)
+
+                for c in components:
+                    _walk_children(c)
+                components = all_components
+            except Exception:
+                pass
 
             hidden_count = 0
             missing_path_count = 0
@@ -869,6 +897,32 @@ class SolidWorksConnector:
             connector_logger.info(
                 f"Assembly scan done. hidden_count={hidden_count}, missing_path_count={missing_path_count}, total_components={len(components)}"
             )
+            # #region agent log
+            try:
+                import json, time
+                with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
+                    _f.write(
+                        json.dumps(
+                            {
+                                "sessionId": "debug-session",
+                                "runId": "connector",
+                                "hypothesisId": "COMPONENTS",
+                                "location": "solidworks-connector/src/SolidWorksConnector.py:get_all_parts_and_properties_from_assembly",
+                                "message": "scan_summary",
+                                "data": {
+                                    "initial_components": initial_components_count,
+                                    "total_components": len(components),
+                                    "hidden_count": hidden_count,
+                                    "missing_path_count": missing_path_count,
+                                },
+                                "timestamp": int(time.time() * 1000),
+                            }
+                        )
+                        + "\n"
+                    )
+            except Exception:
+                pass
+            # #endregion agent log
         finally:
             try:
                 self._close_doc_best_effort(sw_model, assembly_filepath)
