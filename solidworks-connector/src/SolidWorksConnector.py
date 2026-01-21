@@ -14,6 +14,7 @@ import ctypes
 import winerror
 import win32event
 import win32con
+import json
 # (duplicate typing import removed above)
 
 # Logger für SOLIDWORKS-Connector
@@ -22,6 +23,15 @@ connector_logger = logging.getLogger('solidworks_connector')
 # NOTE: previously used for debug-mode ingest; kept as no-op to avoid churn.
 def _agent_log(*args, **kwargs):
     return
+
+# region agent log
+def _write_debug_sw(payload: dict) -> None:
+    try:
+        with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
+            _f.write(json.dumps(payload) + "\n")
+    except Exception:
+        pass
+# endregion
 
 def _basename_noext_any(path: str) -> str:
     try:
@@ -1152,6 +1162,25 @@ class SolidWorksConnector:
             pass
 
         ext = str(filepath).upper()
+        is_asm = ext.endswith(".SLDASM")
+        if is_asm:
+            # region agent log
+            _write_debug_sw(
+                {
+                    "sessionId": "debug-session",
+                    "runId": "writeback-asm",
+                    "hypothesisId": "H14_ASM_CRASH",
+                    "location": "SolidWorksConnector.py:set_custom_properties",
+                    "message": "entry",
+                    "data": {
+                        "filepath": filepath,
+                        "configuration": configuration,
+                        "scope": scope,
+                    },
+                    "timestamp": int(time.time() * 1000),
+                }
+            )
+            # endregion
         if ext.endswith(".SLDPRT"):
             doc_type = 1
         elif ext.endswith(".SLDASM"):
@@ -1166,9 +1195,41 @@ class SolidWorksConnector:
         if pre_open_doc is not None:
             sw_model = pre_open_doc
         else:
+            if is_asm:
+                # region agent log
+                _write_debug_sw(
+                    {
+                        "sessionId": "debug-session",
+                        "runId": "writeback-asm",
+                        "hypothesisId": "H14_ASM_CRASH",
+                        "location": "SolidWorksConnector.py:set_custom_properties",
+                        "message": "before_open",
+                        "data": {"doc_type": doc_type, "opened_here": opened_here},
+                        "timestamp": int(time.time() * 1000),
+                    }
+                )
+                # endregion
             sw_model = self.sw_app.OpenDoc6(filepath, doc_type, 0, "", sw_errors, sw_warnings)
             if not sw_model:
                 raise Exception(f"Konnte Dokument nicht öffnen: {filepath}")
+            if is_asm:
+                # region agent log
+                _write_debug_sw(
+                    {
+                        "sessionId": "debug-session",
+                        "runId": "writeback-asm",
+                        "hypothesisId": "H14_ASM_CRASH",
+                        "location": "SolidWorksConnector.py:set_custom_properties",
+                        "message": "after_open",
+                        "data": {
+                            "sw_model": bool(sw_model),
+                            "errors": getattr(sw_errors, "value", None),
+                            "warnings": getattr(sw_warnings, "value", None),
+                        },
+                        "timestamp": int(time.time() * 1000),
+                    }
+                )
+                # endregion
 
         try:
             def _get_str_member(obj, name: str) -> Optional[str]:
@@ -1295,6 +1356,26 @@ class SolidWorksConnector:
             if active_name:
                 cfg_candidates.append(active_name)
 
+            if is_asm:
+                # region agent log
+                _write_debug_sw(
+                    {
+                        "sessionId": "debug-session",
+                        "runId": "writeback-asm",
+                        "hypothesisId": "H14_ASM_CRASH",
+                        "location": "SolidWorksConnector.py:set_custom_properties",
+                        "message": "before_mgr",
+                        "data": {
+                            "cfg_req": cfg_req,
+                            "active_name": active_name,
+                            "cfg_candidates": cfg_candidates[:5],
+                            "cfg_names_count": len(cfg_names),
+                        },
+                        "timestamp": int(time.time() * 1000),
+                    }
+                )
+                # endregion
+
             mgr = None
             last_mgr_err = None
             for cfg_name in cfg_candidates:
@@ -1346,10 +1427,52 @@ class SolidWorksConnector:
             except Exception:
                 # Save failures should be surfaced
                 raise
+            if is_asm:
+                # region agent log
+                _write_debug_sw(
+                    {
+                        "sessionId": "debug-session",
+                        "runId": "writeback-asm",
+                        "hypothesisId": "H14_ASM_CRASH",
+                        "location": "SolidWorksConnector.py:set_custom_properties",
+                        "message": "after_save",
+                        "data": {"updated_count": len(updated), "failed_count": len(failed)},
+                        "timestamp": int(time.time() * 1000),
+                    }
+                )
+                # endregion
         finally:
             try:
                 if opened_here:
+                    if is_asm:
+                        # region agent log
+                        _write_debug_sw(
+                            {
+                                "sessionId": "debug-session",
+                                "runId": "writeback-asm",
+                                "hypothesisId": "H14_ASM_CRASH",
+                                "location": "SolidWorksConnector.py:set_custom_properties",
+                                "message": "before_close",
+                                "data": {"filepath": filepath},
+                                "timestamp": int(time.time() * 1000),
+                            }
+                        )
+                        # endregion
                     self._close_doc_best_effort(sw_model, filepath)
+                    if is_asm:
+                        # region agent log
+                        _write_debug_sw(
+                            {
+                                "sessionId": "debug-session",
+                                "runId": "writeback-asm",
+                                "hypothesisId": "H14_ASM_CRASH",
+                                "location": "SolidWorksConnector.py:set_custom_properties",
+                                "message": "after_close",
+                                "data": {"filepath": filepath},
+                                "timestamp": int(time.time() * 1000),
+                            }
+                        )
+                        # endregion
             except Exception:
                 pass
             # Keep SOLIDWORKS running; only close documents to avoid locking files.

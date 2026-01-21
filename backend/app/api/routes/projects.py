@@ -704,6 +704,20 @@ async def push_solidworks(
     if missing_ids:
         raise HTTPException(status_code=404, detail=f"Artikel nicht gefunden: {missing_ids[:20]}")
 
+    async def _post_with_retry(url: str, payload: dict, timeout: float, attempts: int = 2):
+        last_exc: Exception | None = None
+        for attempt in range(1, attempts + 1):
+            try:
+                async with httpx.AsyncClient(timeout=timeout) as client:
+                    return await client.post(url, json=payload)
+            except httpx.RequestError as e:
+                last_exc = e
+                if attempt >= attempts:
+                    raise
+        if last_exc:
+            raise last_exc
+        raise httpx.RequestError("Unbekannter Fehler beim Connector-Aufruf")
+
     # Pre-check: verify files are not open/locked on the Windows host via connector
     paths_to_check = []
     for a in articles:
@@ -713,8 +727,7 @@ async def push_solidworks(
     if paths_to_check:
         check_url = f"{settings.SOLIDWORKS_CONNECTOR_URL}/api/solidworks/check-open-docs"
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                resp = await client.post(check_url, json={"paths": paths_to_check})
+            resp = await _post_with_retry(check_url, {"paths": paths_to_check}, timeout=30.0)
         except httpx.RequestError as e:
             raise HTTPException(status_code=502, detail=f"SOLIDWORKS-Connector nicht erreichbar: {e}")
         if resp.status_code != 200:
@@ -722,14 +735,25 @@ async def push_solidworks(
         data = resp.json() if resp.content else {}
         open_paths = data.get("open_paths") or []
         lock_errors = data.get("lock_errors") or {}
+        lock_processes = data.get("lock_processes") or {}
         open_in_sw = data.get("open_in_sw") or {}
-        if open_paths:
+        strict_lock = bool(getattr(settings, "SOLIDWORKS_WRITEBACK_STRICT_LOCK", False))
+        block_paths = []
+        if strict_lock:
+            block_paths = open_paths
+        else:
+            try:
+                block_paths = [p for p in open_paths if open_in_sw.get(p)]
+            except Exception:
+                block_paths = []
+        if block_paths:
             raise HTTPException(
                 status_code=409,
                 detail={
                     "message": "Eine oder mehrere Dateien sind bereits geöffnet.",
-                    "open_paths": open_paths[:50],
+                    "open_paths": block_paths[:50],
                     "lock_errors": dict(list(lock_errors.items())[:50]) if isinstance(lock_errors, dict) else {},
+                    "lock_processes": dict(list(lock_processes.items())[:50]) if isinstance(lock_processes, dict) else {},
                     "open_in_sw": dict(list(open_in_sw.items())[:50]) if isinstance(open_in_sw, dict) else {},
                 },
             )
@@ -746,78 +770,77 @@ async def push_solidworks(
     failed = []
 
     url = f"{settings.SOLIDWORKS_CONNECTOR_URL}/api/solidworks/set-custom-properties"
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        for a in articles:
-            filepath = a.sldasm_sldprt_pfad or ""
-            if not filepath:
-                failed.append({"article_id": a.id, "reason": "sldasm_sldprt_pfad fehlt"})
+    for a in articles:
+        filepath = a.sldasm_sldprt_pfad or ""
+        if not filepath:
+            failed.append({"article_id": a.id, "reason": "sldasm_sldprt_pfad fehlt"})
+            continue
+
+        ext = str(filepath).lower()
+        is_sldasm = ext.endswith(".sldasm")
+
+        props = {}
+        def _put(name: str, v):
+            vv = _val(v)
+            if vv is not None:
+                props[name] = vv
+
+        # Zentrales Mapping: Import-Felder == Push-Felder (Single-Source-of-Truth)
+        from app.services.solidworks_property_mapping import get_sw_prop_name_for_field
+        for field in (
+            "hg_artikelnummer",
+            "teilenummer",
+            "werkstoff",
+            "werkstoff_nr",
+            "abteilung_lieferant",
+            "oberflaeche",
+            "oberflaechenschutz",
+            "farbe",
+            "lieferzeit",
+            "teiletyp_fertigungsplan",
+        ):
+            sw_name = get_sw_prop_name_for_field(field, is_sldasm=is_sldasm)
+            if not sw_name:
                 continue
+            _put(sw_name, getattr(a, field, None))
 
-            ext = str(filepath).lower()
-            is_sldasm = ext.endswith(".sldasm")
+        req = {
+            "filepath": filepath,
+            "configuration": _val(a.konfiguration) or "",
+            "scope": "config_only",
+            "properties": props,
+        }
 
-            props = {}
-            def _put(name: str, v):
-                vv = _val(v)
-                if vv is not None:
-                    props[name] = vv
+        try:
+            resp = await _post_with_retry(url, req, timeout=120.0)
+        except httpx.RequestError as e:
+            raise HTTPException(status_code=502, detail=f"SOLIDWORKS-Connector nicht erreichbar: {e}")
 
-            # Zentrales Mapping: Import-Felder == Push-Felder (Single-Source-of-Truth)
-            from app.services.solidworks_property_mapping import get_sw_prop_name_for_field
-            for field in (
-                "hg_artikelnummer",
-                "teilenummer",
-                "werkstoff",
-                "werkstoff_nr",
-                "abteilung_lieferant",
-                "oberflaeche",
-                "oberflaechenschutz",
-                "farbe",
-                "lieferzeit",
-                "teiletyp_fertigungsplan",
-            ):
-                sw_name = get_sw_prop_name_for_field(field, is_sldasm=is_sldasm)
-                if not sw_name:
-                    continue
-                _put(sw_name, getattr(a, field, None))
+        if resp.status_code != 200:
+            failed.append({"article_id": a.id, "reason": f"{resp.status_code}: {resp.text}"})
+            continue
 
-            req = {
-                "filepath": filepath,
-                "configuration": _val(a.konfiguration) or "",
-                "scope": "config_only",
-                "properties": props,
-            }
+        data = resp.json() if resp.content else {}
+        if not data.get("success", False):
+            failed.append({"article_id": a.id, "reason": data.get("error") or "Unbekannter Fehler"})
+            continue
 
-            try:
-                resp = await client.post(url, json=req)
-            except httpx.RequestError as e:
-                raise HTTPException(status_code=502, detail=f"SOLIDWORKS-Connector nicht erreichbar: {e}")
+        result = data.get("result") if isinstance(data, dict) else None
+        failed_count = (result or {}).get("failed_count") if isinstance(result, dict) else None
+        failed_list = (result or {}).get("failed") if isinstance(result, dict) else None
 
-            if resp.status_code != 200:
-                failed.append({"article_id": a.id, "reason": f"{resp.status_code}: {resp.text}"})
-                continue
+        # Treat per-property failures as a failed update for this article (otherwise issues are silent).
+        if isinstance(failed_count, int) and failed_count > 0:
+            failed.append(
+                {
+                    "article_id": a.id,
+                    "reason": "Einige Properties konnten nicht geschrieben werden",
+                    "failed": failed_list,
+                }
+            )
+            continue
 
-            data = resp.json() if resp.content else {}
-            if not data.get("success", False):
-                failed.append({"article_id": a.id, "reason": data.get("error") or "Unbekannter Fehler"})
-                continue
-
-            result = data.get("result") if isinstance(data, dict) else None
-            failed_count = (result or {}).get("failed_count") if isinstance(result, dict) else None
-            failed_list = (result or {}).get("failed") if isinstance(result, dict) else None
-
-            # Treat per-property failures as a failed update for this article (otherwise issues are silent).
-            if isinstance(failed_count, int) and failed_count > 0:
-                failed.append(
-                    {
-                        "article_id": a.id,
-                        "reason": "Einige Properties konnten nicht geschrieben werden",
-                        "failed": failed_list,
-                    }
-                )
-                continue
-
-            updated.append(a.id)
+        updated.append(a.id)
 
     return {
         "updated": updated,

@@ -17,6 +17,8 @@ import time
 import json
 import win32file
 import win32con
+import ctypes
+from ctypes import wintypes
 
 # NOTE: previously used for debug-mode ingest; kept as no-op to avoid churn.
 def _agent_log(*args, **kwargs):
@@ -73,6 +75,33 @@ connector_logger.info(f"SOLIDWORKS-Connector-Logging initialisiert. Log-Datei: {
 
 app = FastAPI(title="SOLIDWORKS Connector API", version="1.0.0")
 
+# Log FastAPI lifecycle to detect process exits/restarts.
+@app.on_event("startup")
+def _on_startup():
+    connector_logger.info("FASTAPI startup: solidworks-connector")
+
+
+@app.on_event("shutdown")
+def _on_shutdown():
+    connector_logger.info("FASTAPI shutdown: solidworks-connector")
+
+
+@app.middleware("http")
+async def _log_requests(request: Request, call_next):
+    connector_logger.info(f"REQ start: {request.method} {request.url.path}")
+    try:
+        response = await call_next(request)
+    except Exception as e:
+        connector_logger.error(
+            f"REQ error: {request.method} {request.url.path} err={e}",
+            exc_info=True,
+        )
+        raise
+    connector_logger.info(
+        f"REQ end: {request.method} {request.url.path} status={response.status_code}"
+    )
+    return response
+
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
@@ -122,6 +151,9 @@ def _check_file_lock(path: str) -> tuple[bool, str | None]:
     if not path:
         return False, None
     try:
+        # region agent log
+        connector_logger.info(f"lock-check start: {path}")
+        # endregion
         handle = win32file.CreateFile(
             path,
             win32con.GENERIC_READ,
@@ -132,9 +164,99 @@ def _check_file_lock(path: str) -> tuple[bool, str | None]:
             None,
         )
         win32file.CloseHandle(handle)
+        # region agent log
+        connector_logger.info(f"lock-check end: {path} locked=False")
+        # endregion
         return False, None
     except Exception as e:
+        # region agent log
+        connector_logger.info(f"lock-check end: {path} locked=True err={e}")
+        # endregion
         return True, str(e)
+
+
+def _get_locking_processes(path: str) -> list[dict]:
+    """
+    Use Windows Restart Manager to find processes locking a file.
+    """
+    if not path:
+        return []
+    try:
+        rstrtmgr = ctypes.WinDLL("rstrtmgr")
+    except Exception:
+        return []
+
+    # region agent log
+    connector_logger.info(f"lock-proc start: {path}")
+    # endregion
+
+    CCH_RM_MAX_APP_NAME = 255
+    CCH_RM_MAX_SVC_NAME = 63
+    ERROR_MORE_DATA = 234
+
+    class RM_UNIQUE_PROCESS(ctypes.Structure):
+        _fields_ = [("dwProcessId", wintypes.DWORD), ("ProcessStartTime", wintypes.FILETIME)]
+
+    class RM_PROCESS_INFO(ctypes.Structure):
+        _fields_ = [
+            ("Process", RM_UNIQUE_PROCESS),
+            ("strAppName", wintypes.WCHAR * (CCH_RM_MAX_APP_NAME + 1)),
+            ("strServiceShortName", wintypes.WCHAR * (CCH_RM_MAX_SVC_NAME + 1)),
+            ("ApplicationType", wintypes.DWORD),
+            ("AppStatus", wintypes.DWORD),
+            ("TSSessionId", wintypes.DWORD),
+            ("bRestartable", wintypes.BOOL),
+        ]
+
+    session = wintypes.DWORD(0)
+    key = ctypes.create_unicode_buffer(32)
+    res = rstrtmgr.RmStartSession(ctypes.byref(session), 0, key)
+    if res != 0:
+        # region agent log
+        connector_logger.info(f"lock-proc end: {path} start_session_res={res}")
+        # endregion
+        return []
+    try:
+        resources = (wintypes.LPCWSTR * 1)(path)
+        res = rstrtmgr.RmRegisterResources(session, 1, resources, 0, None, 0, None)
+        if res != 0:
+            # region agent log
+            connector_logger.info(f"lock-proc end: {path} register_res={res}")
+            # endregion
+            return []
+
+        needed = wintypes.DWORD(0)
+        count = wintypes.DWORD(0)
+        reason = wintypes.DWORD(0)
+        res = rstrtmgr.RmGetList(session, ctypes.byref(needed), ctypes.byref(count), None, ctypes.byref(reason))
+        if res == ERROR_MORE_DATA and needed.value > 0:
+            arr = (RM_PROCESS_INFO * needed.value)()
+            count = wintypes.DWORD(needed.value)
+            res = rstrtmgr.RmGetList(session, ctypes.byref(needed), ctypes.byref(count), arr, ctypes.byref(reason))
+            if res != 0:
+                # region agent log
+                connector_logger.info(f"lock-proc end: {path} getlist_res={res}")
+                # endregion
+                return []
+            out = []
+            for i in range(count.value):
+                info = arr[i]
+                out.append({"pid": int(info.Process.dwProcessId), "name": info.strAppName})
+            # region agent log
+            connector_logger.info(f"lock-proc end: {path} count={len(out)}")
+            # endregion
+            return out
+        if res == 0:
+            # region agent log
+            connector_logger.info(f"lock-proc end: {path} count=0")
+            # endregion
+            return []
+    finally:
+        try:
+            rstrtmgr.RmEndSession(session)
+        except Exception:
+            pass
+    return []
 
 class AssemblyRequest(BaseModel):
     assembly_filepath: str
@@ -468,6 +590,9 @@ def check_open_docs(request: PathsOpenCheckRequest):
     Prüft, ob Dateien durch andere Prozesse geöffnet/gesperrt sind (Windows).
     """
     try:
+        connector_logger.info(
+            f"check-open-docs aufgerufen: count={len(request.paths or [])}"
+        )
         connector = None
         try:
             connector = get_connector()
@@ -480,6 +605,7 @@ def check_open_docs(request: PathsOpenCheckRequest):
             raise HTTPException(status_code=400, detail="Zu viele Pfade (max 500)")
         open_paths = []
         lock_errors: dict[str, str] = {}
+        lock_processes: dict[str, list[dict]] = {}
         missing_paths = []
         open_in_sw: dict[str, bool] = {}
         for p in paths:
@@ -509,6 +635,13 @@ def check_open_docs(request: PathsOpenCheckRequest):
                 open_paths.append(sp)
                 if err:
                     lock_errors[sp] = err
+                procs = _get_locking_processes(sp)
+                if procs:
+                    lock_processes[sp] = procs
+                if not procs:
+                    connector_logger.warning(
+                        f"check-open-docs: locked without process info: {sp} err={err}"
+                    )
         # region agent log
         _write_debug(
             {
@@ -525,6 +658,7 @@ def check_open_docs(request: PathsOpenCheckRequest):
                     "missing_sample": missing_paths[:5],
                     "lock_errors_sample": dict(list(lock_errors.items())[:3]),
                     "open_in_sw_sample": dict(list(open_in_sw.items())[:3]),
+                    "lock_processes_sample": dict(list(lock_processes.items())[:3]),
                 },
                 "timestamp": int(time.time() * 1000),
             }
@@ -536,6 +670,7 @@ def check_open_docs(request: PathsOpenCheckRequest):
             "missing_paths": missing_paths,
             "lock_errors": lock_errors,
             "open_in_sw": open_in_sw,
+            "lock_processes": lock_processes,
             "count": len(paths),
         }
     except HTTPException:
@@ -573,6 +708,28 @@ def set_custom_properties(request: SetCustomPropertiesRequest):
     Setzt Custom Properties in einer SOLIDWORKS Datei (SLDPRT/SLDASM).
     """
     try:
+        connector_logger.info(
+            f"set-custom-properties aufgerufen: filepath={request.filepath} "
+            f"config={request.configuration} scope={request.scope} prop_count={len(request.properties or {})}"
+        )
+        # region agent log
+        _write_debug(
+            {
+                "sessionId": "debug-session",
+                "runId": "writeback",
+                "hypothesisId": "H12_WRITEBACK",
+                "location": "solidworks-connector/src/main.py:set_custom_properties",
+                "message": "entry",
+                "data": {
+                    "filepath": request.filepath,
+                    "configuration": request.configuration,
+                    "scope": request.scope,
+                    "prop_count": len(request.properties or {}),
+                },
+                "timestamp": int(time.time() * 1000),
+            }
+        )
+        # endregion
         connector = get_connector()
         result = connector.set_custom_properties(
             request.filepath,
@@ -580,8 +737,41 @@ def set_custom_properties(request: SetCustomPropertiesRequest):
             properties=request.properties,
             scope=request.scope,
         )
+        connector_logger.info(
+            f"set-custom-properties erfolgreich: filepath={request.filepath} updated_count={result.get('updated_count') if isinstance(result, dict) else None}"
+        )
+        # region agent log
+        _write_debug(
+            {
+                "sessionId": "debug-session",
+                "runId": "writeback",
+                "hypothesisId": "H12_WRITEBACK",
+                "location": "solidworks-connector/src/main.py:set_custom_properties",
+                "message": "success",
+                "data": {"result": result},
+                "timestamp": int(time.time() * 1000),
+            }
+        )
+        # endregion
         return {"success": True, "result": result}
     except Exception as e:
+        connector_logger.error(
+            f"set-custom-properties Fehler: filepath={request.filepath} err={e}",
+            exc_info=True,
+        )
+        # region agent log
+        _write_debug(
+            {
+                "sessionId": "debug-session",
+                "runId": "writeback",
+                "hypothesisId": "H12_WRITEBACK",
+                "location": "solidworks-connector/src/main.py:set_custom_properties",
+                "message": "error",
+                "data": {"error": str(e)},
+                "timestamp": int(time.time() * 1000),
+            }
+        )
+        # endregion
         connector_logger.error(f"Fehler in set-custom-properties: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
