@@ -127,6 +127,7 @@ graph TB
 ### Datenstruktur-Hierarchie
 
 Das System verwendet eine dreistufige Hierarchie:
+
 - **Project** (eindeutig über `artikel_nr`) - Ein Projekt entspricht einer Artikelnummer
 - **Bom** (mehrere BOMs pro Projekt möglich) - Eine BOM entspricht einer Auftrags-Artikel-Kombination
 - **Article** (gehört zu einer BOM) - Einzelne Stücklistenzeilen
@@ -321,6 +322,7 @@ Der SOLIDWORKS-Connector läuft als separater Service auf Windows und stellt fol
         - Request Body: `{ "filepath": "...", "step": true, "x_t": true, "stl": true }`
 
 **Hinweis**: Die Response-Struktur von `get-all-parts-from-assembly` ist ein 2D-Array:
+
 - `Results[0][j]` = Child/Position (0, 1, 2, ...)
 - `Results[1][j]` = Partname
 - `Results[2][j]` = Configuration
@@ -445,14 +447,16 @@ Die Haupttabelle ist sehr breit (ca. 40+ Spalten) und erfordert horizontales Scr
 2. Benutzer klickt auf Button "PDF Drucken" in der Toolbar
 3. **Zwei Optionen**:
 
-   **Option A: Queue-Seite (Einzeldruck)**
+**Option A: Queue-Seite (Einzeldruck)**
+
    - Frontend öffnet `/api/projects/{id}/print-pdf-queue-page`
    - Seite listet alle markierten PDFs auf
    - Jede PDF kann einzeln geöffnet und gedruckt werden
    - PDFs werden über `/api/documents/view-pdf?path=...&autoprint=1` geöffnet
    - Browser-Druckdialog wird automatisch geöffnet (`window.print()`)
 
-   **Option B: Merged PDF (empfohlen)**
+**Option B: Merged PDF (empfohlen)**
+
    - Frontend öffnet `/api/projects/{id}/print-pdf-queue-merged`
    - Backend merged alle markierten PDFs zu einer einzigen PDF (mit `pypdf`)
    - Browser öffnet die gemergte PDF inline
@@ -460,12 +464,14 @@ Die Haupttabelle ist sehr breit (ca. 40+ Spalten) und erfordert horizontales Scr
    - Vorteil: Ein Druckdialog für alle PDFs, stabiler Workflow
 
 4. **Technische Details**:
+
    - PDFs werden über HTTP ausgeliefert (`/api/documents/open-pdf?path=...`)
    - Browser blockiert `file://` URLs, daher HTTP-basierte Auslieferung
    - Pfad-Mapping: Windows-Pfade (`C:/Thomas/Solidworks/...`) werden auf Container-Pfade (`/mnt/solidworks/...`) gemappt
    - Nach Druck: Benutzer kann B1 manuell auf "x" setzen (oder automatisch nach Bestätigung)
 
 5. **Hinweis**: Der Druck erfolgt im Browser (Chrome empfohlen), damit der Benutzer:
+
    - Papierformat (A4/A3/...) wählen kann
    - Ausrichtung (Hoch/Quer) wählen kann
    - Druckereinstellungen anpassen kann
@@ -800,6 +806,7 @@ def create_3d_documents(
 7. **Speicherung**: Artikel werden in Datenbank gespeichert (mit `bom_id`)
 
 **Hinweise**:
+
 - Import läuft rekursiv über alle Ebenen (Unterbaugruppen + Teile)
 - Hauptbaugruppe (die importierte `.SLDASM`) wird als eigener Eintrag mit `pos_nr=0` importiert
 - `menge` wird aus SOLIDWORKS importiert (read-only, standardmäßig ausgeblendet)
@@ -889,18 +896,18 @@ def get_all_parts_and_properties_from_assembly(assembly_filepath: str) -> list:
     
     Returns:
         2D-Array mit Struktur:
-        - results[0][j] = Child/Position
-        - results[1][j] = Partname
-        - results[2][j] = Configuration
-        - results[4][i] = Property Name
-        - results[5][i] = Property Value
-        - results[7][j] = X-Dimension
-        - results[8][j] = Y-Dimension
-        - results[9][j] = Z-Dimension
-        - results[10][j] = Gewicht
-        - results[11][j] = Filepath Part/ASM
-        - results[12][j] = Filepath Drawing
-        - results[13][j] = Exclude from Boom Flag
+  - results[0][j] = Child/Position
+  - results[1][j] = Partname
+  - results[2][j] = Configuration
+  - results[4][i] = Property Name
+  - results[5][i] = Property Value
+  - results[7][j] = X-Dimension
+  - results[8][j] = Y-Dimension
+  - results[9][j] = Z-Dimension
+  - results[10][j] = Gewicht
+  - results[11][j] = Filepath Part/ASM
+  - results[12][j] = Filepath Drawing
+  - results[13][j] = Exclude from Boom Flag
     """
     import win32com.client
     
@@ -1063,11 +1070,11 @@ async def check_all_articlenumbers(project_id: int) -> dict:
     Entspricht VBA Check_Articlenumber_Exists()
     
     Workflow:
-    1. Hole alle Artikel des Projekts
-    2. Für jeden Artikel: Prüfe Spalte C2 (hg_artikelnummer) in ERP-Datenbank
-    3. Setze Status: exists=True/False
-    4. Aktualisiere Artikel in Datenbank (optional: Flag für ERP-Status)
-    5. Rückgabe: Liste geprüfter Artikel mit Status
+ 1. Hole alle Artikel des Projekts
+ 2. Für jeden Artikel: Prüfe Spalte C2 (hg_artikelnummer) in ERP-Datenbank
+ 3. Setze Status: exists=True/False
+ 4. Aktualisiere Artikel in Datenbank (optional: Flag für ERP-Status)
+ 5. Rückgabe: Liste geprüfter Artikel mit Status
     """
     from app.core.database import get_erp_db_connection
     
@@ -1257,6 +1264,7 @@ const handlePrintPDF = () => {
 ```
 
 **Hinweis**: Der Druck erfolgt im Browser-Druckdialog. Der Benutzer kann dort:
+
 - Papierformat wählen (A4/A3/...)
 - Ausrichtung wählen (Hoch/Quer)
 - Druckereinstellungen anpassen

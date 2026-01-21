@@ -103,8 +103,13 @@ async def import_solidworks_assembly(
     # endregion
     # 1. SOLIDWORKS-Connector aufrufen
     logger.info(f"Calling SOLIDWORKS-Connector with filepath: {assembly_filepath}")
+    connector_mode = (getattr(settings, "SOLIDWORKS_CONNECTOR_MODE", "v1") or "v1").lower()
+    connector_path = "/api/solidworks/get-all-parts-from-assembly"
+    if connector_mode == "v2":
+        connector_path = "/api/solidworks/get-all-parts-from-assembly-v2"
     logger.info(f"SOLIDWORKS_CONNECTOR_URL: {settings.SOLIDWORKS_CONNECTOR_URL}")
-    logger.info(f"Full URL: {settings.SOLIDWORKS_CONNECTOR_URL}/api/solidworks/get-all-parts-from-assembly")
+    logger.info(f"SOLIDWORKS_CONNECTOR_MODE: {connector_mode}")
+    logger.info(f"Full URL: {settings.SOLIDWORKS_CONNECTOR_URL}{connector_path}")
     logger.info(f"Request JSON: {{'assembly_filepath': '{assembly_filepath}'}}")
     
     timeout_s = getattr(settings, "SOLIDWORKS_IMPORT_HTTP_TIMEOUT_S", 300) or 300
@@ -121,7 +126,7 @@ async def import_solidworks_assembly(
     # endregion
     async with httpx.AsyncClient(timeout=float(timeout_s)) as client:
         try:
-            request_url = f"{settings.SOLIDWORKS_CONNECTOR_URL}/api/solidworks/get-all-parts-from-assembly"
+            request_url = f"{settings.SOLIDWORKS_CONNECTOR_URL}{connector_path}"
             request_json = {"assembly_filepath": assembly_filepath}
             logger.info(f"Sending POST request to: {request_url}")
             logger.info(f"Request body: {request_json}")

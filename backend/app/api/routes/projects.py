@@ -360,7 +360,7 @@ async def import_solidworks(
             status_code=409,
             detail="Für diese Stückliste existiert bereits ein Import. Zum Überschreiben bitte overwrite_password=1 setzen.",
         )
-
+    
     from app.services.solidworks_service import import_solidworks_assembly
     result = await import_solidworks_assembly(project_id, bom.id, assembly_filepath, db)
     # Wenn der Service einen "success": False liefert, sollte das im HTTP-Status sichtbar sein,
@@ -703,6 +703,32 @@ async def push_solidworks(
     missing_ids = [i for i in ids if i not in found_ids]
     if missing_ids:
         raise HTTPException(status_code=404, detail=f"Artikel nicht gefunden: {missing_ids[:20]}")
+
+    # Pre-check: verify files are not open/locked on the Windows host via connector
+    paths_to_check = []
+    for a in articles:
+        p = a.sldasm_sldprt_pfad or ""
+        if p:
+            paths_to_check.append(str(p))
+    if paths_to_check:
+        check_url = f"{settings.SOLIDWORKS_CONNECTOR_URL}/api/solidworks/check-open-docs"
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.post(check_url, json={"paths": paths_to_check})
+        except httpx.RequestError as e:
+            raise HTTPException(status_code=502, detail=f"SOLIDWORKS-Connector nicht erreichbar: {e}")
+        if resp.status_code != 200:
+            raise HTTPException(status_code=502, detail=f"Open-Check fehlgeschlagen: {resp.status_code} - {resp.text}")
+        data = resp.json() if resp.content else {}
+        open_paths = data.get("open_paths") or []
+        if open_paths:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "message": "Eine oder mehrere Dateien sind bereits geöffnet.",
+                    "open_paths": open_paths[:50],
+                },
+            )
 
     # Mapping: DB-Feld -> SOLIDWORKS Property Name (VBA-Namen)
     # IMPORTANT: Do not send empty strings; otherwise we overwrite existing SOLIDWORKS values with blanks.

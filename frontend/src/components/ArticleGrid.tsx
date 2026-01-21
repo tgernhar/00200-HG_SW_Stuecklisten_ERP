@@ -37,6 +37,10 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
   const [showBestellinfo, setShowBestellinfo] = useState(true)
   const [showDokumentstatus, setShowDokumentstatus] = useState(true)
   const [showMenge, setShowMenge] = useState(false)
+  const [writebackOpen, setWritebackOpen] = useState(false)
+  const [writebackStatus, setWritebackStatus] = useState<'progress' | 'error' | 'success'>('progress')
+  const [writebackMessage, setWritebackMessage] = useState('')
+  const [writebackOpenPaths, setWritebackOpenPaths] = useState<string[]>([])
   const makeDocRenderer = useCallback(
     (opts: {
       existsField?: keyof Article
@@ -835,6 +839,10 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
     }
     const articleIds = selected.map(a => a.id).filter(Boolean)
     try {
+      setWritebackStatus('progress')
+      setWritebackMessage('Rückschreiben läuft…')
+      setWritebackOpenPaths([])
+      setWritebackOpen(true)
       const resp = await api.post(`/projects/${pid}/push-solidworks`, { article_ids: articleIds })
       const d = resp?.data || {}
       const failed = Array.isArray(d.failed) ? d.failed : []
@@ -843,9 +851,24 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
         `Erfolgreich: ${d.updated_count ?? '-'}\n` +
         `Fehler: ${d.failed_count ?? '-'}\n` +
         (failed.length ? `\nErster Fehler: ${JSON.stringify(failed[0])}` : '')
+      setWritebackStatus('success')
+      setWritebackMessage('Rückschreiben abgeschlossen.')
       alert(msg)
+      setWritebackOpen(false)
     } catch (e: any) {
-      alert('Fehler beim Rückschreiben: ' + (e.response?.data?.detail || e.message))
+      const detail = e?.response?.data?.detail
+      const openPaths = Array.isArray(detail?.open_paths) ? detail.open_paths : []
+      if (openPaths.length) {
+        setWritebackStatus('error')
+        setWritebackMessage('Datei bereits geöffnet. Bitte schließen und erneut versuchen.')
+        setWritebackOpenPaths(openPaths)
+        setWritebackOpen(true)
+        return
+      }
+      setWritebackStatus('error')
+      setWritebackMessage('Fehler beim Rückschreiben.')
+      setWritebackOpenPaths([])
+      setWritebackOpen(true)
     }
   }, [projectId])
 
@@ -898,6 +921,58 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
 
   return (
     <div style={{ width: '100%', height: '100%' }} onKeyDownCapture={handleKeyDownCapture} onMouseDownCapture={handleMouseDownCapture}>
+      {writebackOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0,0,0,0.4)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 2000
+          }}
+        >
+          <div style={{ background: '#fff', padding: 18, width: 520, maxWidth: '90vw', borderRadius: 8 }}>
+            <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>
+              SOLIDWORKS Rückschreiben
+            </div>
+            <div style={{ marginBottom: 10, color: '#444' }}>
+              {writebackMessage || 'Bitte warten…'}
+            </div>
+            {writebackStatus === 'progress' && (
+              <div style={{ height: 8, background: '#eee', borderRadius: 6, overflow: 'hidden' }}>
+                <div style={{ height: '100%', width: '70%', background: '#4caf50' }} />
+              </div>
+            )}
+            {writebackStatus === 'error' && writebackOpenPaths.length > 0 && (
+              <div style={{ marginTop: 10 }}>
+                <div style={{ fontSize: 12, marginBottom: 6 }}>Geöffnete Dateien:</div>
+                <div style={{ maxHeight: 160, overflow: 'auto', border: '1px solid #eee', padding: 8 }}>
+                  {writebackOpenPaths.slice(0, 10).map((p) => (
+                    <div key={p} style={{ fontSize: 12, color: '#333' }}>
+                      {p}
+                    </div>
+                  ))}
+                  {writebackOpenPaths.length > 10 && (
+                    <div style={{ fontSize: 12, color: '#666' }}>
+                      … und {writebackOpenPaths.length - 10} weitere
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+            {writebackStatus !== 'progress' && (
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 12 }}>
+                <button onClick={() => setWritebackOpen(false)}>Schließen</button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
       <div style={{ display: 'flex', gap: '12px', alignItems: 'center', padding: '6px 8px', fontSize: '12px' }}>
         <button
           onClick={handlePushSelectedToSolidworks}

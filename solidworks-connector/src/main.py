@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel
 from typing import List, Optional, Dict
 from SolidWorksConnector import SolidWorksConnector
+from SolidWorksConnectorV2 import SolidWorksConnectorV2
 import os
 import logging
 import threading
@@ -14,6 +15,8 @@ from logging.handlers import RotatingFileHandler
 from datetime import datetime
 import time
 import json
+import win32file
+import win32con
 
 # NOTE: previously used for debug-mode ingest; kept as no-op to avoid churn.
 def _agent_log(*args, **kwargs):
@@ -96,6 +99,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 # are generally apartment-threaded and must not be used across threads.
 # Therefore we keep ONE connector instance PER THREAD.
 _thread_local = threading.local()
+_thread_local_v2 = threading.local()
 
 def get_connector():
     """Get or create the SolidWorks connector instance"""
@@ -103,6 +107,34 @@ def get_connector():
         _thread_local.connector = SolidWorksConnector()
     return _thread_local.connector
 
+
+def get_connector_v2():
+    """Get or create the SolidWorks connector V2 instance"""
+    if not hasattr(_thread_local_v2, "connector") or _thread_local_v2.connector is None:
+        _thread_local_v2.connector = SolidWorksConnectorV2()
+    return _thread_local_v2.connector
+
+
+def _is_file_locked(path: str) -> bool:
+    """
+    Windows file-lock check: returns True if another process holds an exclusive lock.
+    """
+    if not path:
+        return False
+    try:
+        handle = win32file.CreateFile(
+            path,
+            win32con.GENERIC_READ,
+            0,  # no sharing -> fail if already open elsewhere
+            None,
+            win32con.OPEN_EXISTING,
+            win32con.FILE_ATTRIBUTE_NORMAL,
+            None,
+        )
+        win32file.CloseHandle(handle)
+        return False
+    except Exception:
+        return True
 
 class AssemblyRequest(BaseModel):
     assembly_filepath: str
@@ -124,6 +156,10 @@ class Create2DDocumentsRequest(BaseModel):
 
 
 class PathsExistRequest(BaseModel):
+    paths: List[str]
+
+
+class PathsOpenCheckRequest(BaseModel):
     paths: List[str]
 
 class SetCustomPropertiesRequest(BaseModel):
@@ -242,6 +278,35 @@ def get_all_parts_from_assembly(request: AssemblyRequest):
         connector_logger.error(f"Fehler in get-all-parts-from-assembly: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@app.post("/api/solidworks/get-all-parts-from-assembly-v2")
+def get_all_parts_from_assembly_v2(request: AssemblyRequest):
+    """
+    Liest alle Teile und Properties aus Assembly (V2)
+    """
+    try:
+        connector_logger.info(
+            f"get-all-parts-from-assembly-v2 aufgerufen mit filepath: {request.assembly_filepath}"
+        )
+        connector = get_connector_v2()
+        connector_logger.info("Connector-Instanz (V2) erhalten, rufe get_all_parts_and_properties_from_assembly auf...")
+        results = connector.get_all_parts_and_properties_from_assembly(
+            request.assembly_filepath
+        )
+        connector_logger.info(f"Erfolgreich (V2): {len(results) if results else 0} Ergebnisse erhalten")
+        return {
+            "success": True,
+            "results": results
+        }
+    except Exception as e:
+        connector_logger.error(f"Fehler in get-all-parts-from-assembly-v2: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/solidworks/get-all-parts-from-assembly-v2")
+def get_all_parts_from_assembly_v2(request: AssemblyRequest):
+    connector = get_connector_v2()
+    results = connector.get_all_parts_and_properties_from_assembly(request.assembly_filepath)
+    return {"success": True, "results": results}
 
 @app.post("/api/solidworks/create-3d-documents")
 def create_3d_documents(request: Create3DDocumentsRequest):
@@ -394,6 +459,39 @@ def paths_exist(request: PathsExistRequest):
         raise
     except Exception as e:
         connector_logger.error(f"Fehler in paths-exist: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/solidworks/check-open-docs")
+def check_open_docs(request: PathsOpenCheckRequest):
+    """
+    Prüft, ob Dateien durch andere Prozesse geöffnet/gesperrt sind (Windows).
+    """
+    try:
+        paths = request.paths or []
+        if len(paths) > 500:
+            raise HTTPException(status_code=400, detail="Zu viele Pfade (max 500)")
+        open_paths = []
+        missing_paths = []
+        for p in paths:
+            sp = str(p or "")
+            if not sp:
+                continue
+            if not os.path.exists(sp):
+                missing_paths.append(sp)
+                continue
+            if _is_file_locked(sp):
+                open_paths.append(sp)
+        return {
+            "success": True,
+            "open_paths": open_paths,
+            "missing_paths": missing_paths,
+            "count": len(paths),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        connector_logger.error(f"Fehler in check-open-docs: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

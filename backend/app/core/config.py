@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     # SOLIDWORKS Connector
     SOLIDWORKS_CONNECTOR_URL: str = "http://localhost:8001"
     SOLIDWORKS_VERSION: str = "2025"
+    # Switch between connector implementations (v1 default, v2 for new endpoint)
+    SOLIDWORKS_CONNECTOR_MODE: str = "v2"
     # Connector HTTP timeout for long-running imports (seconds). For very large assemblies (hours),
     # raise this value. If your environment supports it, you may also set this to a very high value.
     SOLIDWORKS_IMPORT_HTTP_TIMEOUT_S: int = 14400  # 4 hours
