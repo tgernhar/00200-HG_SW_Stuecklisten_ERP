@@ -654,19 +654,7 @@ class SolidWorksConnector:
 
             hidden_count = 0
             missing_path_count = 0
-            path_counts: dict[str, int] = {}
-            name_counts: dict[str, int] = {}
-            asm_child_counts: list[int] = []
-            asm_no_children_paths: list[str] = []
             asm_loaded_children: list[str] = []
-            target_paths = [
-                r"g:\vorlagen\solidworks\toolbox\hg maschinenelemente\schrauben\iso 7380 linsenschraube mit innensechskant\064180-06016 linsenschraube mit innensechskant m6x16.sldprt",
-                r"g:\arbeitsunterlagen\telehouse deutschland\modernisierung umluftkühlgerät\920894-0001031a auflageleite alu.sldprt",
-                r"g:\arbeitsunterlagen\telehouse deutschland\modernisierung umluftkühlgerät\920894-0001033a gewindeleite alu.sldprt",
-                r"g:\vorlagen\solidworks\toolbox\hg maschinenelemente\nieten\din 7337 - form a blindniete mit flachrundkopf\080220-1433770 a4 blindniete 4,8x10.sldprt",
-                r"g:\arbeitsunterlagen\telehouse deutschland\modernisierung umluftkühlgerät\920894-0001020c adapterplatte lüfter.sldasm",
-            ]
-            target_hits: dict[str, int] = {p: 0 for p in target_paths}
             for component in components:
                 # Prüfe ob Teil versteckt ist
                 # Some SOLIDWORKS COM properties may appear as either methods or boolean properties via pywin32.
@@ -730,14 +718,6 @@ class SolidWorksConnector:
                         safe_name = f"UNKNOWN:{child}"
                     part_path = f"VIRTUAL:{safe_name}"
 
-                if part_path:
-                    path_counts[part_path] = path_counts.get(part_path, 0) + 1
-                    pnorm = part_path.lower()
-                    if pnorm in target_hits:
-                        target_hits[pnorm] = target_hits.get(pnorm, 0) + 1
-                if part_name:
-                    name_counts[part_name] = name_counts.get(part_name, 0) + 1
-
                 # Track sub-assembly child availability
                 if part_path.lower().endswith(".sldasm"):
                     try:
@@ -746,9 +726,7 @@ class SolidWorksConnector:
                     except Exception:
                         kids = None
                     child_list = _to_list_safe(kids)
-                    asm_child_counts.append(len(child_list))
                     if len(child_list) == 0:
-                        asm_no_children_paths.append(part_path)
                         # Try to open sub-assembly to load children explicitly
                         try:
                             sub_model = None
@@ -975,47 +953,6 @@ class SolidWorksConnector:
             connector_logger.info(
                 f"Assembly scan done. hidden_count={hidden_count}, missing_path_count={missing_path_count}, total_components={len(components)}"
             )
-            # #region agent log
-            try:
-                import json, time
-                top_paths = sorted(path_counts.items(), key=lambda x: x[1], reverse=True)[:10]
-                top_names = sorted(name_counts.items(), key=lambda x: x[1], reverse=True)[:10]
-                asm_no_children_sample = asm_no_children_paths[:10]
-                unknown_virtual = sum(1 for p in path_counts.keys() if p.startswith("VIRTUAL:UNKNOWN"))
-                with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
-                    _f.write(
-                        json.dumps(
-                            {
-                                "sessionId": "debug-session",
-                                "runId": "connector",
-                                "hypothesisId": "COMPONENTS",
-                                "location": "solidworks-connector/src/SolidWorksConnector.py:get_all_parts_and_properties_from_assembly",
-                                "message": "scan_summary",
-                                "data": {
-                                    "initial_components": initial_components_count,
-                                    "total_components": len(components),
-                                    "hidden_count": hidden_count,
-                                    "missing_path_count": missing_path_count,
-                                    "distinct_paths": len(path_counts),
-                                    "distinct_names": len(name_counts),
-                                    "top_paths": top_paths,
-                                    "top_names": top_names,
-                                    "assemblies": len(asm_child_counts),
-                                    "assemblies_with_children": sum(1 for c in asm_child_counts if c > 0),
-                                    "assemblies_without_children": sum(1 for c in asm_child_counts if c == 0),
-                                    "assemblies_no_children_sample": asm_no_children_sample,
-                                    "assemblies_loaded_children": len(asm_loaded_children),
-                                    "unknown_virtual_prefix_count": unknown_virtual,
-                                    "target_path_hits": target_hits,
-                                },
-                                "timestamp": int(time.time() * 1000),
-                            }
-                        )
-                        + "\n"
-                    )
-            except Exception:
-                pass
-            # #endregion agent log
         finally:
             try:
                 self._close_doc_best_effort(sw_model, assembly_filepath)

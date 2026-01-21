@@ -616,33 +616,6 @@ async def import_solidworks_into_bom_job(
             status_code=409,
             detail="Für diese Stückliste existiert bereits ein Import. Zum Überschreiben bitte overwrite_password=1 setzen.",
         )
-    # #region agent log
-    try:
-        import json, time
-        with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
-            _f.write(
-                json.dumps(
-                    {
-                        "sessionId": "debug-session",
-                        "runId": "pre-import",
-                        "hypothesisId": "IMPORT_JOB",
-                        "location": "backend/app/api/routes/projects.py:import_solidworks_into_bom_job",
-                        "message": "guard_passed",
-                        "data": {
-                            "project_id": project_id,
-                            "bom_id": bom_id,
-                            "existing_count": existing_count,
-                            "overwrite_password_set": overwrite_password == "1",
-                        },
-                        "timestamp": int(time.time() * 1000),
-                    }
-                )
-                + "\n"
-            )
-    except Exception:
-        pass
-    # #endregion agent log
-
     # Normalize path similar to sync endpoint (keep Windows path for connector)
     import urllib.parse
     import pathlib
@@ -696,32 +669,6 @@ async def import_solidworks_into_bom_job(
                 )
             connector_dir = normalized_path
             normalized_path = ntpath.normpath(os.path.join(connector_dir, sldasm_files[0]))
-    # #region agent log
-    try:
-        import json, time
-        with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
-            _f.write(
-                json.dumps(
-                    {
-                        "sessionId": "debug-session",
-                        "runId": "pre-import",
-                        "hypothesisId": "IMPORT_JOB",
-                        "location": "backend/app/api/routes/projects.py:import_solidworks_into_bom_job",
-                        "message": "normalized_path",
-                        "data": {
-                            "project_id": project_id,
-                            "bom_id": bom_id,
-                            "normalized_path": normalized_path,
-                        },
-                        "timestamp": int(time.time() * 1000),
-                    }
-                )
-                + "\n"
-            )
-    except Exception:
-        pass
-    # #endregion agent log
-
     from app.services.import_job_service import create_import_job, start_import_job
 
     job = create_import_job(db, project_id=project_id, bom_id=bom_id, assembly_filepath=normalized_path)

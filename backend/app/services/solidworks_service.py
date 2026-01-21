@@ -125,63 +125,6 @@ async def import_solidworks_assembly(
             rows = results
 
     # 2. Verarbeitung (entspricht Main_GET_ALL_FROM_SW)
-    # #region agent log
-    try:
-        import json, time
-        part_rows = [r for r in rows if isinstance(r, (list, tuple)) and len(r) >= 14 and not r[4]]
-        exclude_count = sum(1 for r in part_rows if r[13])
-        virtual_count_rows = sum(1 for r in part_rows if str(r[11] or "").lower().startswith("virtual:"))
-        path_counts = {}
-        name_counts = {}
-        asm_path = (assembly_filepath or "").strip().lower()
-        same_as_asm = 0
-        for r in part_rows:
-            p = str(r[11] or "")
-            n = str(r[1] or "")
-            if asm_path and p.strip().lower() == asm_path:
-                same_as_asm += 1
-            if p:
-                path_counts[p] = path_counts.get(p, 0) + 1
-            if n:
-                name_counts[n] = name_counts.get(n, 0) + 1
-        top_paths = sorted(path_counts.items(), key=lambda x: x[1], reverse=True)[:10]
-        top_names = sorted(name_counts.items(), key=lambda x: x[1], reverse=True)[:10]
-        payload = {
-            "sessionId": "debug-session",
-            "runId": "import-job",
-            "hypothesisId": "MISSING_PARTS",
-            "location": "backend/app/services/solidworks_service.py:import_solidworks_assembly",
-            "message": "rows_summary",
-            "data": {
-                "project_id": project_id,
-                "bom_id": bom_id,
-                "rows_total": len(rows),
-                "part_rows": len(part_rows),
-                "exclude_flag_count": exclude_count,
-                "virtual_path_count": virtual_count_rows,
-                "distinct_paths": len(path_counts),
-                "distinct_names": len(name_counts),
-                "same_as_assembly_path": same_as_asm,
-                "top_paths": top_paths,
-                "top_names": top_names,
-            },
-            "timestamp": int(time.time() * 1000),
-        }
-        try:
-            with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
-                _f.write(json.dumps(payload) + "\n")
-        except Exception:
-            try:
-                httpx.post(
-                    "http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70",
-                    json=payload,
-                    timeout=2,
-                )
-            except Exception:
-                pass
-    except Exception:
-        pass
-    # #endregion agent log
 
     # Clear existing articles for this BOM to make import idempotent
     try:
@@ -326,39 +269,6 @@ async def import_solidworks_assembly(
 
     from app.services.solidworks_property_mapping import SW_PROP_NORMALIZED_TO_FIELD as prop_to_field
 
-    # #region agent log
-    try:
-        import json, time
-        exclude_false = sum(1 for _k, _d in aggregated.items() if _d.get("in_stueckliste_anzeigen") is False)
-        payload = {
-            "sessionId": "debug-session",
-            "runId": "import-job",
-            "hypothesisId": "MISSING_PARTS",
-            "location": "backend/app/services/solidworks_service.py:import_solidworks_assembly",
-            "message": "aggregated_summary",
-            "data": {
-                "project_id": project_id,
-                "bom_id": bom_id,
-                "aggregated_count": len(aggregated),
-                "in_stueckliste_false": exclude_false,
-            },
-            "timestamp": int(time.time() * 1000),
-        }
-        try:
-            with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
-                _f.write(json.dumps(payload) + "\n")
-        except Exception:
-            try:
-                httpx.post(
-                    "http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70",
-                    json=payload,
-                    timeout=2,
-                )
-            except Exception:
-                pass
-    except Exception:
-        pass
-    # #endregion agent log
     created_articles = []
     for key, data in aggregated.items():
         for prop_name, field in prop_to_field.items():

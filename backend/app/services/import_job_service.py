@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import threading
-import httpx
 from datetime import datetime
 
 from sqlalchemy.orm import Session
@@ -17,24 +16,6 @@ _IMPORT_SEMAPHORE = threading.Semaphore(1)
 
 def _now():
     return datetime.utcnow()
-
-
-def _agent_log(payload: dict) -> None:
-    try:
-        import json
-        with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
-            _f.write(json.dumps(payload) + "\n")
-            return
-    except Exception:
-        pass
-    try:
-        httpx.post(
-            "http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70",
-            json=payload,
-            timeout=2,
-        )
-    except Exception:
-        pass
 
 
 def create_import_job(db: Session, *, project_id: int, bom_id: int, assembly_filepath: str) -> ImportJob:
@@ -54,20 +35,6 @@ def create_import_job(db: Session, *, project_id: int, bom_id: int, assembly_fil
 
 
 def start_import_job(job_id: int) -> None:
-    # #region agent log
-    import time
-    _agent_log(
-        {
-            "sessionId": "debug-session",
-            "runId": "import-job",
-            "hypothesisId": "JOB_START",
-            "location": "backend/app/services/import_job_service.py:start_import_job",
-            "message": "thread_start",
-            "data": {"job_id": job_id},
-            "timestamp": int(time.time() * 1000),
-        }
-    )
-    # #endregion agent log
     # Run in a daemon thread so the HTTP request can return immediately.
     t = threading.Thread(target=_run_job_thread, args=(job_id,), daemon=True)
     t.start()
@@ -76,20 +43,6 @@ def start_import_job(job_id: int) -> None:
 def _run_job_thread(job_id: int) -> None:
     # Ensure only one import runs at a time in this process.
     with _IMPORT_SEMAPHORE:
-        # #region agent log
-        import time
-        _agent_log(
-            {
-                "sessionId": "debug-session",
-                "runId": "import-job",
-                "hypothesisId": "JOB_THREAD",
-                "location": "backend/app/services/import_job_service.py:_run_job_thread",
-                "message": "entered",
-                "data": {"job_id": job_id},
-                "timestamp": int(time.time() * 1000),
-            }
-        )
-        # #endregion agent log
         try:
             asyncio.run(_run_job_async(job_id))
         except Exception:
@@ -110,20 +63,6 @@ def _run_job_thread(job_id: int) -> None:
                     db.close()
                 except Exception:
                     pass
-            # #region agent log
-            import time
-            _agent_log(
-                {
-                    "sessionId": "debug-session",
-                    "runId": "import-job",
-                    "hypothesisId": "JOB_THREAD",
-                    "location": "backend/app/services/import_job_service.py:_run_job_thread",
-                    "message": "crashed",
-                    "data": {"job_id": job_id},
-                    "timestamp": int(time.time() * 1000),
-                }
-            )
-            # #endregion agent log
 
 
 async def _run_job_async(job_id: int) -> None:
@@ -133,26 +72,6 @@ async def _run_job_async(job_id: int) -> None:
         if not job:
             return
 
-        # #region agent log
-        import time
-        _agent_log(
-            {
-                "sessionId": "debug-session",
-                "runId": "import-job",
-                "hypothesisId": "JOB_ASYNC",
-                "location": "backend/app/services/import_job_service.py:_run_job_async",
-                "message": "job_loaded",
-                "data": {
-                    "job_id": job.id,
-                    "project_id": job.project_id,
-                    "bom_id": job.bom_id,
-                    "assembly_filepath": job.assembly_filepath,
-                },
-                "timestamp": int(time.time() * 1000),
-            }
-        )
-        # #endregion agent log
-
         job.status = "running"
         job.step = "connector"
         job.percent = 5
@@ -161,38 +80,7 @@ async def _run_job_async(job_id: int) -> None:
         db.commit()
 
         # Run the existing import service (async).
-        # #region agent log
-        import time
-        _agent_log(
-            {
-                "sessionId": "debug-session",
-                "runId": "import-job",
-                "hypothesisId": "JOB_ASYNC",
-                "location": "backend/app/services/import_job_service.py:_run_job_async",
-                "message": "import_call_start",
-                "data": {"job_id": job.id},
-                "timestamp": int(time.time() * 1000),
-            }
-        )
-        # #endregion agent log
         result = await import_solidworks_assembly(job.project_id, job.bom_id, job.assembly_filepath, db)
-        # #region agent log
-        import time
-        _agent_log(
-            {
-                "sessionId": "debug-session",
-                "runId": "import-job",
-                "hypothesisId": "JOB_ASYNC",
-                "location": "backend/app/services/import_job_service.py:_run_job_async",
-                "message": "import_call_done",
-                "data": {
-                    "job_id": job.id,
-                    "success": not (isinstance(result, dict) and result.get("success") is False),
-                },
-                "timestamp": int(time.time() * 1000),
-            }
-        )
-        # #endregion agent log
         if isinstance(result, dict) and result.get("success") is False:
             job.status = "failed"
             job.step = "finalize"
@@ -202,26 +90,6 @@ async def _run_job_async(job_id: int) -> None:
             job.finished_at = _now()
             db.commit()
             return
-
-        # #region agent log
-        import time
-        _agent_log(
-            {
-                "sessionId": "debug-session",
-                "runId": "import-job",
-                "hypothesisId": "JOB_ASYNC",
-                "location": "backend/app/services/import_job_service.py:_run_job_async",
-                "message": "import_result_counts",
-                "data": {
-                    "job_id": job.id,
-                    "imported_count": (result or {}).get("imported_count") if isinstance(result, dict) else None,
-                    "aggregated_count": (result or {}).get("aggregated_count") if isinstance(result, dict) else None,
-                    "total_parts_count": (result or {}).get("total_parts_count") if isinstance(result, dict) else None,
-                },
-                "timestamp": int(time.time() * 1000),
-            }
-        )
-        # #endregion agent log
 
         if isinstance(result, dict):
             imported = result.get("imported_count")
