@@ -23,6 +23,16 @@ connector_logger = logging.getLogger('solidworks_connector')
 def _agent_log(*args, **kwargs):
     return
 
+def _basename_noext_any(path: str) -> str:
+    try:
+        base = os.path.basename(path or "")
+        return os.path.splitext(base)[0]
+    except Exception:
+        return ""
+
+# Tracks whether this process started SOLIDWORKS via Dispatch (not an existing instance).
+_started_by_connector = False
+
 
 class SolidWorksConnector:
     """SOLIDWORKS Connector für COM API Zugriff"""
@@ -32,6 +42,7 @@ class SolidWorksConnector:
         # Track which thread created the COM object (COM objects must stay on the same thread)
         self._owner_thread_id: int | None = None
         self._com_initialized: bool = False
+        self._owns_app: bool = False
     
     def connect(self):
         """Verbindung zu SOLIDWORKS herstellen"""
@@ -71,14 +82,32 @@ class SolidWorksConnector:
             # Hard guard: multiple SOLIDWORKS processes cause COM ambiguity and can lead to
             # "bereits geöffnet / Kopie öffnen?" prompts.
             allow_multi = str(os.getenv("SWC_ALLOW_MULTI_INSTANCE", "0")).strip().lower() in ("1", "true", "yes")
+            connect_mode = None
             try:
                 # Use the existing interactive SOLIDWORKS instance if present.
                 self.sw_app = win32com.client.GetActiveObject("SldWorks.Application")
-            except Exception as e1:
+                connect_mode = "active"
+            except Exception:
                 try:
                     self.sw_app = win32com.client.Dispatch("SldWorks.Application")
-                except Exception as e2:
+                    connect_mode = "dispatch"
+                except Exception:
+                    connect_mode = "failed"
                     raise
+            self._owns_app = connect_mode == "dispatch"
+            if self._owns_app:
+                try:
+                    global _started_by_connector
+                    _started_by_connector = True
+                except Exception:
+                    pass
+            if self._owns_app:
+                try:
+                    # Run SOLIDWORKS headless when we started it.
+                    self.sw_app.Visible = False
+                except Exception:
+                    pass
+
 
             # Do not force-hide user's instance.
             connector_logger.info("Erfolgreich zu SOLIDWORKS verbunden")
@@ -92,8 +121,106 @@ class SolidWorksConnector:
     
     def disconnect(self):
         """Verbindung zu SOLIDWORKS trennen"""
+        try:
+            import json
+            with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
+                _f.write(json.dumps({
+                    "sessionId": "debug-session",
+                    "runId": "sw-activity",
+                    "hypothesisId": "SW_LIFECYCLE",
+                    "location": "solidworks-connector/src/SolidWorksConnector.py:disconnect",
+                    "message": "disconnect",
+                    "data": {"had_app": self.sw_app is not None},
+                    "timestamp": int(time.time() * 1000),
+                }) + "\n")
+        except Exception:
+            pass
         if self.sw_app:
             self.sw_app = None
+
+    def _shutdown_if_owned(self, reason: str) -> None:
+        if not self.sw_app or not self._owns_app:
+            return
+        try:
+            import json, time
+            with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
+                _f.write(json.dumps({
+                    "sessionId": "debug-session",
+                    "runId": "sw-activity",
+                    "hypothesisId": "SW_LIFECYCLE",
+                    "location": "solidworks-connector/src/SolidWorksConnector.py:_shutdown_if_owned",
+                    "message": "pre_shutdown",
+                    "data": {"reason": reason, "open_doc_count": self.get_open_doc_count()},
+                    "timestamp": int(time.time() * 1000),
+                }) + "\n")
+        except Exception:
+            pass
+        try:
+            # Best effort: close all docs without save prompts.
+            try:
+                self.sw_app.CloseAllDocuments(False)
+            except Exception:
+                try:
+                    self.sw_app.CloseAllDocuments()
+                except Exception:
+                    pass
+            try:
+                self.sw_app.ExitApp()
+            except Exception:
+                pass
+        finally:
+            self.sw_app = None
+            self._owns_app = False
+        try:
+            import json, time
+            with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
+                _f.write(json.dumps({
+                    "sessionId": "debug-session",
+                    "runId": "sw-activity",
+                    "hypothesisId": "SW_LIFECYCLE",
+                    "location": "solidworks-connector/src/SolidWorksConnector.py:_shutdown_if_owned",
+                    "message": "post_shutdown",
+                    "data": {"reason": reason},
+                    "timestamp": int(time.time() * 1000),
+                }) + "\n")
+        except Exception:
+            pass
+
+    def can_close_app(self) -> bool:
+        try:
+            return bool(_started_by_connector)
+        except Exception:
+            return False
+
+    def close_app(self, reason: str) -> bool:
+        if not self.can_close_app():
+            return False
+        try:
+            if not self.sw_app:
+                self.connect()
+        except Exception:
+            pass
+        if not self.sw_app:
+            return False
+        try:
+            self._shutdown_if_owned(reason)
+            return True
+        finally:
+            try:
+                global _started_by_connector
+                _started_by_connector = False
+            except Exception:
+                pass
+
+    def get_open_doc_count(self) -> int | None:
+        try:
+            if not self.sw_app:
+                return None
+            count = getattr(self.sw_app, "GetDocumentCount", None)
+            count = count() if callable(count) else count
+            return int(count) if count is not None else None
+        except Exception:
+            return None
         # We intentionally do NOT call CoUninitialize here:
         # - Request threads may be reused by the server.
         # - Uninitializing COM while objects are still referenced can cause undefined behavior.
@@ -348,6 +475,7 @@ class SolidWorksConnector:
         
         if not sw_model:
             raise Exception(f"Konnte Assembly nicht öffnen: {assembly_filepath}")
+
         
         results = []
 
@@ -652,8 +780,13 @@ class SolidWorksConnector:
             except Exception:
                 pass
 
+
             hidden_count = 0
             missing_path_count = 0
+            lightweight_count = 0
+            missing_lightweight_count = 0
+            missing_has_modeldoc_count = 0
+            missing_has_name_count = 0
             asm_loaded_children: list[str] = []
             for component in components:
                 # Prüfe ob Teil versteckt ist
@@ -678,6 +811,9 @@ class SolidWorksConnector:
 
                 is_suppressed = _get_bool_attr(component, "IsSuppressed")
                 is_envelope = _get_bool_attr(component, "IsEnvelope")
+                is_lightweight = _get_bool_attr(component, "IsLightWeight")
+                if is_lightweight:
+                    lightweight_count += 1
                 is_hidden = is_suppressed or is_envelope
 
                 # WICHTIG (Toolbox/Envelope): Auch versteckte/unterdrückte Komponenten sollen in der Liste landen.
@@ -698,6 +834,17 @@ class SolidWorksConnector:
 
                 if not part_path:
                     missing_path_count += 1
+                    if is_lightweight:
+                        missing_lightweight_count += 1
+                    if part_name:
+                        missing_has_name_count += 1
+                    try:
+                        md = getattr(component, "GetModelDoc2", None)
+                        md = md() if callable(md) else md
+                    except Exception:
+                        md = None
+                    if md is not None:
+                        missing_has_modeldoc_count += 1
                     # Ohne Pfad (Toolbox/virtuell): versuche einen stabilen Namen zu finden.
                     safe_name = (part_name or "").strip()
                     if not safe_name:
@@ -961,6 +1108,7 @@ class SolidWorksConnector:
                     self.sw_app.CloseDoc(assembly_filepath)
                 except Exception:
                     pass
+            # Keep SOLIDWORKS running; only close documents to avoid locking files.
         
         return results
 
@@ -1204,6 +1352,7 @@ class SolidWorksConnector:
                     self._close_doc_best_effort(sw_model, filepath)
             except Exception:
                 pass
+            # Keep SOLIDWORKS running; only close documents to avoid locking files.
 
         return {"updated": updated, "failed": failed, "updated_count": len(updated), "failed_count": len(failed)}
     

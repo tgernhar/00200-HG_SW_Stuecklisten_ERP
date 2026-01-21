@@ -151,6 +151,23 @@ def get_all_parts_from_assembly(request: AssemblyRequest):
         results = connector.get_all_parts_and_properties_from_assembly(
             request.assembly_filepath
         )
+        try:
+            _write_debug(
+                {
+                    "sessionId": "debug-session",
+                    "runId": "sw-activity",
+                    "hypothesisId": "SW_LIFECYCLE",
+                    "location": "solidworks-connector/src/main.py:get_all_parts_from_assembly",
+                    "message": "post_import_state",
+                    "data": {
+                        "open_doc_count": connector.get_open_doc_count(),
+                        "results_count": len(results) if results else 0,
+                    },
+                    "timestamp": int(datetime.now().timestamp() * 1000),
+                }
+            )
+        except Exception:
+            pass
         connector_logger.info(f"Erfolgreich: {len(results) if results else 0} Ergebnisse erhalten")
         return {
             "success": True,
@@ -353,6 +370,20 @@ def set_custom_properties(request: SetCustomPropertiesRequest):
         return {"success": True, "result": result}
     except Exception as e:
         connector_logger.error(f"Fehler in set-custom-properties: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/solidworks/close-app")
+def close_app(reason: str = Query("manual", description="Reason for closing SOLIDWORKS")):
+    """
+    Schließt SOLIDWORKS nur, wenn der Connector die Instanz gestartet hat.
+    """
+    try:
+        connector = get_connector()
+        closed = connector.close_app(reason=reason)
+        return {"success": True, "closed": closed}
+    except Exception as e:
+        connector_logger.error(f"Fehler in close-app: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

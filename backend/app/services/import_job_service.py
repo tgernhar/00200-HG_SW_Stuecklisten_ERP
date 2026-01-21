@@ -112,6 +112,7 @@ async def _run_job_async(job_id: int) -> None:
             job.message = "Fertig"
         job.finished_at = _now()
         db.commit()
+
     finally:
         db.close()
 
