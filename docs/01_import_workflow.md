@@ -17,9 +17,12 @@ Implementiert in `frontend/src/App.tsx`:
 6. Artikelliste wird neu geladen und im Grid angezeigt.
 
 ## Import‑Fortschritt (UI)
-Während des SOLIDWORKS‑Imports wird ein einfacher **Fortschrittsbalken** angezeigt:
-- „BOM anlegen“ → „Import läuft“ → „Fertig“
-Damit ist erkennbar, dass der Import aktiv ist.
+Während des SOLIDWORKS‑Imports wird ein **Popup/Modal** angezeigt, das den Importzustand klar signalisiert und Mehrfach‑Klicks verhindert:
+- Text: „Import läuft – bitte warten“
+- Optionaler Fortschrittsindikator (z. B. Spinner oder einfacher Balken)
+- **Import‑Button deaktivieren**, solange der Import aktiv ist
+- Popup wird nach Abschluss automatisch geschlossen
+Damit ist für den Nutzer eindeutig erkennbar, dass der Import aktiv ist und nicht mehrfach gestartet werden soll.
 
 ### Hinweis zu „Datei auswählen“
 Browser liefern aus Sicherheitsgründen **keinen vollständigen Pfad** über den File‑Dialog. Daher ist die **manuelle Pfad‑Eingabe** weiterhin notwendig, wenn der Backend‑Import den echten Pfad braucht.
