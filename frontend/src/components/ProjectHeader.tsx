@@ -8,6 +8,7 @@ interface ProjectHeaderProps {
   project: Project | null
   boms: Bom[]
   selectedBomId: number | null
+  isImporting: boolean
   onSelectBom: (bomId: number) => void
   onImportSolidworks: () => void
   onCreateBestellartikel: () => void
@@ -24,6 +25,7 @@ export const ProjectHeader: React.FC<ProjectHeaderProps> = ({
   project,
   boms,
   selectedBomId,
+  isImporting,
   onSelectBom,
   onImportSolidworks,
   onCreateBestellartikel,
@@ -78,7 +80,9 @@ export const ProjectHeader: React.FC<ProjectHeaderProps> = ({
       </div>
       <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
         <button onClick={onGoHome}>Zur Startseite</button>
-        <button onClick={onImportSolidworks}>Import SOLIDWORKS</button>
+        <button onClick={onImportSolidworks} disabled={isImporting}>
+          {isImporting ? 'Import läuft...' : 'Import SOLIDWORKS'}
+        </button>
         <button onClick={onCreateBestellartikel} style={{ fontWeight: 'bold' }}>
           Bestellartikel erstellen
         </button>

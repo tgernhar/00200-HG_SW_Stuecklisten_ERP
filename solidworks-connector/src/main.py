@@ -12,10 +12,21 @@ import logging
 import threading
 from logging.handlers import RotatingFileHandler
 from datetime import datetime
+import time
+import json
 
 # NOTE: previously used for debug-mode ingest; kept as no-op to avoid churn.
 def _agent_log(*args, **kwargs):
     return
+
+# region agent log
+def _write_debug(payload: dict) -> None:
+    try:
+        with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
+            _f.write(json.dumps(payload) + "\n")
+    except Exception:
+        pass
+# endregion
 
 # Konfiguriere Logging
 connector_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -145,12 +156,52 @@ def get_all_parts_from_assembly(request: AssemblyRequest):
     Liest alle Teile und Properties aus Assembly
     """
     try:
+        # region agent log
+        _write_debug(
+            {
+                "sessionId": "debug-session",
+                "runId": "import-error",
+                "hypothesisId": "H8_SW_CALL",
+                "location": "solidworks-connector/src/main.py:get_all_parts_from_assembly",
+                "message": "entry",
+                "data": {"assembly_filepath": request.assembly_filepath},
+                "timestamp": int(time.time() * 1000),
+            }
+        )
+        # endregion
         connector_logger.info(f"get-all-parts-from-assembly aufgerufen mit filepath: {request.assembly_filepath}")
         connector = get_connector()
         connector_logger.info(f"Connector-Instanz erhalten, rufe get_all_parts_and_properties_from_assembly auf...")
+        # region agent log
+        _write_debug(
+            {
+                "sessionId": "debug-session",
+                "runId": "import-error",
+                "hypothesisId": "H8_SW_CALL",
+                "location": "solidworks-connector/src/main.py:get_all_parts_from_assembly",
+                "message": "before_connector_call",
+                "data": {},
+                "timestamp": int(time.time() * 1000),
+            }
+        )
+        # endregion
         results = connector.get_all_parts_and_properties_from_assembly(
             request.assembly_filepath
         )
+        # region agent log
+        _write_debug(
+            {
+                "sessionId": "debug-session",
+                "runId": "import-error",
+                "hypothesisId": "H8_SW_CALL",
+                "location": "solidworks-connector/src/main.py:get_all_parts_from_assembly",
+                "message": "after_connector_call",
+                "data": {"results_count": len(results) if results else 0},
+                "timestamp": int(time.time() * 1000),
+            }
+        )
+        # endregion
+        # region agent log
         try:
             _write_debug(
                 {
@@ -168,12 +219,26 @@ def get_all_parts_from_assembly(request: AssemblyRequest):
             )
         except Exception:
             pass
+        # endregion
         connector_logger.info(f"Erfolgreich: {len(results) if results else 0} Ergebnisse erhalten")
         return {
             "success": True,
             "results": results
         }
     except Exception as e:
+        # region agent log
+        _write_debug(
+            {
+                "sessionId": "debug-session",
+                "runId": "import-error",
+                "hypothesisId": "H8_SW_CALL",
+                "location": "solidworks-connector/src/main.py:get_all_parts_from_assembly",
+                "message": "error",
+                "data": {"error": str(e)},
+                "timestamp": int(time.time() * 1000),
+            }
+        )
+        # endregion
         connector_logger.error(f"Fehler in get-all-parts-from-assembly: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 

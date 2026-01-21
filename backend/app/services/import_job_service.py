@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import threading
+import time
+import json as _json
 from datetime import datetime
 
 from sqlalchemy.orm import Session
@@ -16,6 +18,25 @@ _IMPORT_SEMAPHORE = threading.Semaphore(1)
 
 def _now():
     return datetime.utcnow()
+
+
+# region agent log
+def _dbg_log(hypothesis_id: str, location: str, message: str, data: dict) -> None:
+    try:
+        payload = {
+            "sessionId": "debug-session",
+            "runId": "import-error",
+            "hypothesisId": hypothesis_id,
+            "location": location,
+            "message": message,
+            "data": data,
+            "timestamp": int(time.time() * 1000),
+        }
+        with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
+            _f.write(_json.dumps(payload) + "\n")
+    except Exception:
+        pass
+# endregion
 
 
 def create_import_job(db: Session, *, project_id: int, bom_id: int, assembly_filepath: str) -> ImportJob:
@@ -36,13 +57,37 @@ def create_import_job(db: Session, *, project_id: int, bom_id: int, assembly_fil
 
 def start_import_job(job_id: int) -> None:
     # Run in a daemon thread so the HTTP request can return immediately.
+    # region agent log
+    _dbg_log(
+        "H1_THREAD",
+        "backend/app/services/import_job_service.py:start_import_job",
+        "thread_start_requested",
+        {"job_id": job_id},
+    )
+    # endregion
     t = threading.Thread(target=_run_job_thread, args=(job_id,), daemon=True)
     t.start()
 
 
 def _run_job_thread(job_id: int) -> None:
     # Ensure only one import runs at a time in this process.
+    # region agent log
+    _dbg_log(
+        "H2_SEMA",
+        "backend/app/services/import_job_service.py:_run_job_thread",
+        "thread_enter",
+        {"job_id": job_id},
+    )
+    # endregion
     with _IMPORT_SEMAPHORE:
+        # region agent log
+        _dbg_log(
+            "H2_SEMA",
+            "backend/app/services/import_job_service.py:_run_job_thread",
+            "semaphore_acquired",
+            {"job_id": job_id},
+        )
+        # endregion
         try:
             asyncio.run(_run_job_async(job_id))
         except Exception:
@@ -71,6 +116,14 @@ async def _run_job_async(job_id: int) -> None:
         job = db.query(ImportJob).filter(ImportJob.id == job_id).first()
         if not job:
             return
+        # region agent log
+        _dbg_log(
+            "H3_ASYNC",
+            "backend/app/services/import_job_service.py:_run_job_async",
+            "job_loaded",
+            {"job_id": job_id, "status": getattr(job, "status", None), "step": getattr(job, "step", None)},
+        )
+        # endregion
 
         job.status = "running"
         job.step = "connector"
@@ -78,9 +131,33 @@ async def _run_job_async(job_id: int) -> None:
         job.message = "SOLIDWORKS-Import läuft… (dies kann länger dauern)"
         job.started_at = _now()
         db.commit()
+        # region agent log
+        _dbg_log(
+            "H3_ASYNC",
+            "backend/app/services/import_job_service.py:_run_job_async",
+            "job_marked_running",
+            {"job_id": job_id},
+        )
+        # endregion
 
         # Run the existing import service (async).
+        # region agent log
+        _dbg_log(
+            "H4_IMPORT",
+            "backend/app/services/import_job_service.py:_run_job_async",
+            "import_call_start",
+            {"job_id": job_id, "project_id": job.project_id, "bom_id": job.bom_id},
+        )
+        # endregion
         result = await import_solidworks_assembly(job.project_id, job.bom_id, job.assembly_filepath, db)
+        # region agent log
+        _dbg_log(
+            "H4_IMPORT",
+            "backend/app/services/import_job_service.py:_run_job_async",
+            "import_call_done",
+            {"job_id": job_id, "result_type": str(type(result))},
+        )
+        # endregion
         if isinstance(result, dict) and result.get("success") is False:
             job.status = "failed"
             job.step = "finalize"

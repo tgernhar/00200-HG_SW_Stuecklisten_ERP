@@ -49,6 +49,25 @@ function App() {
 
   // Optional debug logger (no-op). Keep signature flexible so callsites don't break typechecking.
   const _log = (..._args: any[]) => {}
+  // #region agent log
+  const _dbgLog = (hypothesisId: string, location: string, message: string, data: any) => {
+    try {
+      fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: 'debug-session',
+          runId: 'import-error',
+          hypothesisId,
+          location,
+          message,
+          data,
+          timestamp: Date.now()
+        })
+      }).catch(() => {})
+    } catch {}
+  }
+  // #endregion
 
   useEffect(() => {
     try {
@@ -66,26 +85,97 @@ function App() {
     const step = String(j.step || '')
     const msg = (j.message ? String(j.message) : '') || ''
     const pct = (typeof j.percent === 'number' ? j.percent : null) as number | null
+    const err = j.error ? String(j.error) : ''
+    const asm = j.assembly_filepath ? String(j.assembly_filepath) : ''
+    const createdAt = j.created_at ? String(j.created_at) : ''
+    const updatedAt = j.updated_at ? String(j.updated_at) : ''
+    const startedAt = j.started_at ? String(j.started_at) : ''
+    const finishedAt = j.finished_at ? String(j.finished_at) : ''
     setImportJobId(jobId)
     setImportPercent(pct)
     if (status === 'queued') {
       setImportStep('Wartet…')
-      return { done: false, failed: false }
+      return {
+        done: false,
+        failed: false,
+        status,
+        step,
+        msg,
+        pct,
+        error: err,
+        assembly: asm,
+        createdAt,
+        updatedAt,
+        startedAt,
+        finishedAt
+      }
     }
     if (status === 'running') {
       setImportStep(msg || (step ? `Import läuft (${step})…` : 'Import läuft…'))
-      return { done: false, failed: false }
+      return {
+        done: false,
+        failed: false,
+        status,
+        step,
+        msg,
+        pct,
+        error: err,
+        assembly: asm,
+        createdAt,
+        updatedAt,
+        startedAt,
+        finishedAt
+      }
     }
     if (status === 'done') {
       setImportStep('Fertig')
-      return { done: true, failed: false }
+      return {
+        done: true,
+        failed: false,
+        status,
+        step,
+        msg,
+        pct,
+        error: err,
+        assembly: asm,
+        createdAt,
+        updatedAt,
+        startedAt,
+        finishedAt
+      }
     }
     if (status === 'failed') {
       setImportStep('Fehlgeschlagen')
       setImportError(String(j.error || 'SOLIDWORKS-Import fehlgeschlagen'))
-      return { done: false, failed: true }
+      return {
+        done: false,
+        failed: true,
+        status,
+        step,
+        msg,
+        pct,
+        error: err,
+        assembly: asm,
+        createdAt,
+        updatedAt,
+        startedAt,
+        finishedAt
+      }
     }
-    return { done: false, failed: false }
+    return {
+      done: false,
+      failed: false,
+      status,
+      step,
+      msg,
+      pct,
+      error: err,
+      assembly: asm,
+      createdAt,
+      updatedAt,
+      startedAt,
+      finishedAt
+    }
   }
 
   useEffect(() => {
@@ -237,6 +327,7 @@ function App() {
 
   const handleImportSolidworks = async () => {
     if (!project) return
+    if (isImporting) return
     
     try {
       const au = (project.au_nr || '').trim()
@@ -496,9 +587,22 @@ function App() {
     setIsImporting(true)
 
     try {
+      // #region agent log
+      _dbgLog('H1_START', 'frontend/src/App.tsx:handleStartImport', 'start_import_clicked', {
+        auNr: auNr.trim(),
+        assemblyPath: assemblyPath.trim()
+      })
+      // #endregion
       setPendingAuNr(auNr.trim())
       await openHugwawiPickerForAu(auNr.trim())
     } catch (error: any) {
+      // #region agent log
+      _dbgLog('H1_START', 'frontend/src/App.tsx:handleStartImport', 'start_import_error', {
+        message: String(error?.message || ''),
+        status: error?.response?.status,
+        detail: error?.response?.data?.detail
+      })
+      // #endregion
       // Extrahiere detaillierte Fehlermeldung
       let errorMessage = 'Unbekannter Fehler'
       if (error.response?.data) {
@@ -518,6 +622,58 @@ function App() {
 
   return (
     <div className="app">
+      {isImporting && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0,0,0,0.45)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 2000
+          }}
+        >
+          <div
+            style={{
+              background: '#fff',
+              padding: 20,
+              width: 420,
+              maxWidth: '90vw',
+              borderRadius: 8,
+              textAlign: 'center'
+            }}
+          >
+            <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>
+              Import läuft – bitte warten
+            </div>
+            <div style={{ marginBottom: 10, color: '#555' }}>
+              {importStep || 'Import läuft...'}
+            </div>
+            <div style={{ height: 8, background: '#eee', borderRadius: 6, overflow: 'hidden' }}>
+              <div
+                style={{
+                  height: '100%',
+                  width:
+                    typeof importPercent === 'number'
+                      ? `${Math.max(0, Math.min(100, importPercent))}%`
+                      : importStep === 'BOM anlegen' ? '20%' :
+                      importStep === 'BOM überschreiben' ? '30%' :
+                      (importStep || '').startsWith('Job wird gestartet') ? '35%' :
+                      (importStep || '').startsWith('Import läuft') ? '70%' :
+                      importStep === 'Import überschreiben' ? '80%' :
+                      importStep === 'Fertig' ? '100%' : '40%',
+                  background: '#4caf50',
+                  transition: 'width 0.3s ease'
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
       {showHugwawiPicker && (
         <div style={{
           position: 'fixed',
@@ -596,6 +752,7 @@ function App() {
               <button
                 style={{ fontWeight: 700 }}
                 disabled={
+                  isImporting ||
                   !selectedHugwawiKey ||
                   (selectedHugwawiKey === 'manual' && !manualArtikelNr.trim()) ||
                   (!project && !(pendingAuNr || auNr))
@@ -622,6 +779,13 @@ function App() {
                   }
                   if (!picked) return
                   try {
+                    // #region agent log
+                    _dbgLog('H2_PICK', 'frontend/src/App.tsx:import_flow', 'picker_confirmed', {
+                      selectedHugwawiKey,
+                      manual: selectedHugwawiKey === 'manual',
+                      auNr: (pendingAuNr || auNr || '').trim()
+                    })
+                    // #endregion
                     // Wenn noch kein Projekt geladen ist: jetzt erstellen/öffnen
                     let activeProject = project
                     if (!activeProject) {
@@ -675,6 +839,13 @@ function App() {
                         hugwawi_articlenumber: picked.hugwawi_articlenumber
                       })
                     } catch (e: any) {
+                      // #region agent log
+                      _dbgLog('H3_BOM', 'frontend/src/App.tsx:import_flow', 'bom_create_error', {
+                        status: e?.response?.status,
+                        detail: e?.response?.data?.detail,
+                        message: String(e?.message || '')
+                      })
+                      // #endregion
                       if (e?.response?.status === 409) {
                         const pw = prompt('Stückliste existiert bereits. Passwort zum Überschreiben (aktuell: 1):') || ''
                         if (!pw) return
@@ -716,6 +887,13 @@ function App() {
                       )
                       const jobId = Number(resp?.data?.job_id)
                       if (!jobId) throw new Error('Import-Job konnte nicht gestartet werden (keine job_id)')
+                      // #region agent log
+                      _dbgLog('H4_JOB', 'frontend/src/App.tsx:startJob', 'job_started', {
+                        jobId,
+                        projectId: activeProject.id,
+                        bomId: bom.id
+                      })
+                      // #endregion
                       return jobId
                     }
 
@@ -745,6 +923,24 @@ function App() {
                       const interval = window.setInterval(async () => {
                         try {
                           const r = await pollImportJob(jobId)
+                          // #region agent log
+                          _dbgLog('H5_POLL', 'frontend/src/App.tsx:pollImportJob', 'poll_status', {
+                            jobId,
+                            done: r.done,
+                            failed: r.failed,
+                            status: r.status,
+                            step: r.step,
+                            msg: r.msg,
+                            pct: r.pct,
+                            error: r.error,
+                            assembly: r.assembly,
+                            createdAt: r.createdAt,
+                            updatedAt: r.updatedAt,
+                            startedAt: r.startedAt,
+                            finishedAt: r.finishedAt,
+                            importStep
+                          })
+                          // #endregion
                           if (r.done) {
                             window.clearInterval(interval)
                             resolve()
@@ -754,6 +950,12 @@ function App() {
                           }
                         } catch (err: any) {
                           // transient network errors: keep polling
+                          // #region agent log
+                          _dbgLog('H5_POLL', 'frontend/src/App.tsx:pollImportJob', 'poll_error', {
+                            jobId,
+                            message: String(err?.message || '')
+                          })
+                          // #endregion
                         }
                       }, intervalMs)
                     })
@@ -767,6 +969,13 @@ function App() {
                     alert('Import erfolgreich!')
                     setIsImporting(false)
                   } catch (e: any) {
+                    // #region agent log
+                    _dbgLog('H6_FLOW', 'frontend/src/App.tsx:import_flow', 'import_flow_error', {
+                      status: e?.response?.status,
+                      detail: e?.response?.data?.detail,
+                      message: String(e?.message || '')
+                    })
+                    // #endregion
                     setImportStep(null)
                     alert('Fehler: ' + (e?.response?.data?.detail || e?.message || String(e)))
                     setIsImporting(false)
@@ -1099,6 +1308,7 @@ function App() {
             project={project}
             boms={boms}
             selectedBomId={selectedBomId}
+            isImporting={isImporting}
             onSelectBom={(id) => {
               setSelectedBomId(id)
               try {

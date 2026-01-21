@@ -15,11 +15,31 @@ import time
 import json
 import urllib.request
 from pathlib import Path
+import time as _time
+import json as _json
 
 logger = logging.getLogger(__name__)
 # Stelle sicher, dass der Logger die Handler vom Root-Logger erbt
 logger.propagate = True
 logger.setLevel(logging.DEBUG)  # Setze Level, damit alle Meldungen durchkommen
+
+# region agent log
+def _dbg_log(hypothesis_id: str, location: str, message: str, data: dict) -> None:
+    try:
+        payload = {
+            "sessionId": "debug-session",
+            "runId": "import-error",
+            "hypothesisId": hypothesis_id,
+            "location": location,
+            "message": message,
+            "data": data,
+            "timestamp": int(_time.time() * 1000),
+        }
+        with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
+            _f.write(_json.dumps(payload) + "\n")
+    except Exception:
+        pass
+# endregion
 
 def _basename_noext_any(p: str) -> str:
     p = p or ""
@@ -69,6 +89,18 @@ async def import_solidworks_assembly(
     3. Aggregiert Teile nach Name + Konfiguration (entspricht Main_SW_Import_To_Projectsheet)
     4. Speichert Artikel in Datenbank
     """
+    # region agent log
+    _dbg_log(
+        "H7_SW",
+        "backend/app/services/solidworks_service.py:import_solidworks_assembly",
+        "entry",
+        {
+            "project_id": project_id,
+            "bom_id": bom_id,
+            "assembly_filepath": assembly_filepath,
+        },
+    )
+    # endregion
     # 1. SOLIDWORKS-Connector aufrufen
     logger.info(f"Calling SOLIDWORKS-Connector with filepath: {assembly_filepath}")
     logger.info(f"SOLIDWORKS_CONNECTOR_URL: {settings.SOLIDWORKS_CONNECTOR_URL}")
@@ -76,6 +108,17 @@ async def import_solidworks_assembly(
     logger.info(f"Request JSON: {{'assembly_filepath': '{assembly_filepath}'}}")
     
     timeout_s = getattr(settings, "SOLIDWORKS_IMPORT_HTTP_TIMEOUT_S", 300) or 300
+    # region agent log
+    _dbg_log(
+        "H7_SW",
+        "backend/app/services/solidworks_service.py:import_solidworks_assembly",
+        "connector_request_start",
+        {
+            "timeout_s": float(timeout_s),
+            "url": f"{settings.SOLIDWORKS_CONNECTOR_URL}/api/solidworks/get-all-parts-from-assembly",
+        },
+    )
+    # endregion
     async with httpx.AsyncClient(timeout=float(timeout_s)) as client:
         try:
             request_url = f"{settings.SOLIDWORKS_CONNECTOR_URL}/api/solidworks/get-all-parts-from-assembly"
@@ -87,6 +130,17 @@ async def import_solidworks_assembly(
                 request_url,
                 json=request_json
             )
+            # region agent log
+            _dbg_log(
+                "H7_SW",
+                "backend/app/services/solidworks_service.py:import_solidworks_assembly",
+                "connector_response",
+                {
+                    "status_code": response.status_code,
+                    "content_len": len(response.content or b""),
+                },
+            )
+            # endregion
             
             logger.info(f"SOLIDWORKS-Connector response status: {response.status_code}")
             logger.debug(f"SOLIDWORKS-Connector response headers: {dict(response.headers)}")
@@ -102,12 +156,36 @@ async def import_solidworks_assembly(
                 raise Exception(f"SOLIDWORKS-Connector Fehler: {response.status_code} - {error_detail}")
         except httpx.RequestError as e:
             logger.error(f"SOLIDWORKS-Connector request error: {e}", exc_info=True)
+            # region agent log
+            _dbg_log(
+                "H7_SW",
+                "backend/app/services/solidworks_service.py:import_solidworks_assembly",
+                "connector_request_error",
+                {"error": str(e)},
+            )
+            # endregion
             raise Exception(f"SOLIDWORKS-Connector Verbindungsfehler: {str(e)}")
         
         connector_data = response.json()
         results = connector_data.get("results", [])
+        # region agent log
+        _dbg_log(
+            "H7_SW",
+            "backend/app/services/solidworks_service.py:import_solidworks_assembly",
+            "connector_results",
+            {"results_len": len(results) if isinstance(results, list) else None},
+        )
+        # endregion
     
     if not results or len(results) == 0:
+        # region agent log
+        _dbg_log(
+            "H7_SW",
+            "backend/app/services/solidworks_service.py:import_solidworks_assembly",
+            "connector_no_results",
+            {},
+        )
+        # endregion
         return {
             "success": False,
             "error": "Keine Daten von SOLIDWORKS-Connector erhalten"
