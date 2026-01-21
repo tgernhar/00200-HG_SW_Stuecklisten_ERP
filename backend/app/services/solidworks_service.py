@@ -107,6 +107,23 @@ async def import_solidworks_assembly(
         connector_data = response.json()
         results = connector_data.get("results", [])
     
+    if not results or len(results) == 0:
+        return {
+            "success": False,
+            "error": "Keine Daten von SOLIDWORKS-Connector erhalten"
+        }
+
+    # results can be either:
+    # - row-major: List[List[Any]] where each row has ~14 fields
+    # - column-major legacy: List[List[Any]] with 14 columns -> transpose
+    rows = results
+    if isinstance(results, list) and len(results) == 14 and all(isinstance(col, list) for col in results):
+        # transpose columns -> rows
+        try:
+            rows = [list(r) for r in zip(*results)]
+        except Exception:
+            rows = results
+
     # 2. Verarbeitung (entspricht Main_GET_ALL_FROM_SW)
     # #region agent log
     try:
@@ -114,6 +131,21 @@ async def import_solidworks_assembly(
         part_rows = [r for r in rows if isinstance(r, (list, tuple)) and len(r) >= 14 and not r[4]]
         exclude_count = sum(1 for r in part_rows if r[13])
         virtual_count_rows = sum(1 for r in part_rows if str(r[11] or "").lower().startswith("virtual:"))
+        path_counts = {}
+        name_counts = {}
+        asm_path = (assembly_filepath or "").strip().lower()
+        same_as_asm = 0
+        for r in part_rows:
+            p = str(r[11] or "")
+            n = str(r[1] or "")
+            if asm_path and p.strip().lower() == asm_path:
+                same_as_asm += 1
+            if p:
+                path_counts[p] = path_counts.get(p, 0) + 1
+            if n:
+                name_counts[n] = name_counts.get(n, 0) + 1
+        top_paths = sorted(path_counts.items(), key=lambda x: x[1], reverse=True)[:10]
+        top_names = sorted(name_counts.items(), key=lambda x: x[1], reverse=True)[:10]
         payload = {
             "sessionId": "debug-session",
             "runId": "import-job",
@@ -127,6 +159,11 @@ async def import_solidworks_assembly(
                 "part_rows": len(part_rows),
                 "exclude_flag_count": exclude_count,
                 "virtual_path_count": virtual_count_rows,
+                "distinct_paths": len(path_counts),
+                "distinct_names": len(name_counts),
+                "same_as_assembly_path": same_as_asm,
+                "top_paths": top_paths,
+                "top_names": top_names,
             },
             "timestamp": int(time.time() * 1000),
         }
@@ -145,22 +182,6 @@ async def import_solidworks_assembly(
     except Exception:
         pass
     # #endregion agent log
-    if not results or len(results) == 0:
-        return {
-            "success": False,
-            "error": "Keine Daten von SOLIDWORKS-Connector erhalten"
-        }
-
-    # results can be either:
-    # - row-major: List[List[Any]] where each row has ~14 fields
-    # - column-major legacy: List[List[Any]] with 14 columns -> transpose
-    rows = results
-    if isinstance(results, list) and len(results) == 14 and all(isinstance(col, list) for col in results):
-        # transpose columns -> rows
-        try:
-            rows = [list(r) for r in zip(*results)]
-        except Exception:
-            rows = results
 
     # Clear existing articles for this BOM to make import idempotent
     try:
