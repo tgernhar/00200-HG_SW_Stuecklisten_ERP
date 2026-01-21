@@ -21,6 +21,22 @@ logger = logging.getLogger(__name__)
 logger.propagate = True
 logger.setLevel(logging.DEBUG)  # Setze Level, damit alle Meldungen durchkommen
 
+def _debug_log(hypothesis_id: str, location: str, message: str, data: dict):
+    try:
+        payload = {
+            "sessionId": "debug-session",
+            "runId": "sw-import-hang",
+            "hypothesisId": hypothesis_id,
+            "location": location,
+            "message": message,
+            "data": data,
+            "timestamp": int(time.time() * 1000),
+        }
+        with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
+            _f.write(json.dumps(payload) + "\n")
+    except Exception:
+        pass
+
 def _basename_noext_any(p: str) -> str:
     p = p or ""
     # Windows drive path like C:\... or G:\... (works on Linux too)
@@ -123,6 +139,56 @@ async def import_solidworks_assembly(
             rows = [list(r) for r in zip(*results)]
         except Exception:
             rows = results
+
+    # region agent log
+    try:
+        target_tokens = [
+            "064180-06016",
+            "920894-0001031A",
+            "920894-0001033A",
+            "080220-1433770",
+            "920894-0001020C",
+        ]
+        target_hits = {t: 0 for t in target_tokens}
+        main_rows = 0
+        prop_rows = 0
+        empty_path_rows = 0
+        exclude_rows = 0
+        for row in rows:
+            if not isinstance(row, (list, tuple)) or len(row) < 14:
+                continue
+            prop_name = row[4]
+            part_path = str(row[11] or "")
+            part_name = str(row[1] or "")
+            exclude_flag = row[13]
+            if prop_name:
+                prop_rows += 1
+                continue
+            main_rows += 1
+            if not part_path:
+                empty_path_rows += 1
+            if exclude_flag:
+                exclude_rows += 1
+            hay = (part_path + " " + part_name).lower()
+            for t in target_tokens:
+                if t.lower() in hay:
+                    target_hits[t] += 1
+        _debug_log(
+            "H5_BACKEND_ROWS",
+            "backend/app/services/solidworks_service.py:import_solidworks_assembly",
+            "rows_summary",
+            {
+                "rows_total": len(rows),
+                "main_rows": main_rows,
+                "prop_rows": prop_rows,
+                "empty_path_rows": empty_path_rows,
+                "exclude_rows": exclude_rows,
+                "target_hits": target_hits,
+            },
+        )
+    except Exception:
+        pass
+    # endregion
 
     # 2. Verarbeitung (entspricht Main_GET_ALL_FROM_SW)
 
@@ -282,6 +348,38 @@ async def import_solidworks_assembly(
     db.commit()
     if virtual_count:
         logger.info(f"Imported {virtual_count} VIRTUAL components (toolbox/virtual parts without file paths).")
+
+    # region agent log
+    try:
+        target_tokens = [
+            "064180-06016",
+            "920894-0001031A",
+            "920894-0001033A",
+            "080220-1433770",
+            "920894-0001020C",
+        ]
+        agg_hits = {t: 0 for t in target_tokens}
+        for key, data in aggregated.items():
+            path = str(data.get("sldasm_sldprt_pfad") or "")
+            name = str(data.get("benennung") or "")
+            partno = str(data.get("teilenummer") or "")
+            hay = (path + " " + name + " " + partno).lower()
+            for t in target_tokens:
+                if t.lower() in hay:
+                    agg_hits[t] += 1
+        _debug_log(
+            "H5_BACKEND_ROWS",
+            "backend/app/services/solidworks_service.py:import_solidworks_assembly",
+            "aggregated_summary",
+            {
+                "aggregated_count": len(aggregated),
+                "virtual_count": virtual_count,
+                "target_hits": agg_hits,
+            },
+        )
+    except Exception:
+        pass
+    # endregion
     return {
         "success": True,
         "imported_count": len(created_articles),

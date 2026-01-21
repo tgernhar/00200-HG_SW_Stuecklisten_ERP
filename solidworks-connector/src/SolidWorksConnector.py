@@ -375,7 +375,34 @@ class SolidWorksConnector:
             - results[13][j] = Exclude from Boom Flag
         """
         connector_logger.info(f"get_all_parts_and_properties_from_assembly aufgerufen mit: {assembly_filepath}")
-        # (debug instrumentation removed)
+        def _debug_log(hypothesis_id: str, location: str, message: str, data: dict):
+            try:
+                import json as _json
+                payload = {
+                    "sessionId": "debug-session",
+                    "runId": "sw-import-hang",
+                    "hypothesisId": hypothesis_id,
+                    "location": location,
+                    "message": message,
+                    "data": data,
+                    "timestamp": int(time.time() * 1000),
+                }
+                with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
+                    _f.write(_json.dumps(payload) + "\n")
+            except Exception:
+                pass
+        # region agent log
+        _debug_log(
+            "H1_ENTRY",
+            "solidworks-connector/src/SolidWorksConnector.py:get_all_parts_and_properties_from_assembly",
+            "entry",
+            {
+                "assembly_filepath": assembly_filepath,
+                "thread_id": threading.get_ident(),
+                "sw_app_present": self.sw_app is not None,
+            },
+        )
+        # endregion
 
         # Robustness: callers sometimes pass a directory instead of a .SLDASM file.
         # In that case, try to auto-pick a single .SLDASM in that directory.
@@ -445,6 +472,14 @@ class SolidWorksConnector:
         # - swDocPART = 1
         # - swDocASSEMBLY = 2
         # - swDocDRAWING = 3
+        # region agent log
+        _debug_log(
+            "H1_OPEN_ASM",
+            "solidworks-connector/src/SolidWorksConnector.py:get_all_parts_and_properties_from_assembly",
+            "open_asm_start",
+            {"assembly_filepath": assembly_filepath},
+        )
+        # endregion
         try:
             sw_model = self.sw_app.OpenDoc6(
                 assembly_filepath,
@@ -472,6 +507,18 @@ class SolidWorksConnector:
             except Exception as e2:
                 raise
         connector_logger.debug(f"OpenDoc6(ASM) errors={sw_errors.value} warnings={sw_warnings.value}")
+        # region agent log
+        _debug_log(
+            "H1_OPEN_ASM",
+            "solidworks-connector/src/SolidWorksConnector.py:get_all_parts_and_properties_from_assembly",
+            "open_asm_done",
+            {
+                "errors": getattr(sw_errors, "value", None),
+                "warnings": getattr(sw_warnings, "value", None),
+                "sw_model_ok": sw_model is not None,
+            },
+        )
+        # endregion
         
         if not sw_model:
             raise Exception(f"Konnte Assembly nicht öffnen: {assembly_filepath}")
@@ -630,6 +677,71 @@ class SolidWorksConnector:
         except Exception:
             root_config = ""
         root_props = _read_custom_properties(sw_model, root_config)
+        # region agent log
+        _debug_log(
+            "H7_CONFIG",
+            "solidworks-connector/src/SolidWorksConnector.py:get_all_parts_and_properties_from_assembly",
+            "root_config",
+            {"assembly_filepath": assembly_filepath, "root_config": root_config},
+        )
+        # endregion
+        dep_paths: list[str] = []
+        # region agent log
+        try:
+            dep_list = []
+            try:
+                if hasattr(sw_model, "GetDependencies2"):
+                    dep_raw = sw_model.GetDependencies2(True, True, True, True)
+                    dep_list = list(dep_raw) if dep_raw else []
+                elif hasattr(sw_model, "GetDocumentDependencies"):
+                    dep_raw = sw_model.GetDocumentDependencies(True, True, True)
+                    dep_list = list(dep_raw) if dep_raw else []
+            except Exception:
+                dep_list = []
+            dep_paths = [str(x) for x in dep_list if isinstance(x, str) and x]
+            target_tokens = [
+                "064180-06016",
+                "920894-0001031A",
+                "920894-0001033A",
+                "080220-1433770",
+                "920894-0001020B",
+            ]
+            dep_hits = {t: 0 for t in target_tokens}
+            for p in dep_paths:
+                lp = p.lower()
+                for t in target_tokens:
+                    if t.lower() in lp:
+                        dep_hits[t] += 1
+            _debug_log(
+                "H10_DEPENDENCIES",
+                "solidworks-connector/src/SolidWorksConnector.py:get_all_parts_and_properties_from_assembly",
+                "dependencies",
+                {
+                    "count": len(dep_paths),
+                    "sample": dep_paths[:10],
+                    "target_hits": dep_hits,
+                },
+            )
+        except Exception:
+            pass
+        # endregion
+        # region agent log
+        try:
+            cfg_names = []
+            try:
+                raw_cfg = sw_model.GetConfigurationNames() if hasattr(sw_model, "GetConfigurationNames") else None
+                cfg_names = list(raw_cfg) if raw_cfg else []
+            except Exception:
+                cfg_names = []
+            _debug_log(
+                "H7_CONFIG",
+                "solidworks-connector/src/SolidWorksConnector.py:get_all_parts_and_properties_from_assembly",
+                "root_config_list",
+                {"count": len(cfg_names), "sample": cfg_names[:10]},
+            )
+        except Exception:
+            pass
+        # endregion
 
         # Main row (no prop_name)
         results.append([
@@ -683,42 +795,95 @@ class SolidWorksConnector:
             # We'll still fall back to other variants/root traversal if needed.
             components = []
             raw_components = None
+            getcomponents_false_non_none = None
+            getcomponents_true_non_none = None
             try:
                 # Prefer all levels (TopLevelOnly = False)
                 raw_components = getattr(asm_doc, "GetComponents")(False)
-                components = _to_list_safe(raw_components)
+                _raw_list = _to_list_safe(raw_components)
+                components = [c for c in _raw_list if c is not None]
+                getcomponents_false_non_none = sum(1 for x in _raw_list if x is not None)
+                # region agent log
+                _debug_log(
+                    "H2_COMPONENT_ENUM",
+                    "solidworks-connector/src/SolidWorksConnector.py:get_all_parts_and_properties_from_assembly",
+                    "getcomponents_false",
+                    {
+                        "raw_len": len(_raw_list),
+                        "raw_none": sum(1 for x in _raw_list if x is None),
+                        "raw_non_none": getcomponents_false_non_none,
+                    },
+                )
+                # endregion
             except Exception:
                 components = []
             if not components:
                 try:
                     # Fallback: top-level only (may still be better than empty in some environments)
                     raw_components = getattr(asm_doc, "GetComponents")(True)
-                    components = _to_list_safe(raw_components)
+                    _raw_list = _to_list_safe(raw_components)
+                    components = [c for c in _raw_list if c is not None]
+                    getcomponents_true_non_none = sum(1 for x in _raw_list if x is not None)
+                    # region agent log
+                    _debug_log(
+                        "H2_COMPONENT_ENUM",
+                        "solidworks-connector/src/SolidWorksConnector.py:get_all_parts_and_properties_from_assembly",
+                        "getcomponents_true",
+                        {
+                            "raw_len": len(_raw_list),
+                            "raw_none": sum(1 for x in _raw_list if x is None),
+                            "raw_non_none": getcomponents_true_non_none,
+                        },
+                    )
+                    # endregion
                 except Exception:
                     components = []
 
             # If still empty, try resolving lightweight + rebuild and retry.
+            resolve_called = False
+            rebuild_called = False
             if not components:
+                # region agent log
+                _debug_log(
+                    "H4_REBUILD",
+                    "solidworks-connector/src/SolidWorksConnector.py:get_all_parts_and_properties_from_assembly",
+                    "components_empty_before_resolve",
+                    {"components_len": len(components)},
+                )
+                # endregion
                 try:
                     if hasattr(asm_doc, "ResolveAllLightWeightComponents"):
                         asm_doc.ResolveAllLightWeightComponents(True)
+                        resolve_called = True
                 except Exception:
                     pass
                 try:
                     if hasattr(sw_model, "ForceRebuild3"):
                         sw_model.ForceRebuild3(False)
+                        rebuild_called = True
                 except Exception:
                     pass
                 try:
                     # Retry after resolve/rebuild
                     raw_components = getattr(asm_doc, "GetComponents")(False)
-                    components = _to_list_safe(raw_components)
+                    components = [c for c in _to_list_safe(raw_components) if c is not None]
                 except Exception:
                     components = []
+                # region agent log
+                _debug_log(
+                    "H4_REBUILD",
+                    "solidworks-connector/src/SolidWorksConnector.py:get_all_parts_and_properties_from_assembly",
+                    "components_after_resolve",
+                    {
+                        "resolve_called": resolve_called,
+                        "rebuild_called": rebuild_called,
+                        "components_len": len(components),
+                    },
+                )
+                # endregion
 
             # Root-component traversal fallback (robust when GetComponents returns empty)
             # Some environments return a SAFEARRAY with None placeholders (len>0 but all entries None).
-            components = [c for c in components if c is not None]
             initial_components_count = len(components)
             if not components:
                 try:
@@ -755,8 +920,12 @@ class SolidWorksConnector:
 
             # Ensure nested components are included even if GetComponents() returned only top-level.
             try:
+                components_before_walk = len(components)
                 seen_ids: set[int] = set()
                 all_components: list[Any] = []
+                new_components_added = 0
+                total_children_reported = 0
+                child_lists_nonempty = 0
 
                 def _walk_children(c):
                     if c is None:
@@ -766,12 +935,19 @@ class SolidWorksConnector:
                         return
                     seen_ids.add(cid)
                     all_components.append(c)
+                    nonlocal new_components_added
+                    new_components_added += 1
                     try:
                         kids = getattr(c, "GetChildren", None)
                         kids = kids() if callable(kids) else kids
                     except Exception:
                         kids = None
-                    for k in _to_list_safe(kids):
+                    kids_list = _to_list_safe(kids)
+                    if kids_list:
+                        nonlocal total_children_reported, child_lists_nonempty
+                        total_children_reported += len(kids_list)
+                        child_lists_nonempty += 1
+                    for k in kids_list:
                         _walk_children(k)
 
                 for c in components:
@@ -780,6 +956,408 @@ class SolidWorksConnector:
             except Exception:
                 pass
 
+            # If GetComponents returns ONLY None placeholders, expand via sub-assembly documents.
+            force_subasm_expand = (getcomponents_false_non_none == 0 and (getcomponents_true_non_none == 0 or getcomponents_true_non_none is None))
+            subasm_expand_attempts = 0
+            subasm_expand_added = 0
+            subasm_expand_cache_hits = 0
+            subasm_expand_cache: dict[tuple[str, str], list[Any]] = {}
+            if force_subasm_expand:
+                def _get_str_attr_safe(obj, name: str) -> str:
+                    try:
+                        val = getattr(obj, name, "")
+                    except Exception:
+                        return ""
+                    try:
+                        res = val() if callable(val) else val
+                    except Exception:
+                        res = val
+                    return "" if res is None else str(res)
+                # region agent log
+                _debug_log(
+                    "H2_COMPONENT_ENUM",
+                    "solidworks-connector/src/SolidWorksConnector.py:get_all_parts_and_properties_from_assembly",
+                    "force_subasm_expand",
+                    {"enabled": True, "components_len": len(components)},
+                )
+                # endregion
+                # Recursively expand sub-assemblies (BFS) to reach deeper levels.
+                expand_queue: list[Any] = []
+                seen_subasm_paths: set[str] = set()
+                for c in list(components):
+                    p = _get_str_attr_safe(c, "GetPathName")
+                    if p and p.lower().endswith(".sldasm"):
+                        expand_queue.append(c)
+                        seen_subasm_paths.add(p.lower())
+                # Dependency-based fallback: if component tree is incomplete, try opening
+                # dependent sub-assemblies directly (no component required).
+                dep_subasm_paths = []
+                try:
+                    dep_subasm_paths = [
+                        p for p in dep_paths if isinstance(p, str) and p.lower().endswith(".sldasm")
+                    ]
+                except Exception:
+                    dep_subasm_paths = []
+                dep_fallback_added = 0
+                for p in dep_subasm_paths:
+                    lp = p.lower()
+                    if lp in seen_subasm_paths:
+                        continue
+                    # open sub-assembly by path and append its components
+                    try:
+                        sub_model = None
+                        sub_errors = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
+                        sub_warnings = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
+                        try:
+                            sub_model = self.sw_app.OpenDoc6(
+                                p,
+                                2,
+                                0,
+                                "",
+                                sub_errors,
+                                sub_warnings,
+                            )
+                        except Exception:
+                            sub_model = None
+                        if sub_model is not None:
+                            try:
+                                try:
+                                    sub_asm = win32com.client.CastTo(sub_model, "AssemblyDoc")
+                                except Exception:
+                                    sub_asm = sub_model
+                                try:
+                                    sub_raw = getattr(sub_asm, "GetComponents")(False)
+                                    sub_children = [x for x in _to_list_safe(sub_raw) if x is not None]
+                                except Exception:
+                                    sub_children = []
+                                if sub_children:
+                                    components.extend(sub_children)
+                                    dep_fallback_added += len(sub_children)
+                                    # enqueue deeper sub-assemblies found
+                                    for sc in sub_children:
+                                        sp = _get_str_attr_safe(sc, "GetPathName")
+                                        if sp and sp.lower().endswith(".sldasm"):
+                                            lsp = sp.lower()
+                                            if lsp not in seen_subasm_paths:
+                                                seen_subasm_paths.add(lsp)
+                                                expand_queue.append(sc)
+                                    seen_subasm_paths.add(lp)
+                            finally:
+                                try:
+                                    self._close_doc_best_effort(sub_model, p)
+                                except Exception:
+                                    try:
+                                        self.sw_app.CloseDoc(p)
+                                    except Exception:
+                                        pass
+                    except Exception:
+                        continue
+                max_iterations = 1000
+                iterations = 0
+                while expand_queue and iterations < max_iterations:
+                    iterations += 1
+                    c = expand_queue.pop(0)
+                    part_path = _get_str_attr_safe(c, "GetPathName")
+                    if not part_path.lower().endswith(".sldasm"):
+                        continue
+                    try:
+                        config_name = _get_str_attr_safe(c, "ReferencedConfiguration")
+                    except Exception:
+                        config_name = ""
+                    cache_key = (part_path, config_name or "")
+                    if cache_key in subasm_expand_cache:
+                        subasm_expand_cache_hits += 1
+                        sub_children = subasm_expand_cache[cache_key]
+                    else:
+                        subasm_expand_attempts += 1
+                        sub_children = []
+                        try:
+                            sub_model = None
+                            sub_errors = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
+                            sub_warnings = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
+                            try:
+                                sub_model = self.sw_app.OpenDoc6(
+                                    part_path,
+                                    2,
+                                    0,
+                                    "",
+                                    sub_errors,
+                                    sub_warnings,
+                                )
+                            except Exception:
+                                sub_model = None
+                            if sub_model is not None:
+                                try:
+                                    if config_name:
+                                        try:
+                                            sub_model.ShowConfiguration2(config_name)
+                                        except Exception:
+                                            pass
+                                    try:
+                                        sub_asm = win32com.client.CastTo(sub_model, "AssemblyDoc")
+                                    except Exception:
+                                        sub_asm = sub_model
+                                    # Try components from the sub-assembly doc
+                                    try:
+                                        sub_raw = getattr(sub_asm, "GetComponents")(False)
+                                        sub_children = [x for x in _to_list_safe(sub_raw) if x is not None]
+                                    except Exception:
+                                        sub_children = []
+                                    # Fallback to root traversal if still empty
+                                    if not sub_children:
+                                        try:
+                                            root = sub_asm.GetRootComponent3(True) if hasattr(sub_asm, "GetRootComponent3") else None
+                                        except Exception:
+                                            root = None
+                                        if root is not None:
+                                            sub_children = []
+                                            stack = [root]
+                                            while stack:
+                                                cur = stack.pop()
+                                                if cur is None:
+                                                    continue
+                                                sub_children.append(cur)
+                                                try:
+                                                    kids = getattr(cur, "GetChildren", None)
+                                                    kids = kids() if callable(kids) else kids
+                                                except Exception:
+                                                    kids = None
+                                                for k in _to_list_safe(kids):
+                                                    stack.append(k)
+                                    # region agent log
+                                    # sample child paths for diagnostics
+                                    child_sample = []
+                                    try:
+                                        for sc in sub_children[:5]:
+                                            p = _get_str_attr_safe(sc, "GetPathName")
+                                            child_sample.append(os.path.basename(p) if p else "")
+                                    except Exception:
+                                        child_sample = child_sample
+                                    _debug_log(
+                                        "H2_COMPONENT_ENUM",
+                                        "solidworks-connector/src/SolidWorksConnector.py:get_all_parts_and_properties_from_assembly",
+                                        "subasm_expand_result",
+                                        {
+                                            "part_path": part_path,
+                                            "config": config_name,
+                                            "errors": getattr(sub_errors, "value", None),
+                                            "warnings": getattr(sub_warnings, "value", None),
+                                            "children_count": len(sub_children),
+                                            "children_sample": child_sample,
+                                        },
+                                    )
+                                    # region agent log
+                                    try:
+                                        sub_cfg_names = []
+                                        try:
+                                            raw_sub_cfg = sub_model.GetConfigurationNames() if hasattr(sub_model, "GetConfigurationNames") else None
+                                            sub_cfg_names = list(raw_sub_cfg) if raw_sub_cfg else []
+                                        except Exception:
+                                            sub_cfg_names = []
+                                        active_cfg = ""
+                                        try:
+                                            active_cfg = str(sub_model.ConfigurationManager.ActiveConfiguration.Name or "")
+                                        except Exception:
+                                            active_cfg = ""
+                                        _debug_log(
+                                            "H7_CONFIG",
+                                            "solidworks-connector/src/SolidWorksConnector.py:get_all_parts_and_properties_from_assembly",
+                                            "subasm_config_list",
+                                            {
+                                                "part_path": part_path,
+                                                "active_config": active_cfg,
+                                                "count": len(sub_cfg_names),
+                                                "sample": sub_cfg_names[:10],
+                                            },
+                                        )
+                                    except Exception:
+                                        pass
+                                    # endregion
+                                    # endregion
+                                finally:
+                                    try:
+                                        self._close_doc_best_effort(sub_model, part_path)
+                                    except Exception:
+                                        try:
+                                            self.sw_app.CloseDoc(part_path)
+                                        except Exception:
+                                            pass
+                        except Exception:
+                            sub_children = []
+                        subasm_expand_cache[cache_key] = sub_children
+                    if sub_children:
+                        components.extend(sub_children)
+                        subasm_expand_added += len(sub_children)
+                        for sc in sub_children:
+                            sp = _get_str_attr_safe(sc, "GetPathName")
+                            if sp and sp.lower().endswith(".sldasm"):
+                                lsp = sp.lower()
+                                if lsp not in seen_subasm_paths:
+                                    seen_subasm_paths.add(lsp)
+                                    expand_queue.append(sc)
+                # region agent log
+                _debug_log(
+                    "H2_COMPONENT_ENUM",
+                    "solidworks-connector/src/SolidWorksConnector.py:get_all_parts_and_properties_from_assembly",
+                    "subasm_expand_loop",
+                    {
+                        "iterations": iterations,
+                        "queue_remaining": len(expand_queue),
+                        "seen_subasm_paths": len(seen_subasm_paths),
+                        "subasm_expand_attempts": subasm_expand_attempts,
+                        "subasm_expand_added": subasm_expand_added,
+                        "subasm_expand_cache_hits": subasm_expand_cache_hits,
+                        "dep_subasm_paths": len(dep_subasm_paths),
+                        "dep_fallback_added": dep_fallback_added,
+                    },
+                )
+                # endregion
+
+            # region agent log
+            _debug_log(
+                "H2_COMPONENT_ENUM",
+                "solidworks-connector/src/SolidWorksConnector.py:get_all_parts_and_properties_from_assembly",
+                "components_final",
+                {
+                    "initial_components_count": initial_components_count,
+                    "components_len": len(components),
+                    "raw_components_type": str(type(raw_components)),
+                    "components_before_walk": locals().get("components_before_walk", None),
+                    "new_components_added": locals().get("new_components_added", None),
+                    "total_children_reported": locals().get("total_children_reported", None),
+                    "child_lists_nonempty": locals().get("child_lists_nonempty", None),
+                    "force_subasm_expand": force_subasm_expand,
+                    "subasm_expand_attempts": subasm_expand_attempts,
+                    "subasm_expand_added": subasm_expand_added,
+                    "subasm_expand_cache_hits": subasm_expand_cache_hits,
+                },
+            )
+            # endregion
+            # region agent log
+            try:
+                def _get_bool_attr_safe(obj, name: str) -> bool:
+                    try:
+                        val = getattr(obj, name, False)
+                    except Exception:
+                        return False
+                    try:
+                        return bool(val()) if callable(val) else bool(val)
+                    except Exception:
+                        return bool(val)
+
+                def _get_str_attr_safe2(obj, name: str) -> str:
+                    try:
+                        val = getattr(obj, name, "")
+                    except Exception:
+                        return ""
+                    try:
+                        res = val() if callable(val) else val
+                    except Exception:
+                        res = val
+                    return "" if res is None else str(res)
+
+                target_tokens = [
+                    "064180-06016",
+                    "920894-0001031A",
+                    "920894-0001033A",
+                    "080220-1433770",
+                    "920894-0001020B",
+                    "Adapterplatte Lüfter",
+                ]
+                comp_hits = {t: 0 for t in target_tokens}
+                comp_hits_suppressed = {t: 0 for t in target_tokens}
+                comp_hits_lightweight = {t: 0 for t in target_tokens}
+                suppressed_count = 0
+                lightweight_count_dbg = 0
+                comp_sample = []
+                for c in components:
+                    path = _get_str_attr_safe2(c, "GetPathName")
+                    name2 = _get_str_attr_safe2(c, "Name2")
+                    try:
+                        md = getattr(c, "GetModelDoc2", None)
+                        md = md() if callable(md) else md
+                    except Exception:
+                        md = None
+                    title = _get_str_attr_safe2(md, "GetTitle") if md is not None else ""
+                    hay = (path + " " + name2 + " " + title).lower()
+                    is_supp = _get_bool_attr_safe(c, "IsSuppressed") or _get_bool_attr_safe(c, "IsEnvelope")
+                    is_lw = _get_bool_attr_safe(c, "IsLightWeight")
+                    if is_supp:
+                        suppressed_count += 1
+                    if is_lw:
+                        lightweight_count_dbg += 1
+                    for t in target_tokens:
+                        if t.lower() in hay:
+                            comp_hits[t] += 1
+                            if is_supp:
+                                comp_hits_suppressed[t] += 1
+                            if is_lw:
+                                comp_hits_lightweight[t] += 1
+                    if len(comp_sample) < 10:
+                        comp_sample.append(
+                            {
+                                "name": name2,
+                                "path": path,
+                                "title": title,
+                                "suppressed": is_supp,
+                                "lightweight": is_lw,
+                            }
+                        )
+                _debug_log(
+                    "H9_COMPONENT_SEARCH",
+                    "solidworks-connector/src/SolidWorksConnector.py:get_all_parts_and_properties_from_assembly",
+                    "component_hits",
+                    {
+                        "components_len": len(components),
+                        "suppressed_count": suppressed_count,
+                        "lightweight_count": lightweight_count_dbg,
+                        "comp_hits": comp_hits,
+                        "comp_hits_suppressed": comp_hits_suppressed,
+                        "comp_hits_lightweight": comp_hits_lightweight,
+                        "comp_sample": comp_sample,
+                    },
+                )
+            except Exception:
+                pass
+            # endregion
+            # region agent log
+            try:
+                subasm_paths = []
+                for c in components:
+                    try:
+                        p = _get_str_attr_safe(c, "GetPathName")
+                    except Exception:
+                        p = ""
+                    if p and str(p).lower().endswith(".sldasm"):
+                        subasm_paths.append(p)
+                subasm_unique = sorted(set(subasm_paths))
+                target_tokens = [
+                    "920894-0001020B",
+                    "Adapterplatte Lüfter",
+                ]
+                target_hits = {t: 0 for t in target_tokens}
+                for p in subasm_unique:
+                    lp = p.lower()
+                    for t in target_tokens:
+                        if t.lower() in lp:
+                            target_hits[t] += 1
+                cache_keys = set(locals().get("subasm_expand_cache", {}).keys())
+                expanded_paths = set(k[0] for k in cache_keys) if cache_keys else set()
+                _debug_log(
+                    "H8_SUBASM_DEPTH",
+                    "solidworks-connector/src/SolidWorksConnector.py:get_all_parts_and_properties_from_assembly",
+                    "subasm_presence",
+                    {
+                        "subasm_total": len(subasm_paths),
+                        "subasm_unique": len(subasm_unique),
+                        "sample": subasm_unique[:10],
+                        "expanded_unique": len(expanded_paths),
+                        "target_hits": target_hits,
+                    },
+                )
+            except Exception:
+                pass
+            # endregion
 
             hidden_count = 0
             missing_path_count = 0
@@ -788,6 +1366,14 @@ class SolidWorksConnector:
             missing_has_modeldoc_count = 0
             missing_has_name_count = 0
             asm_loaded_children: list[str] = []
+            subasm_total = 0
+            subasm_no_children = 0
+            subasm_children_total = 0
+            subasm_children_nonempty = 0
+            subasm_open_attempts = 0
+            subasm_open_success = 0
+            subasm_child_samples: list[dict] = []
+            last_debug_ts = 0.0
             for component in components:
                 # Prüfe ob Teil versteckt ist
                 # Some SOLIDWORKS COM properties may appear as either methods or boolean properties via pywin32.
@@ -867,16 +1453,39 @@ class SolidWorksConnector:
 
                 # Track sub-assembly child availability
                 if part_path.lower().endswith(".sldasm"):
+                    subasm_total += 1
                     try:
                         kids = getattr(component, "GetChildren", None)
                         kids = kids() if callable(kids) else kids
                     except Exception:
                         kids = None
                     child_list = _to_list_safe(kids)
+                    if child_list:
+                        subasm_children_nonempty += 1
+                        subasm_children_total += len(child_list)
+                    if len(subasm_child_samples) < 5:
+                        subasm_child_samples.append(
+                            {
+                                "path": part_path,
+                                "children": len(child_list),
+                                "is_lightweight": is_lightweight,
+                                "config": config_name,
+                            }
+                        )
                     if len(child_list) == 0:
+                        subasm_no_children += 1
                         # Try to open sub-assembly to load children explicitly
+                        # region agent log
+                        _debug_log(
+                            "H2_SUBASM_OPEN",
+                            "solidworks-connector/src/SolidWorksConnector.py:get_all_parts_and_properties_from_assembly",
+                            "subasm_open_start",
+                            {"child": child, "part_path": part_path},
+                        )
+                        # endregion
                         try:
                             sub_model = None
+                            subasm_open_attempts += 1
                             try:
                                 sub_model = self.sw_app.OpenDoc6(
                                     part_path,
@@ -889,6 +1498,7 @@ class SolidWorksConnector:
                             except Exception:
                                 sub_model = None
                             if sub_model is not None:
+                                subasm_open_success += 1
                                 try:
                                     sub_asm = win32com.client.CastTo(sub_model, "AssemblyDoc")
                                 except Exception:
@@ -926,6 +1536,25 @@ class SolidWorksConnector:
                 properties = []
 
                 part_model = None
+                now_ts = time.time()
+                if child in (1, 5, 10) or (now_ts - last_debug_ts) > 5.0:
+                    last_debug_ts = now_ts
+                    # region agent log
+                    _debug_log(
+                        "H3_PART_OPENDOC",
+                        "solidworks-connector/src/SolidWorksConnector.py:get_all_parts_and_properties_from_assembly",
+                        "part_opendoc_start",
+                        {
+                            "child": child,
+                            "part_path": part_path,
+                            "is_lightweight": is_lightweight,
+                            "is_suppressed": is_suppressed,
+                            "is_envelope": is_envelope,
+                            "part_name": part_name,
+                            "config_name": config_name,
+                        },
+                    )
+                    # endregion
                 part_errors = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
                 part_warnings = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
                 try:
@@ -1100,6 +1729,131 @@ class SolidWorksConnector:
             connector_logger.info(
                 f"Assembly scan done. hidden_count={hidden_count}, missing_path_count={missing_path_count}, total_components={len(components)}"
             )
+            # region agent log
+            _debug_log(
+                "H2_COMPONENT_ENUM",
+                "solidworks-connector/src/SolidWorksConnector.py:get_all_parts_and_properties_from_assembly",
+                "scan_summary",
+                {
+                    "components_len": len(components),
+                    "hidden_count": hidden_count,
+                    "missing_path_count": missing_path_count,
+                    "lightweight_count": lightweight_count,
+                    "missing_lightweight_count": missing_lightweight_count,
+                    "missing_has_modeldoc_count": missing_has_modeldoc_count,
+                    "missing_has_name_count": missing_has_name_count,
+                    "subasm_total": subasm_total,
+                    "subasm_no_children": subasm_no_children,
+                "subasm_children_nonempty": subasm_children_nonempty,
+                "subasm_children_total": subasm_children_total,
+                    "subasm_open_attempts": subasm_open_attempts,
+                    "subasm_open_success": subasm_open_success,
+                "subasm_child_samples": subasm_child_samples,
+                },
+            )
+            # endregion
+            # region agent log
+            try:
+                virtual_rows = 0
+                unknown_rows = 0
+                unknown_names = 0
+                unknown_paths = 0
+                excluded_rows = 0
+                for row in results:
+                    if not isinstance(row, (list, tuple)) or len(row) < 14:
+                        continue
+                    prop_name = row[4]
+                    part_path = str(row[11] or "")
+                    part_name = str(row[1] or "")
+                    exclude_flag = bool(row[13])
+                    if prop_name:
+                        continue
+                    if exclude_flag:
+                        excluded_rows += 1
+                    if part_path.lower().startswith("virtual:"):
+                        virtual_rows += 1
+                        if part_path.lower().startswith("virtual:unknown:"):
+                            unknown_paths += 1
+                    if part_name.upper().startswith("UNKNOWN:"):
+                        unknown_names += 1
+                    if part_path.lower().startswith("virtual:unknown:") or part_name.upper().startswith("UNKNOWN:"):
+                        unknown_rows += 1
+                _debug_log(
+                    "H12_UNKNOWN",
+                    "solidworks-connector/src/SolidWorksConnector.py:get_all_parts_and_properties_from_assembly",
+                    "unknown_summary",
+                    {
+                        "rows_total": len(results),
+                        "virtual_rows": virtual_rows,
+                        "unknown_rows": unknown_rows,
+                        "unknown_paths": unknown_paths,
+                        "unknown_names": unknown_names,
+                        "excluded_rows": excluded_rows,
+                    },
+                )
+            except Exception:
+                pass
+            # endregion
+            # region agent log
+            try:
+                target_tokens = [
+                    "064180-06016",
+                    "920894-0001031A",
+                    "920894-0001033A",
+                    "080220-1433770",
+                    "920894-0001020B",
+                ]
+                target_hits = {t: 0 for t in target_tokens}
+                main_rows = 0
+                prop_rows = 0
+                empty_path_rows = 0
+                exclude_rows = 0
+                main_sample = []
+                prop_value_hits = {t: 0 for t in target_tokens}
+                for row in results:
+                    if not isinstance(row, (list, tuple)) or len(row) < 14:
+                        continue
+                    prop_name = row[4]
+                    prop_value = str(row[5] or "")
+                    part_path = str(row[11] or "")
+                    part_name = str(row[1] or "")
+                    exclude_flag = row[13]
+                    if prop_name:
+                        prop_rows += 1
+                        hay_prop = (prop_name + " " + prop_value).lower()
+                        for t in target_tokens:
+                            if t.lower() in hay_prop:
+                                prop_value_hits[t] += 1
+                        continue
+                    main_rows += 1
+                    if not part_path:
+                        empty_path_rows += 1
+                    if exclude_flag:
+                        exclude_rows += 1
+                    if len(main_sample) < 10:
+                        main_sample.append({"name": part_name, "path": part_path, "config": str(row[2] or "")})
+                    hay = (part_path + " " + part_name).lower()
+                    for t in target_tokens:
+                        if t.lower() in hay:
+                            target_hits[t] += 1
+                _debug_log(
+                    "H6_CONNECTOR_ROWS",
+                    "solidworks-connector/src/SolidWorksConnector.py:get_all_parts_and_properties_from_assembly",
+                    "rows_summary",
+                    {
+                        "rows_total": len(results),
+                        "main_rows": main_rows,
+                        "prop_rows": prop_rows,
+                        "empty_path_rows": empty_path_rows,
+                        "exclude_rows": exclude_rows,
+                        "target_hits": target_hits,
+                        "prop_value_hits": prop_value_hits,
+                        "main_sample": main_sample,
+                    },
+                )
+            except Exception:
+                pass
+            # endregion
         finally:
             try:
                 self._close_doc_best_effort(sw_model, assembly_filepath)

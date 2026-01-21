@@ -12,10 +12,28 @@ import logging
 import threading
 from logging.handlers import RotatingFileHandler
 from datetime import datetime
+import time
 
 # NOTE: previously used for debug-mode ingest; kept as no-op to avoid churn.
 def _agent_log(*args, **kwargs):
     return
+
+def _debug_log(hypothesis_id: str, location: str, message: str, data: dict):
+    try:
+        import json as _json
+        payload = {
+            "sessionId": "debug-session",
+            "runId": "sw-import-hang",
+            "hypothesisId": hypothesis_id,
+            "location": location,
+            "message": message,
+            "data": data,
+            "timestamp": int(time.time() * 1000),
+        }
+        with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
+            _f.write(_json.dumps(payload) + "\n")
+    except Exception:
+        pass
 
 # Konfiguriere Logging
 connector_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -145,6 +163,14 @@ def get_all_parts_from_assembly(request: AssemblyRequest):
     Liest alle Teile und Properties aus Assembly
     """
     try:
+        # region agent log
+        _debug_log(
+            "H0_MAIN_ENTRY",
+            "solidworks-connector/src/main.py:get_all_parts_from_assembly",
+            "entry",
+            {"assembly_filepath": request.assembly_filepath, "thread_id": threading.get_ident()},
+        )
+        # endregion
         connector_logger.info(f"get-all-parts-from-assembly aufgerufen mit filepath: {request.assembly_filepath}")
         connector = get_connector()
         connector_logger.info(f"Connector-Instanz erhalten, rufe get_all_parts_and_properties_from_assembly auf...")
