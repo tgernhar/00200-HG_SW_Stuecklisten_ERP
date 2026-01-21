@@ -41,6 +41,92 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
   const [writebackStatus, setWritebackStatus] = useState<'progress' | 'error' | 'success'>('progress')
   const [writebackMessage, setWritebackMessage] = useState('')
   const [writebackOpenPaths, setWritebackOpenPaths] = useState<string[]>([])
+
+  const rowData = useMemo(() => {
+    const list = Array.isArray(articles) ? articles : []
+    const out = showHidden ? list : list.filter(a => (a as any)?.in_stueckliste_anzeigen !== false)
+    return out
+  }, [articles, showHidden])
+
+  const bnrStatusCellStyle = useCallback((params: ICellRendererParams<Article>) => {
+    const raw = String(params.value ?? '').trim().toLowerCase()
+    if (!raw) return undefined
+    if (raw === 'bestellt') return { backgroundColor: '#add8e6' }
+    if (raw === 'ab erhalten') return { backgroundColor: '#ffa500' }
+    if (raw === 'email versendet') return { backgroundColor: '#ffd700' }
+    if (raw === 'geliefert') return { backgroundColor: '#90ee90' }
+    return undefined
+  }, [])
+
+  const a3BlockCColumns = [
+    { field: 'pos_nr_display', label: 'Pos-Nr' },
+    { field: 'hg_artikelnummer', label: 'H+G Artikelnummer' },
+    { field: 'benennung', label: 'Bezeichnung' },
+    { field: 'konfiguration', label: 'Konfiguration' },
+    { field: 'teilenummer', label: 'Teilenummer' },
+    { field: 'menge', label: 'Menge' },
+    { field: 'p_menge', label: 'P-Menge' },
+    { field: 'teiletyp_fertigungsplan', label: 'Teiletyp/Fertigungsplan' },
+    { field: 'abteilung_lieferant', label: 'Abteilung / Lieferant' },
+    { field: 'werkstoff', label: 'Werkstoff' },
+    { field: 'werkstoff_nr', label: 'Werkstoff-Nr.' },
+    { field: 'oberflaeche', label: 'Oberfläche' },
+    { field: 'oberflaechenschutz', label: 'Oberflächenschutz' },
+    { field: 'farbe', label: 'Farbe' },
+    { field: 'lieferzeit', label: 'Lieferzeit' },
+    { field: 'laenge', label: 'Länge' },
+    { field: 'breite', label: 'Breite' },
+    { field: 'hoehe', label: 'Höhe' },
+    { field: 'gewicht', label: 'Gewicht' },
+  ]
+
+  const handleExportBlockCA3 = useCallback(() => {
+    const rows = rowData || []
+    const html = `
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <style>
+            @page { size: A3 landscape; margin: 10mm; }
+            body { font-family: Arial, sans-serif; font-size: 9px; }
+            table { border-collapse: collapse; width: 100%; }
+            th, td { border: 1px solid #ddd; padding: 4px; text-align: left; vertical-align: top; }
+            th { background: #f3f3f3; }
+          </style>
+        </head>
+        <body>
+          <h3>Stücklisteninformation (A3 Querformat)</h3>
+          <table>
+            <thead>
+              <tr>
+                ${a3BlockCColumns.map((c) => `<th>${c.label}</th>`).join('')}
+              </tr>
+            </thead>
+            <tbody>
+              ${rows
+                .map((r) => {
+                  return `<tr>${a3BlockCColumns
+                    .map((c) => {
+                      let v = (r as any)?.[c.field]
+                      if (typeof v === 'boolean') v = v ? 'x' : ''
+                      if (v == null) v = ''
+                      return `<td>${String(v)}</td>`
+                    })
+                    .join('')}</tr>`
+                })
+                .join('')}
+            </tbody>
+          </table>
+        </body>
+      </html>`
+    const win = window.open('', '_blank')
+    if (!win) return
+    win.document.open()
+    win.document.write(html)
+    win.document.close()
+    win.focus()
+    win.print()
+  }, [rowData])
   const makeDocRenderer = useCallback(
     (opts: {
       existsField?: keyof Article
@@ -450,7 +536,7 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
       headerName: 'Bestellinformationen',
       children: [
         { field: 'hg_bnr', headerName: 'HG-BNR', width: 120, editable: false },
-        { field: 'bnr_status', headerName: 'BNR-Status', width: 100, editable: false },
+        { field: 'bnr_status', headerName: 'BNR-Status', width: 100, editable: false, cellStyle: bnrStatusCellStyle },
         { field: 'bnr_menge', headerName: 'BNR-Menge', width: 90, editable: false },
         { field: 'bestellkommentar', headerName: 'Bestellkommentar', width: 200, editable: false },
         { field: 'hg_lt', headerName: 'HG-LT', width: 100, editable: false },
@@ -629,7 +715,17 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
         { field: 'benennung', headerName: 'Bezeichnung', width: 280, editable: false },
         { field: 'konfiguration', headerName: 'Konfiguration', width: 60, editable: false },
         { field: 'teilenummer', headerName: 'Teilenummer', width: 140, editable: true, cellEditor: 'agTextCellEditor' },
-        { field: 'menge', headerName: 'Menge', width: 90, editable: false, hide: true, headerClass: 'rotated-header' },
+        {
+          field: 'menge',
+          headerName: 'Menge',
+          width: 90,
+          editable: false,
+          headerClass: 'rotated-header',
+          valueGetter: (p) => {
+            const v = p?.data?.p_menge
+            return v != null ? v : p?.data?.menge
+          }
+        },
         { field: 'p_menge', headerName: 'P-Menge', width: 90, editable: true, headerClass: 'rotated-header', valueParser: (p) => parseOptionalInt(p.newValue) },
         { field: 'teiletyp_fertigungsplan', headerName: 'Teiletyp/Fertigungsplan', width: 180, editable: true, maxLength: 150 },
         { field: 'abteilung_lieferant', headerName: 'Abteilung / Lieferant', width: 150, editable: true, maxLength: 150, cellEditor: SelectlistEditor, cellEditorParams: makeSelectEditorParams(deptValues), cellRenderer: (params: ICellRendererParams<Article>) => React.createElement('div', null, params.value ?? '') },
@@ -651,6 +747,7 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
     }
   ], [
     articleNumberCellRenderer,
+    bnrStatusCellStyle,
     makeDocRenderer,
     makeSelectEditorParams,
     SelectlistEditor,
@@ -858,10 +955,21 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
     } catch (e: any) {
       const detail = e?.response?.data?.detail
       const openPaths = Array.isArray(detail?.open_paths) ? detail.open_paths : []
+      const lockErrors = detail?.lock_errors || {}
+      const openInSw = detail?.open_in_sw || {}
       if (openPaths.length) {
         setWritebackStatus('error')
-        setWritebackMessage('Datei bereits geöffnet. Bitte schließen und erneut versuchen.')
-        setWritebackOpenPaths(openPaths)
+        setWritebackMessage(
+          'Datei bereits geöffnet oder gesperrt. Bitte schließen und erneut versuchen.'
+        )
+        const decorated = openPaths.map((p: string) => {
+          const isOpenInSw = !!openInSw?.[p]
+          const err = lockErrors?.[p]
+          if (isOpenInSw) return `${p} (in SOLIDWORKS geöffnet)`
+          if (err) return `${p} (${err})`
+          return p
+        })
+        setWritebackOpenPaths(decorated)
         setWritebackOpen(true)
         return
       }
@@ -911,13 +1019,6 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
       alert('Fehler beim Einblenden: ' + (e.response?.data?.detail || e.message))
     }
   }, [onAfterBulkUpdate])
-
-  const rowData = useMemo(() => {
-    const list = Array.isArray(articles) ? articles : []
-    const out = showHidden ? list : list.filter(a => (a as any)?.in_stueckliste_anzeigen !== false)
-    return out
-  }, [articles, showHidden])
-
 
   return (
     <div style={{ width: '100%', height: '100%' }} onKeyDownCapture={handleKeyDownCapture} onMouseDownCapture={handleMouseDownCapture}>
@@ -1009,6 +1110,18 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
           }}
         >
           Auswahl einblenden
+        </button>
+        <button
+          onClick={handleExportBlockCA3}
+          style={{
+            padding: '6px 10px',
+            border: '1px solid #ccc',
+            borderRadius: 4,
+            background: '#f7f7f7',
+            cursor: 'pointer'
+          }}
+        >
+          Export PDF Stückliste
         </button>
         <button
           onClick={async () => {

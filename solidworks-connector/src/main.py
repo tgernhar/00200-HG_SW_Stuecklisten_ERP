@@ -115,12 +115,12 @@ def get_connector_v2():
     return _thread_local_v2.connector
 
 
-def _is_file_locked(path: str) -> bool:
+def _check_file_lock(path: str) -> tuple[bool, str | None]:
     """
-    Windows file-lock check: returns True if another process holds an exclusive lock.
+    Windows file-lock check: returns (locked, error_text).
     """
     if not path:
-        return False
+        return False, None
     try:
         handle = win32file.CreateFile(
             path,
@@ -132,9 +132,9 @@ def _is_file_locked(path: str) -> bool:
             None,
         )
         win32file.CloseHandle(handle)
-        return False
-    except Exception:
-        return True
+        return False, None
+    except Exception as e:
+        return True, str(e)
 
 class AssemblyRequest(BaseModel):
     assembly_filepath: str
@@ -468,11 +468,20 @@ def check_open_docs(request: PathsOpenCheckRequest):
     Prüft, ob Dateien durch andere Prozesse geöffnet/gesperrt sind (Windows).
     """
     try:
+        connector = None
+        try:
+            connector = get_connector()
+            if getattr(connector, "sw_app", None) is None and hasattr(connector, "connect"):
+                connector.connect()
+        except Exception:
+            connector = None
         paths = request.paths or []
         if len(paths) > 500:
             raise HTTPException(status_code=400, detail="Zu viele Pfade (max 500)")
         open_paths = []
+        lock_errors: dict[str, str] = {}
         missing_paths = []
+        open_in_sw: dict[str, bool] = {}
         for p in paths:
             sp = str(p or "")
             if not sp:
@@ -480,12 +489,53 @@ def check_open_docs(request: PathsOpenCheckRequest):
             if not os.path.exists(sp):
                 missing_paths.append(sp)
                 continue
-            if _is_file_locked(sp):
+            in_sw = False
+            if connector is not None and getattr(connector, "sw_app", None) is not None:
+                try:
+                    doc = connector.sw_app.GetOpenDocumentByName(sp)
+                    if not doc:
+                        base = os.path.basename(sp)
+                        if base:
+                            doc = connector.sw_app.GetOpenDocumentByName(base)
+                    in_sw = bool(doc)
+                except Exception:
+                    in_sw = False
+            if in_sw:
                 open_paths.append(sp)
+                open_in_sw[sp] = True
+                continue
+            locked, err = _check_file_lock(sp)
+            if locked:
+                open_paths.append(sp)
+                if err:
+                    lock_errors[sp] = err
+        # region agent log
+        _write_debug(
+            {
+                "sessionId": "debug-session",
+                "runId": "open-check",
+                "hypothesisId": "H11_OPEN_CHECK",
+                "location": "solidworks-connector/src/main.py:check_open_docs",
+                "message": "open_check_result",
+                "data": {
+                    "count": len(paths),
+                    "open_count": len(open_paths),
+                    "missing_count": len(missing_paths),
+                    "open_sample": open_paths[:5],
+                    "missing_sample": missing_paths[:5],
+                    "lock_errors_sample": dict(list(lock_errors.items())[:3]),
+                    "open_in_sw_sample": dict(list(open_in_sw.items())[:3]),
+                },
+                "timestamp": int(time.time() * 1000),
+            }
+        )
+        # endregion
         return {
             "success": True,
             "open_paths": open_paths,
             "missing_paths": missing_paths,
+            "lock_errors": lock_errors,
+            "open_in_sw": open_in_sw,
             "count": len(paths),
         }
     except HTTPException:

@@ -451,9 +451,26 @@ function App() {
     if (!project) return
     const doExport = async () => {
       try {
-        const selectedIds = selectedArticles.map(a => a.id).filter(Boolean)
+        const selected = selectedArticles || []
+        const selectedIds = selected.map(a => a.id).filter(Boolean) as number[]
+        const validPattern = /^\d{6}-/
+        const selectedValidIds = selected
+          .filter((a) => validPattern.test(String((a as any)?.hg_artikelnummer || '').trim()))
+          .map((a) => a.id)
+          .filter(Boolean) as number[]
         const params: any = {}
-        if (selectedIds.length) params.article_ids = selectedIds.join(',')
+        if (selectedIds.length) {
+          const ok = window.confirm(
+            `Es sind ${selectedIds.length} Artikel ausgewählt. Nur die Auswahl exportieren?\n` +
+              `Hinweis: Exportiert werden nur Artikel, die noch nicht in HUGWAWI vorhanden sind.`
+          )
+          if (!ok) return
+          if (!selectedValidIds.length) {
+            alert('Keine gültigen Artikelnummern in der Auswahl (Format: 6 Ziffern + "-").')
+            return
+          }
+          params.article_ids = selectedValidIds.join(',')
+        }
 
         const res = await api.get(`/projects/${project.id}/export-hugwawi-articles-csv`, {
           params,

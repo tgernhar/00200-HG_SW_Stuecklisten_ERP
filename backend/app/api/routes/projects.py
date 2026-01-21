@@ -721,12 +721,16 @@ async def push_solidworks(
             raise HTTPException(status_code=502, detail=f"Open-Check fehlgeschlagen: {resp.status_code} - {resp.text}")
         data = resp.json() if resp.content else {}
         open_paths = data.get("open_paths") or []
+        lock_errors = data.get("lock_errors") or {}
+        open_in_sw = data.get("open_in_sw") or {}
         if open_paths:
             raise HTTPException(
                 status_code=409,
                 detail={
                     "message": "Eine oder mehrere Dateien sind bereits geöffnet.",
                     "open_paths": open_paths[:50],
+                    "lock_errors": dict(list(lock_errors.items())[:50]) if isinstance(lock_errors, dict) else {},
+                    "open_in_sw": dict(list(open_in_sw.items())[:50]) if isinstance(open_in_sw, dict) else {},
                 },
             )
 

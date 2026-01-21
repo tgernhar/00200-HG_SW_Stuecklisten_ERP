@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from app.core.database import get_db
+import re
 from app.models.project import Project
 
 router = APIRouter()
@@ -124,8 +125,10 @@ async def export_hugwawi_articles_csv(
             q = q.filter(Article.id.in_(parsed_ids))
 
     articles = q.all()
-    # zusätzlich Leerwerte/\"-\" entfernen
+    # zusätzlich Leerwerte/"-" entfernen + Plausibilitätsprüfung
     articles = [a for a in articles if (a.hg_artikelnummer or "").strip() and (a.hg_artikelnummer or "").strip() != "-"]
+    valid_pattern = re.compile(r"^[0-9]{6}-")
+    articles = [a for a in articles if valid_pattern.match((a.hg_artikelnummer or "").strip())]
 
     csv_text = build_hugwawi_article_import_csv(articles, export_dt=datetime.now())
 
