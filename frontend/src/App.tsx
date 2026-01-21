@@ -46,6 +46,10 @@ function App() {
   const [bestellartikelTemplates, setBestellartikelTemplates] = useState<HugwawiBestellartikelTemplate[]>([])
   const [bestellartikelSearch, setBestellartikelSearch] = useState('')
   const [selectedTemplateIds, setSelectedTemplateIds] = useState<Set<number>>(new Set())
+  const [isCheckingDocuments, setIsCheckingDocuments] = useState(false)
+  const [checkDocumentsMessage, setCheckDocumentsMessage] = useState<string | null>(null)
+  const [isCreatingDocuments, setIsCreatingDocuments] = useState(false)
+  const [createDocumentsMessage, setCreateDocumentsMessage] = useState<string | null>(null)
 
   // Optional debug logger (no-op). Keep signature flexible so callsites don't break typechecking.
   const _log = (..._args: any[]) => {}
@@ -371,6 +375,9 @@ function App() {
     if (!project) return
 
     try {
+      if (isCreatingDocuments) return
+      setIsCreatingDocuments(true)
+      setCreateDocumentsMessage('Dokumente werden erstellt…')
       const response = await api.post(`/projects/${project.id}/generate-documents-batch`)
 
       const generated_count =
@@ -380,20 +387,28 @@ function App() {
         (response as any)?.data?.failed_count ??
         (Array.isArray((response as any)?.data?.failed) ? (response as any).data.failed.length : undefined)
 
+      setCreateDocumentsMessage('Dokumente erstellt')
       alert(
         `Dokumente erstellt: ${generated_count ?? '-'} erfolgreich, ${failed_count ?? '-'} fehlgeschlagen`
       )
       refetch()
     } catch (error: any) {
+      setCreateDocumentsMessage('Dokumenterstellung fehlgeschlagen')
       alert('Fehler beim Erstellen der Dokumente: ' + error.message)
+    } finally {
+      setIsCreatingDocuments(false)
     }
   }
 
   const handleCheckDocuments = async () => {
     if (!project) return
+    if (isCheckingDocuments) return
     try {
+      setIsCheckingDocuments(true)
+      setCheckDocumentsMessage('Dokumente werden geprüft…')
       const response = await api.post(`/projects/${project.id}/check-documents-batch`)
       const { checked_articles, checked_documents, found_documents, failed_count } = response.data || {}
+      setCheckDocumentsMessage('Dokumentprüfung abgeschlossen')
       alert(
         `Dokumentprüfung abgeschlossen:\n` +
           `Artikel geprüft: ${checked_articles ?? '-'}\n` +
@@ -403,7 +418,10 @@ function App() {
       )
       refetch()
     } catch (error: any) {
+      setCheckDocumentsMessage('Dokumentprüfung fehlgeschlagen')
       alert('Fehler bei der Dokumentprüfung: ' + (error.response?.data?.detail || error.message))
+    } finally {
+      setIsCheckingDocuments(false)
     }
   }
 
@@ -622,6 +640,94 @@ function App() {
 
   return (
     <div className="app">
+      {isCheckingDocuments && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0,0,0,0.45)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 2100
+          }}
+        >
+          <div
+            style={{
+              background: '#fff',
+              padding: 20,
+              width: 420,
+              maxWidth: '90vw',
+              borderRadius: 8,
+              textAlign: 'center'
+            }}
+          >
+            <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>
+              Dokumente prüfen
+            </div>
+            <div style={{ marginBottom: 10, color: '#555' }}>
+              {checkDocumentsMessage || 'Bitte warten…'}
+            </div>
+            <div style={{ height: 8, background: '#eee', borderRadius: 6, overflow: 'hidden' }}>
+              <div
+                style={{
+                  height: '100%',
+                  width: '70%',
+                  background: '#4caf50',
+                  transition: 'width 0.3s ease'
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+      {isCreatingDocuments && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0,0,0,0.45)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 2100
+          }}
+        >
+          <div
+            style={{
+              background: '#fff',
+              padding: 20,
+              width: 420,
+              maxWidth: '90vw',
+              borderRadius: 8,
+              textAlign: 'center'
+            }}
+          >
+            <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>
+              Dokumente erstellen
+            </div>
+            <div style={{ marginBottom: 10, color: '#555' }}>
+              {createDocumentsMessage || 'Bitte warten…'}
+            </div>
+            <div style={{ height: 8, background: '#eee', borderRadius: 6, overflow: 'hidden' }}>
+              <div
+                style={{
+                  height: '100%',
+                  width: '70%',
+                  background: '#4caf50',
+                  transition: 'width 0.3s ease'
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
       {isImporting && (
         <div
           style={{
@@ -1309,6 +1415,8 @@ function App() {
             boms={boms}
             selectedBomId={selectedBomId}
             isImporting={isImporting}
+            isCheckingDocuments={isCheckingDocuments}
+            isCreatingDocuments={isCreatingDocuments}
             onSelectBom={(id) => {
               setSelectedBomId(id)
               try {

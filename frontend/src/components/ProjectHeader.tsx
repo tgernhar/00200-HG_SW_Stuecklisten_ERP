@@ -9,6 +9,8 @@ interface ProjectHeaderProps {
   boms: Bom[]
   selectedBomId: number | null
   isImporting: boolean
+  isCheckingDocuments: boolean
+  isCreatingDocuments: boolean
   onSelectBom: (bomId: number) => void
   onImportSolidworks: () => void
   onCreateBestellartikel: () => void
@@ -26,6 +28,8 @@ export const ProjectHeader: React.FC<ProjectHeaderProps> = ({
   boms,
   selectedBomId,
   isImporting,
+  isCheckingDocuments,
+  isCreatingDocuments,
   onSelectBom,
   onImportSolidworks,
   onCreateBestellartikel,
@@ -88,10 +92,12 @@ export const ProjectHeader: React.FC<ProjectHeaderProps> = ({
         </button>
         <button onClick={onCheckERP}>Artikel-Sync</button>
         <button onClick={onSyncOrders}>BN-Sync</button>
-        <button onClick={onCreateDocuments} style={{ fontWeight: 'bold' }}>
-          Dokumente erstellen
+        <button onClick={onCreateDocuments} style={{ fontWeight: 'bold' }} disabled={isCreatingDocuments}>
+          {isCreatingDocuments ? 'Dokumente erstellen...' : 'Dokumente erstellen'}
         </button>
-        <button onClick={onCheckDocuments}>Dokumente prüfen</button>
+        <button onClick={onCheckDocuments} disabled={isCheckingDocuments}>
+          {isCheckingDocuments ? 'Dokumente prüfen...' : 'Dokumente prüfen'}
+        </button>
         <button onClick={onPrintPDFQueueMerged} style={{ fontWeight: 'bold' }}>PDF drucken</button>
         <button onClick={onExport}>ERP-Artikel-Export</button>
       </div>
