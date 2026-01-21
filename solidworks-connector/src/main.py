@@ -14,7 +14,6 @@ import threading
 from logging.handlers import RotatingFileHandler
 from datetime import datetime
 import time
-import json
 import win32file
 import win32con
 import ctypes
@@ -23,15 +22,6 @@ from ctypes import wintypes
 # NOTE: previously used for debug-mode ingest; kept as no-op to avoid churn.
 def _agent_log(*args, **kwargs):
     return
-
-# region agent log
-def _write_debug(payload: dict) -> None:
-    try:
-        with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
-            _f.write(json.dumps(payload) + "\n")
-    except Exception:
-        pass
-# endregion
 
 # Konfiguriere Logging
 connector_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -74,33 +64,6 @@ connector_logger.propagate = False  # Verhindere Propagation zum Root-Logger, da
 connector_logger.info(f"SOLIDWORKS-Connector-Logging initialisiert. Log-Datei: {log_file}")
 
 app = FastAPI(title="SOLIDWORKS Connector API", version="1.0.0")
-
-# Log FastAPI lifecycle to detect process exits/restarts.
-@app.on_event("startup")
-def _on_startup():
-    connector_logger.info("FASTAPI startup: solidworks-connector")
-
-
-@app.on_event("shutdown")
-def _on_shutdown():
-    connector_logger.info("FASTAPI shutdown: solidworks-connector")
-
-
-@app.middleware("http")
-async def _log_requests(request: Request, call_next):
-    connector_logger.info(f"REQ start: {request.method} {request.url.path}")
-    try:
-        response = await call_next(request)
-    except Exception as e:
-        connector_logger.error(
-            f"REQ error: {request.method} {request.url.path} err={e}",
-            exc_info=True,
-        )
-        raise
-    connector_logger.info(
-        f"REQ end: {request.method} {request.url.path} status={response.status_code}"
-    )
-    return response
 
 
 @app.exception_handler(RequestValidationError)
@@ -151,9 +114,6 @@ def _check_file_lock(path: str) -> tuple[bool, str | None]:
     if not path:
         return False, None
     try:
-        # region agent log
-        connector_logger.info(f"lock-check start: {path}")
-        # endregion
         handle = win32file.CreateFile(
             path,
             win32con.GENERIC_READ,
@@ -164,14 +124,8 @@ def _check_file_lock(path: str) -> tuple[bool, str | None]:
             None,
         )
         win32file.CloseHandle(handle)
-        # region agent log
-        connector_logger.info(f"lock-check end: {path} locked=False")
-        # endregion
         return False, None
     except Exception as e:
-        # region agent log
-        connector_logger.info(f"lock-check end: {path} locked=True err={e}")
-        # endregion
         return True, str(e)
 
 
@@ -185,10 +139,6 @@ def _get_locking_processes(path: str) -> list[dict]:
         rstrtmgr = ctypes.WinDLL("rstrtmgr")
     except Exception:
         return []
-
-    # region agent log
-    connector_logger.info(f"lock-proc start: {path}")
-    # endregion
 
     CCH_RM_MAX_APP_NAME = 255
     CCH_RM_MAX_SVC_NAME = 63
@@ -212,17 +162,11 @@ def _get_locking_processes(path: str) -> list[dict]:
     key = ctypes.create_unicode_buffer(32)
     res = rstrtmgr.RmStartSession(ctypes.byref(session), 0, key)
     if res != 0:
-        # region agent log
-        connector_logger.info(f"lock-proc end: {path} start_session_res={res}")
-        # endregion
         return []
     try:
         resources = (wintypes.LPCWSTR * 1)(path)
         res = rstrtmgr.RmRegisterResources(session, 1, resources, 0, None, 0, None)
         if res != 0:
-            # region agent log
-            connector_logger.info(f"lock-proc end: {path} register_res={res}")
-            # endregion
             return []
 
         needed = wintypes.DWORD(0)
@@ -234,22 +178,13 @@ def _get_locking_processes(path: str) -> list[dict]:
             count = wintypes.DWORD(needed.value)
             res = rstrtmgr.RmGetList(session, ctypes.byref(needed), ctypes.byref(count), arr, ctypes.byref(reason))
             if res != 0:
-                # region agent log
-                connector_logger.info(f"lock-proc end: {path} getlist_res={res}")
-                # endregion
                 return []
             out = []
             for i in range(count.value):
                 info = arr[i]
                 out.append({"pid": int(info.Process.dwProcessId), "name": info.strAppName})
-            # region agent log
-            connector_logger.info(f"lock-proc end: {path} count={len(out)}")
-            # endregion
             return out
         if res == 0:
-            # region agent log
-            connector_logger.info(f"lock-proc end: {path} count=0")
-            # endregion
             return []
     finally:
         try:
@@ -315,88 +250,18 @@ def get_all_parts_from_assembly(request: AssemblyRequest):
     """
     try:
         # region agent log
-        _write_debug(
-            {
-                "sessionId": "debug-session",
-                "runId": "import-error",
-                "hypothesisId": "H8_SW_CALL",
-                "location": "solidworks-connector/src/main.py:get_all_parts_from_assembly",
-                "message": "entry",
-                "data": {"assembly_filepath": request.assembly_filepath},
-                "timestamp": int(time.time() * 1000),
-            }
-        )
-        # endregion
         connector_logger.info(f"get-all-parts-from-assembly aufgerufen mit filepath: {request.assembly_filepath}")
         connector = get_connector()
         connector_logger.info(f"Connector-Instanz erhalten, rufe get_all_parts_and_properties_from_assembly auf...")
-        # region agent log
-        _write_debug(
-            {
-                "sessionId": "debug-session",
-                "runId": "import-error",
-                "hypothesisId": "H8_SW_CALL",
-                "location": "solidworks-connector/src/main.py:get_all_parts_from_assembly",
-                "message": "before_connector_call",
-                "data": {},
-                "timestamp": int(time.time() * 1000),
-            }
-        )
-        # endregion
         results = connector.get_all_parts_and_properties_from_assembly(
             request.assembly_filepath
         )
-        # region agent log
-        _write_debug(
-            {
-                "sessionId": "debug-session",
-                "runId": "import-error",
-                "hypothesisId": "H8_SW_CALL",
-                "location": "solidworks-connector/src/main.py:get_all_parts_from_assembly",
-                "message": "after_connector_call",
-                "data": {"results_count": len(results) if results else 0},
-                "timestamp": int(time.time() * 1000),
-            }
-        )
-        # endregion
-        # region agent log
-        try:
-            _write_debug(
-                {
-                    "sessionId": "debug-session",
-                    "runId": "sw-activity",
-                    "hypothesisId": "SW_LIFECYCLE",
-                    "location": "solidworks-connector/src/main.py:get_all_parts_from_assembly",
-                    "message": "post_import_state",
-                    "data": {
-                        "open_doc_count": connector.get_open_doc_count(),
-                        "results_count": len(results) if results else 0,
-                    },
-                    "timestamp": int(datetime.now().timestamp() * 1000),
-                }
-            )
-        except Exception:
-            pass
-        # endregion
         connector_logger.info(f"Erfolgreich: {len(results) if results else 0} Ergebnisse erhalten")
         return {
             "success": True,
             "results": results
         }
     except Exception as e:
-        # region agent log
-        _write_debug(
-            {
-                "sessionId": "debug-session",
-                "runId": "import-error",
-                "hypothesisId": "H8_SW_CALL",
-                "location": "solidworks-connector/src/main.py:get_all_parts_from_assembly",
-                "message": "error",
-                "data": {"error": str(e)},
-                "timestamp": int(time.time() * 1000),
-            }
-        )
-        # endregion
         connector_logger.error(f"Fehler in get-all-parts-from-assembly: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -642,28 +507,6 @@ def check_open_docs(request: PathsOpenCheckRequest):
                     connector_logger.warning(
                         f"check-open-docs: locked without process info: {sp} err={err}"
                     )
-        # region agent log
-        _write_debug(
-            {
-                "sessionId": "debug-session",
-                "runId": "open-check",
-                "hypothesisId": "H11_OPEN_CHECK",
-                "location": "solidworks-connector/src/main.py:check_open_docs",
-                "message": "open_check_result",
-                "data": {
-                    "count": len(paths),
-                    "open_count": len(open_paths),
-                    "missing_count": len(missing_paths),
-                    "open_sample": open_paths[:5],
-                    "missing_sample": missing_paths[:5],
-                    "lock_errors_sample": dict(list(lock_errors.items())[:3]),
-                    "open_in_sw_sample": dict(list(open_in_sw.items())[:3]),
-                    "lock_processes_sample": dict(list(lock_processes.items())[:3]),
-                },
-                "timestamp": int(time.time() * 1000),
-            }
-        )
-        # endregion
         return {
             "success": True,
             "open_paths": open_paths,
@@ -708,28 +551,6 @@ def set_custom_properties(request: SetCustomPropertiesRequest):
     Setzt Custom Properties in einer SOLIDWORKS Datei (SLDPRT/SLDASM).
     """
     try:
-        connector_logger.info(
-            f"set-custom-properties aufgerufen: filepath={request.filepath} "
-            f"config={request.configuration} scope={request.scope} prop_count={len(request.properties or {})}"
-        )
-        # region agent log
-        _write_debug(
-            {
-                "sessionId": "debug-session",
-                "runId": "writeback",
-                "hypothesisId": "H12_WRITEBACK",
-                "location": "solidworks-connector/src/main.py:set_custom_properties",
-                "message": "entry",
-                "data": {
-                    "filepath": request.filepath,
-                    "configuration": request.configuration,
-                    "scope": request.scope,
-                    "prop_count": len(request.properties or {}),
-                },
-                "timestamp": int(time.time() * 1000),
-            }
-        )
-        # endregion
         connector = get_connector()
         result = connector.set_custom_properties(
             request.filepath,
@@ -737,41 +558,8 @@ def set_custom_properties(request: SetCustomPropertiesRequest):
             properties=request.properties,
             scope=request.scope,
         )
-        connector_logger.info(
-            f"set-custom-properties erfolgreich: filepath={request.filepath} updated_count={result.get('updated_count') if isinstance(result, dict) else None}"
-        )
-        # region agent log
-        _write_debug(
-            {
-                "sessionId": "debug-session",
-                "runId": "writeback",
-                "hypothesisId": "H12_WRITEBACK",
-                "location": "solidworks-connector/src/main.py:set_custom_properties",
-                "message": "success",
-                "data": {"result": result},
-                "timestamp": int(time.time() * 1000),
-            }
-        )
-        # endregion
         return {"success": True, "result": result}
     except Exception as e:
-        connector_logger.error(
-            f"set-custom-properties Fehler: filepath={request.filepath} err={e}",
-            exc_info=True,
-        )
-        # region agent log
-        _write_debug(
-            {
-                "sessionId": "debug-session",
-                "runId": "writeback",
-                "hypothesisId": "H12_WRITEBACK",
-                "location": "solidworks-connector/src/main.py:set_custom_properties",
-                "message": "error",
-                "data": {"error": str(e)},
-                "timestamp": int(time.time() * 1000),
-            }
-        )
-        # endregion
         connector_logger.error(f"Fehler in set-custom-properties: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 

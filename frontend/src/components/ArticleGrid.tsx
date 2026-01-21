@@ -42,26 +42,6 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
   const [writebackMessage, setWritebackMessage] = useState('')
   const [writebackOpenPaths, setWritebackOpenPaths] = useState<string[]>([])
 
-  // #region agent log
-  const _dbgLog = (message: string, data: any) => {
-    try {
-      fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sessionId: 'debug-session',
-          runId: 'writeback-ui',
-          hypothesisId: 'H13_WRITEBACK_UI',
-          location: 'frontend/src/components/ArticleGrid.tsx',
-          message,
-          data,
-          timestamp: Date.now()
-        })
-      }).catch(() => {})
-    } catch {}
-  }
-  // #endregion
-
   const rowData = useMemo(() => {
     const list = Array.isArray(articles) ? articles : []
     const out = showHidden ? list : list.filter(a => (a as any)?.in_stueckliste_anzeigen !== false)
@@ -956,9 +936,6 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
     }
     const articleIds = selected.map(a => a.id).filter(Boolean)
     try {
-      // #region agent log
-      _dbgLog('writeback_start', { projectId: pid, articleIds })
-      // #endregion
       setWritebackStatus('progress')
       setWritebackMessage('Rückschreiben läuft…')
       setWritebackOpenPaths([])
@@ -976,13 +953,6 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
       alert(msg)
       setWritebackOpen(false)
     } catch (e: any) {
-      // #region agent log
-      _dbgLog('writeback_error', {
-        status: e?.response?.status,
-        detail: e?.response?.data?.detail,
-        message: String(e?.message || '')
-      })
-      // #endregion
       const detail = e?.response?.data?.detail
       const openPaths = Array.isArray(detail?.open_paths) ? detail.open_paths : []
       const lockErrors = detail?.lock_errors || {}

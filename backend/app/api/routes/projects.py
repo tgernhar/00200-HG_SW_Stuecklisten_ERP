@@ -17,6 +17,8 @@ import httpx
 import os
 import logging
 import ntpath
+import json
+import time
 
 # Logger wird von logging_config.py konfiguriert
 logger = logging.getLogger(__name__)
@@ -27,6 +29,15 @@ logger.setLevel(logging.DEBUG)  # Setze Level, damit alle Meldungen durchkommen
 # Hilfsfunktion für Debug-Logs (deaktiviert)
 def debug_log(message, level=logging.DEBUG):
     return
+
+# region agent log
+def _write_debug_backend(payload: dict) -> None:
+    try:
+        with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
+            _f.write(json.dumps(payload) + "\n")
+    except Exception:
+        pass
+# endregion
 
 router = APIRouter()
 
@@ -690,6 +701,20 @@ async def push_solidworks(
     if not project:
         raise HTTPException(status_code=404, detail="Projekt nicht gefunden")
 
+    # region agent log
+    _write_debug_backend(
+        {
+            "sessionId": "debug-session",
+            "runId": "writeback-backend",
+            "hypothesisId": "H15_BACKEND_CONN",
+            "location": "backend/app/api/routes/projects.py:push_solidworks",
+            "message": "start",
+            "data": {"project_id": project_id, "article_ids_count": len(payload.article_ids or [])},
+            "timestamp": int(time.time() * 1000),
+        }
+    )
+    # endregion
+
     ids = list(payload.article_ids or [])
     if not ids:
         raise HTTPException(status_code=400, detail="Keine article_ids angegeben")
@@ -727,8 +752,34 @@ async def push_solidworks(
     if paths_to_check:
         check_url = f"{settings.SOLIDWORKS_CONNECTOR_URL}/api/solidworks/check-open-docs"
         try:
+            # region agent log
+            _write_debug_backend(
+                {
+                    "sessionId": "debug-session",
+                    "runId": "writeback-backend",
+                    "hypothesisId": "H15_BACKEND_CONN",
+                    "location": "backend/app/api/routes/projects.py:push_solidworks",
+                    "message": "check_open_docs_call",
+                    "data": {"check_url": check_url, "count": len(paths_to_check)},
+                    "timestamp": int(time.time() * 1000),
+                }
+            )
+            # endregion
             resp = await _post_with_retry(check_url, {"paths": paths_to_check}, timeout=30.0)
         except httpx.RequestError as e:
+            # region agent log
+            _write_debug_backend(
+                {
+                    "sessionId": "debug-session",
+                    "runId": "writeback-backend",
+                    "hypothesisId": "H15_BACKEND_CONN",
+                    "location": "backend/app/api/routes/projects.py:push_solidworks",
+                    "message": "check_open_docs_error",
+                    "data": {"error": f"{type(e).__name__}: {e}", "check_url": check_url},
+                    "timestamp": int(time.time() * 1000),
+                }
+            )
+            # endregion
             raise HTTPException(status_code=502, detail=f"SOLIDWORKS-Connector nicht erreichbar: {e}")
         if resp.status_code != 200:
             raise HTTPException(status_code=502, detail=f"Open-Check fehlgeschlagen: {resp.status_code} - {resp.text}")
@@ -812,8 +863,34 @@ async def push_solidworks(
         }
 
         try:
+            # region agent log
+            _write_debug_backend(
+                {
+                    "sessionId": "debug-session",
+                    "runId": "writeback-backend",
+                    "hypothesisId": "H15_BACKEND_CONN",
+                    "location": "backend/app/api/routes/projects.py:push_solidworks",
+                    "message": "set_custom_properties_call",
+                    "data": {"url": url, "article_id": a.id, "filepath": filepath},
+                    "timestamp": int(time.time() * 1000),
+                }
+            )
+            # endregion
             resp = await _post_with_retry(url, req, timeout=120.0)
         except httpx.RequestError as e:
+            # region agent log
+            _write_debug_backend(
+                {
+                    "sessionId": "debug-session",
+                    "runId": "writeback-backend",
+                    "hypothesisId": "H15_BACKEND_CONN",
+                    "location": "backend/app/api/routes/projects.py:push_solidworks",
+                    "message": "set_custom_properties_error",
+                    "data": {"error": f"{type(e).__name__}: {e}", "url": url, "article_id": a.id},
+                    "timestamp": int(time.time() * 1000),
+                }
+            )
+            # endregion
             raise HTTPException(status_code=502, detail=f"SOLIDWORKS-Connector nicht erreichbar: {e}")
 
         if resp.status_code != 200:
