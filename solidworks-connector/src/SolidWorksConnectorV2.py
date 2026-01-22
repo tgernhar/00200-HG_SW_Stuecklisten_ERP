@@ -103,8 +103,8 @@ class SolidWorksConnectorV2:
                     pass
             if self._owns_app:
                 try:
-                    # Run SOLIDWORKS headless when we started it.
-                    self.sw_app.Visible = False
+                    # Run SOLIDWORKS visible when we started it.
+                    self.sw_app.Visible = True
                 except Exception:
                     pass
 
