@@ -48,6 +48,14 @@ async def check_article_documents(article_id: int, db: Session) -> dict:
     
     Entspricht VBA Main_check_documents_of_Article()
     """
+    # #region agent log
+    import json
+    log_path = r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log"
+    try:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"id": f"log_{int(__import__('time').time())}_{article_id}", "timestamp": int(__import__('time').time() * 1000), "location": "document_service.py:check_article_documents:entry", "message": "Function entry", "data": {"article_id": article_id}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A"}) + "\n")
+    except: pass
+    # #endregion
     article = db.query(Article).filter(Article.id == article_id).first()
     if not article:
         return {"error": "Artikel nicht gefunden"}
@@ -68,17 +76,35 @@ async def check_article_documents(article_id: int, db: Session) -> dict:
     base_dir_container = _dirname_any(sw_path_container) if sw_path_container else ""
 
     is_docker = bool(os.path.exists("/.dockerenv") or os.getcwd() == "/app")
+    # #region agent log
+    try:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"id": f"log_{int(__import__('time').time())}_{article_id}_paths", "timestamp": int(__import__('time').time() * 1000), "location": "document_service.py:check_article_documents:paths", "message": "Path extraction", "data": {"article_id": article_id, "sw_path": sw_path, "sw_path_container": sw_path_container, "base_dir": base_dir, "base_dir_container": base_dir_container, "base_name": base_name, "is_docker": is_docker}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "B"}) + "\n")
+    except: pass
+    # #endregion
 
     async def _remote_exists_any(paths: List[str]) -> dict:
         """
         Fragt den SOLIDWORKS-Connector auf Windows, ob Pfade existieren.
         Rückgabe: {path: bool}
         """
+        # #region agent log
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"id": f"log_{int(__import__('time').time())}_remote_entry", "timestamp": int(__import__('time').time() * 1000), "location": "document_service.py:_remote_exists_any:entry", "message": "_remote_exists_any called", "data": {"paths": paths[:5], "path_count": len(paths)}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "D"}) + "\n")
+        except: pass
+        # #endregion
         try:
             import httpx
 
             async with httpx.AsyncClient(timeout=10.0) as client:
                 base = (settings.SOLIDWORKS_CONNECTOR_URL or "").rstrip("/")
+                # #region agent log
+                try:
+                    with open(log_path, "a", encoding="utf-8") as f:
+                        f.write(json.dumps({"id": f"log_{int(__import__('time').time())}_remote_base", "timestamp": int(__import__('time').time() * 1000), "location": "document_service.py:_remote_exists_any:base", "message": "Connector base URL", "data": {"base": base}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "D"}) + "\n")
+                except: pass
+                # #endregion
                 # Be robust regarding base URL prefixes (some setups may set base=/api or /api/solidworks)
                 candidates = []
                 if base.endswith("/api/solidworks"):
@@ -94,13 +120,31 @@ async def check_article_documents(article_id: int, db: Session) -> dict:
                 for url in candidates:
                     try:
                         resp = await client.post(url, json={"paths": paths or []})
+                        # #region agent log
+                        try:
+                            with open(log_path, "a", encoding="utf-8") as f:
+                                f.write(json.dumps({"id": f"log_{int(__import__('time').time())}_remote_try", "timestamp": int(__import__('time').time() * 1000), "location": "document_service.py:_remote_exists_any:try", "message": "Trying connector URL", "data": {"url": url, "status_code": resp.status_code if resp else None}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "D"}) + "\n")
+                        except: pass
+                        # #endregion
                         if resp.status_code == 200:
                             break
                         # 404 likely means "old connector / wrong base", try next candidate
                     except Exception as e:
+                        # #region agent log
+                        try:
+                            with open(log_path, "a", encoding="utf-8") as f:
+                                f.write(json.dumps({"id": f"log_{int(__import__('time').time())}_remote_error", "timestamp": int(__import__('time').time() * 1000), "location": "document_service.py:_remote_exists_any:error", "message": "Connector request error", "data": {"url": url, "error": str(e)}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "D"}) + "\n")
+                        except: pass
+                        # #endregion
                         continue
 
                 if not resp or resp.status_code != 200:
+                    # #region agent log
+                    try:
+                        with open(log_path, "a", encoding="utf-8") as f:
+                            f.write(json.dumps({"id": f"log_{int(__import__('time').time())}_remote_failed", "timestamp": int(__import__('time').time() * 1000), "location": "document_service.py:_remote_exists_any:failed", "message": "All connector URLs failed", "data": {"status_code": resp.status_code if resp else None}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "D"}) + "\n")
+                    except: pass
+                    # #endregion
                     return {p: False for p in (paths or [])}
                 data = resp.json() if resp.content else {}
                 exists = (data or {}).get("exists") or {}
@@ -108,8 +152,20 @@ async def check_article_documents(article_id: int, db: Session) -> dict:
                 out = {}
                 for p in (paths or []):
                     out[str(p)] = bool(exists.get(str(p)))
+                # #region agent log
+                try:
+                    with open(log_path, "a", encoding="utf-8") as f:
+                        f.write(json.dumps({"id": f"log_{int(__import__('time').time())}_remote_success", "timestamp": int(__import__('time').time() * 1000), "location": "document_service.py:_remote_exists_any:success", "message": "Remote check successful", "data": {"result_count": len(out), "found_count": sum(1 for v in out.values() if v)}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "D"}) + "\n")
+                except: pass
+                # #endregion
                 return out
         except Exception as e:
+            # #region agent log
+            try:
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps({"id": f"log_{int(__import__('time').time())}_remote_exception", "timestamp": int(__import__('time').time() * 1000), "location": "document_service.py:_remote_exists_any:exception", "message": "Remote check exception", "data": {"error": str(e), "error_type": type(e).__name__}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "D"}) + "\n")
+            except: pass
+            # #endregion
             return {p: False for p in (paths or [])}
 
     async def _exists_any(paths: List[str]) -> tuple[bool, Optional[str]]:
@@ -117,6 +173,12 @@ async def check_article_documents(article_id: int, db: Session) -> dict:
         Prüft zuerst lokal (Container), dann (in Docker) via SOLIDWORKS-Connector für Windows-Pfade,
         die nicht gemountet sind (z.B. G:\\...).
         """
+        # #region agent log
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"id": f"log_{int(__import__('time').time())}_exists_entry", "timestamp": int(__import__('time').time() * 1000), "location": "document_service.py:_exists_any:entry", "message": "_exists_any called", "data": {"paths": paths[:10], "path_count": len(paths), "is_docker": is_docker}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "C"}) + "\n")
+        except: pass
+        # #endregion
         if not paths:
             return False, None
 
@@ -126,9 +188,22 @@ async def check_article_documents(article_id: int, db: Session) -> dict:
             if not p:
                 continue
             try:
-                if os.path.exists(p):
+                exists_local = os.path.exists(p)
+                # #region agent log
+                try:
+                    with open(log_path, "a", encoding="utf-8") as f:
+                        f.write(json.dumps({"id": f"log_{int(__import__('time').time())}_local_check", "timestamp": int(__import__('time').time() * 1000), "location": "document_service.py:_exists_any:local", "message": "Local path check", "data": {"path": p, "exists": exists_local}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "C"}) + "\n")
+                except: pass
+                # #endregion
+                if exists_local:
                     return True, p
-            except Exception:
+            except Exception as e:
+                # #region agent log
+                try:
+                    with open(log_path, "a", encoding="utf-8") as f:
+                        f.write(json.dumps({"id": f"log_{int(__import__('time').time())}_local_error", "timestamp": int(__import__('time').time() * 1000), "location": "document_service.py:_exists_any:local_error", "message": "Local check exception", "data": {"path": p, "error": str(e)}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "C"}) + "\n")
+                except: pass
+                # #endregion
                 pass
 
             # 2) In Docker: Windows drive/UNC paths können im Container nicht geprüft werden -> remote
@@ -136,9 +211,27 @@ async def check_article_documents(article_id: int, db: Session) -> dict:
                 remaining_remote.append(p)
 
         if not remaining_remote:
+            # #region agent log
+            try:
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps({"id": f"log_{int(__import__('time').time())}_no_remote", "timestamp": int(__import__('time').time() * 1000), "location": "document_service.py:_exists_any:no_remote", "message": "No remote paths to check", "data": {}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "C"}) + "\n")
+            except: pass
+            # #endregion
             return False, None
 
+        # #region agent log
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"id": f"log_{int(__import__('time').time())}_remote_start", "timestamp": int(__import__('time').time() * 1000), "location": "document_service.py:_exists_any:remote_start", "message": "Starting remote check", "data": {"remaining_remote": remaining_remote[:5]}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "D"}) + "\n")
+        except: pass
+        # #endregion
         remote_map = await _remote_exists_any(list(dict.fromkeys(remaining_remote)))
+        # #region agent log
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"id": f"log_{int(__import__('time').time())}_remote_result", "timestamp": int(__import__('time').time() * 1000), "location": "document_service.py:_exists_any:remote_result", "message": "Remote check result", "data": {"remote_map": {k: v for k, v in list(remote_map.items())[:5]}}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "D"}) + "\n")
+        except: pass
+        # #endregion
         for p in remaining_remote:
             if remote_map.get(str(p)):
                 return True, p
@@ -161,7 +254,19 @@ async def check_article_documents(article_id: int, db: Session) -> dict:
 
         if doc_type == "SW_Part_ASM":
             candidates_dbg = [sw_path, sw_path_container]
+            # #region agent log
+            try:
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps({"id": f"log_{int(__import__('time').time())}_{article_id}_{doc_type}", "timestamp": int(__import__('time').time() * 1000), "location": "document_service.py:check_article_documents:doc_type", "message": "Checking document type", "data": {"article_id": article_id, "doc_type": doc_type, "candidates": candidates_dbg}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "E"}) + "\n")
+            except: pass
+            # #endregion
             exists, file_path = await _exists_any(candidates_dbg)
+            # #region agent log
+            try:
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps({"id": f"log_{int(__import__('time').time())}_{article_id}_{doc_type}_result", "timestamp": int(__import__('time').time() * 1000), "location": "document_service.py:check_article_documents:doc_type_result", "message": "Document type check result", "data": {"article_id": article_id, "doc_type": doc_type, "exists": exists, "file_path": file_path}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "E"}) + "\n")
+            except: pass
+            # #endregion
         elif doc_type == "SW_DRW":
             # Prefer explicit slddrw_pfad, otherwise derive from base_name
             candidates = []
@@ -187,7 +292,19 @@ async def check_article_documents(article_id: int, db: Session) -> dict:
                     for n in names:
                         cand.extend([os.path.join(d, f"{n}.pdf"), os.path.join(d, f"{n}.PDF")])
                 candidates_dbg = cand
+                # #region agent log
+                try:
+                    with open(log_path, "a", encoding="utf-8") as f:
+                        f.write(json.dumps({"id": f"log_{int(__import__('time').time())}_{article_id}_{doc_type}", "timestamp": int(__import__('time').time() * 1000), "location": "document_service.py:check_article_documents:doc_type", "message": "Checking document type", "data": {"article_id": article_id, "doc_type": doc_type, "candidates": candidates_dbg[:10], "candidate_count": len(candidates_dbg)}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "E"}) + "\n")
+                except: pass
+                # #endregion
                 exists, file_path = await _exists_any(candidates_dbg)
+                # #region agent log
+                try:
+                    with open(log_path, "a", encoding="utf-8") as f:
+                        f.write(json.dumps({"id": f"log_{int(__import__('time').time())}_{article_id}_{doc_type}_result", "timestamp": int(__import__('time').time() * 1000), "location": "document_service.py:check_article_documents:doc_type_result", "message": "Document type check result", "data": {"article_id": article_id, "doc_type": doc_type, "exists": exists, "file_path": file_path}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "E"}) + "\n")
+                except: pass
+                # #endregion
             elif doc_type in ("DXF", "Bestell_DXF"):
                 cand = []
                 for d in [base_dir, base_dir_container]:
@@ -279,8 +396,43 @@ async def check_article_documents(article_id: int, db: Session) -> dict:
 
         checked.append({"document_type": doc_type, "exists": exists, "file_path": file_path})
 
-    db.commit()
-    return {"checked": checked, "updated_flags": sorted(set(updated_flags))}
+    try:
+        db.commit()
+    except Exception as commit_error:
+        # #region agent log
+        try:
+            import traceback
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"id": f"log_{int(__import__('time').time())}_{article_id}_commit_error", "timestamp": int(__import__('time').time() * 1000), "location": "document_service.py:check_article_documents:commit_error", "message": "DB commit error in check_article_documents", "data": {"article_id": article_id, "error": str(commit_error), "error_type": type(commit_error).__name__, "traceback": traceback.format_exc()[-500:]}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "F"}) + "\n")
+        except: pass
+        # #endregion
+        # Rollback und erneut versuchen
+        try:
+            db.rollback()
+        except:
+            pass
+        # Erneut versuchen zu committen
+        try:
+            db.commit()
+        except Exception as retry_error:
+            # #region agent log
+            try:
+                import traceback
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps({"id": f"log_{int(__import__('time').time())}_{article_id}_commit_retry_error", "timestamp": int(__import__('time').time() * 1000), "location": "document_service.py:check_article_documents:commit_retry_error", "message": "DB commit retry error", "data": {"article_id": article_id, "error": str(retry_error), "error_type": type(retry_error).__name__}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "F"}) + "\n")
+            except: pass
+            # #endregion
+            # Wenn auch der Retry fehlschlägt, Exception weiterwerfen
+            raise
+    
+    result = {"checked": checked, "updated_flags": sorted(set(updated_flags))}
+    # #region agent log
+    try:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"id": f"log_{int(__import__('time').time())}_{article_id}_final", "timestamp": int(__import__('time').time() * 1000), "location": "document_service.py:check_article_documents:final", "message": "Function exit with result", "data": {"article_id": article_id, "checked_count": len(checked), "found_count": sum(1 for c in checked if c.get("exists")), "updated_flags": result.get("updated_flags", [])}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "F"}) + "\n")
+    except: pass
+    # #endregion
+    return result
 
 
 async def generate_single_document(

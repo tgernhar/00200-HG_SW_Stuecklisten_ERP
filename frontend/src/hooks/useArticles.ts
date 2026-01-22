@@ -16,8 +16,12 @@ export const useArticles = (projectId: number | null, bomId: number | null) => {
     setLoading(true)
     setError(null)
     try {
+      // Cache-Busting: Füge Timestamp hinzu, um sicherzustellen, dass die Daten neu geladen werden
       const response = await api.get(`/projects/${projectId}/articles`, {
-        params: bomId ? { bom_id: bomId } : undefined
+        params: {
+          ...(bomId ? { bom_id: bomId } : {}),
+          _t: Date.now() // Cache-Busting Parameter
+        }
       })
       const list = (response?.data || []) as Article[]
       setArticles(list)

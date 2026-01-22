@@ -328,6 +328,14 @@ async def check_documents_batch(project_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Projekt nicht gefunden")
 
     articles = db.query(Article).filter(Article.project_id == project_id).all()
+    # #region agent log
+    import json
+    log_path = r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log"
+    try:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"id": f"log_{int(__import__('time').time())}_batch_start", "timestamp": int(__import__('time').time() * 1000), "location": "documents.py:check_documents_batch:start", "message": "Batch check started", "data": {"project_id": project_id, "article_count": len(articles)}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "G"}) + "\n")
+    except: pass
+    # #endregion
 
     checked_articles = 0
     checked_docs = 0
@@ -343,10 +351,45 @@ async def check_documents_batch(project_id: int, db: Session = Depends(get_db)):
             checked_docs += len(checked_list)
             found_docs += sum(1 for d in checked_list if d.get("exists"))
             updated_flags_count += len(result.get("updated_flags", [])) if isinstance(result, dict) else 0
+            # #region agent log
+            try:
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps({"id": f"log_{int(__import__('time').time())}_batch_article", "timestamp": int(__import__('time').time() * 1000), "location": "documents.py:check_documents_batch:article", "message": "Article processed", "data": {"article_id": article.id, "checked_count": len(checked_list), "found_count": sum(1 for d in checked_list if d.get("exists")), "result_keys": list(result.keys()) if isinstance(result, dict) else []}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "G"}) + "\n")
+            except: pass
+            # #endregion
         except Exception as e:
             failures.append({"article_id": article.id, "error": str(e)})
+            # #region agent log
+            try:
+                import traceback
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps({"id": f"log_{int(__import__('time').time())}_batch_error", "timestamp": int(__import__('time').time() * 1000), "location": "documents.py:check_documents_batch:error", "message": "Article processing error", "data": {"article_id": article.id, "error": str(e), "error_type": type(e).__name__, "traceback": traceback.format_exc()[-500:]}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "G"}) + "\n")
+            except: pass
+            # #endregion
+            # Wichtig: Rollback nur für diesen Artikel, nicht für die gesamte Batch-Operation
+            try:
+                db.rollback()
+            except:
+                pass
+    
+    # Stelle sicher, dass alle DB-Commits abgeschlossen sind
+    try:
+        db.commit()
+    except Exception as commit_error:
+        # #region agent log
+        try:
+            import traceback
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"id": f"log_{int(__import__('time').time())}_batch_commit_error", "timestamp": int(__import__('time').time() * 1000), "location": "documents.py:check_documents_batch:commit_error", "message": "DB commit error", "data": {"error": str(commit_error), "error_type": type(commit_error).__name__, "traceback": traceback.format_exc()[-500:]}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "G"}) + "\n")
+        except: pass
+        # #endregion
+        # Versuche Rollback, aber fahre trotzdem fort
+        try:
+            db.rollback()
+        except:
+            pass
 
-    return {
+    final_result = {
         "success": True,
         "project_id": project_id,
         "checked_articles": checked_articles,
@@ -356,6 +399,13 @@ async def check_documents_batch(project_id: int, db: Session = Depends(get_db)):
         "failed": failures,
         "failed_count": len(failures),
     }
+    # #region agent log
+    try:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"id": f"log_{int(__import__('time').time())}_batch_final", "timestamp": int(__import__('time').time() * 1000), "location": "documents.py:check_documents_batch:final", "message": "Batch check completed", "data": final_result, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "G"}) + "\n")
+    except: pass
+    # #endregion
+    return final_result
 
 
 @router.get("/projects/{project_id}/print-pdf-queue")

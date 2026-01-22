@@ -409,6 +409,16 @@ function App() {
       const response = await api.post(`/projects/${project.id}/check-documents-batch`)
       const { checked_articles, checked_documents, found_documents, failed_count } = response.data || {}
       setCheckDocumentsMessage('Dokumentprüfung abgeschlossen')
+      // Warte kurz, damit DB-Commit abgeschlossen ist, dann aktualisiere
+      await new Promise(resolve => setTimeout(resolve, 100))
+      // Refetch nur wenn selectedBomId gesetzt ist, sonst könnte es zu einem 400-Fehler kommen
+      try {
+        await refetch()
+      } catch (refetchError: any) {
+        // Refetch-Fehler nicht kritisch behandeln, nur loggen
+        console.warn('Refetch nach Dokumentprüfung fehlgeschlagen:', refetchError)
+      }
+      // Alert nach dem Refetch anzeigen, damit das Popup nicht blockiert wird
       alert(
         `Dokumentprüfung abgeschlossen:\n` +
           `Artikel geprüft: ${checked_articles ?? '-'}\n` +
@@ -416,7 +426,6 @@ function App() {
           `Gefunden: ${found_documents ?? '-'}\n` +
           `Fehler: ${failed_count ?? 0}`
       )
-      refetch()
     } catch (error: any) {
       setCheckDocumentsMessage('Dokumentprüfung fehlgeschlagen')
       alert('Fehler bei der Dokumentprüfung: ' + (error.response?.data?.detail || error.message))

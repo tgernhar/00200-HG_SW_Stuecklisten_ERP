@@ -230,22 +230,49 @@ async def get_articles(
             effective_bom_id = boms[0].id
         elif len(boms) == 0:
             # Legacy fallback: create a BOM and attach existing articles
-            try:
-                bom = Bom(project_id=project_id, hugwawi_order_name=project.au_nr)
-                db.add(bom)
-                db.commit()
-                db.refresh(bom)
-                db.query(Article).filter(
-                    Article.project_id == project_id,
-                    Article.bom_id.is_(None),
-                ).update({"bom_id": bom.id}, synchronize_session=False)
-                db.commit()
-                effective_bom_id = bom.id
-            except Exception as e:
-                db.rollback()
-                raise HTTPException(status_code=500, detail=f"Legacy-BOM konnte nicht erstellt werden: {e}")
+            # WICHTIG: Prüfe zuerst, ob bereits eine Legacy-BOM existiert (Race-Condition-Schutz)
+            # Eine Legacy-BOM erkennt man daran, dass sie:
+            # - zum Projekt gehört
+            # - hugwawi_articlenumber ist None (keine echte HUGWAWI-Artikelnummer)
+            # - hugwawi_order_name entspricht project.au_nr (oder ist None)
+            existing_legacy = db.query(Bom).filter(
+                Bom.project_id == project_id,
+                Bom.hugwawi_articlenumber.is_(None)
+            ).first()
+            if existing_legacy:
+                # Legacy-BOM bereits vorhanden, verwende diese
+                effective_bom_id = existing_legacy.id
+            else:
+                # Keine Legacy-BOM vorhanden, erstelle eine neue
+                try:
+                    bom = Bom(project_id=project_id, hugwawi_order_name=project.au_nr)
+                    db.add(bom)
+                    db.commit()
+                    db.refresh(bom)
+                    db.query(Article).filter(
+                        Article.project_id == project_id,
+                        Article.bom_id.is_(None),
+                    ).update({"bom_id": bom.id}, synchronize_session=False)
+                    db.commit()
+                    effective_bom_id = bom.id
+                except Exception as e:
+                    db.rollback()
+                    # Bei Race-Condition (z.B. wenn ein anderer Request die BOM bereits erstellt hat):
+                    # Versuche erneut die Legacy-BOM zu finden
+                    existing_legacy = db.query(Bom).filter(
+                        Bom.project_id == project_id,
+                        Bom.hugwawi_articlenumber.is_(None)
+                    ).first()
+                    if existing_legacy:
+                        # Legacy-BOM wurde inzwischen von anderem Request erstellt, verwende diese
+                        effective_bom_id = existing_legacy.id
+                    else:
+                        # Echter Fehler, keine Legacy-BOM gefunden
+                        raise HTTPException(status_code=500, detail=f"Legacy-BOM konnte nicht erstellt werden: {e}")
         else:
-            raise HTTPException(status_code=400, detail="Mehrere BOMs vorhanden. Bitte bom_id angeben.")
+            # Wenn mehrere BOMs vorhanden sind, verwende die erste (Legacy-Verhalten)
+            # statt einen Fehler zu werfen, damit die Funktion nicht abbricht
+            effective_bom_id = boms[0].id
     else:
         bom = db.query(Bom).filter(Bom.id == effective_bom_id, Bom.project_id == project_id).first()
         if not bom:
