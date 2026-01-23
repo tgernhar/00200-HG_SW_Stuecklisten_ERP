@@ -50,6 +50,11 @@ function App() {
   const [checkDocumentsMessage, setCheckDocumentsMessage] = useState<string | null>(null)
   const [isCreatingDocuments, setIsCreatingDocuments] = useState(false)
   const [createDocumentsMessage, setCreateDocumentsMessage] = useState<string | null>(null)
+  const [isLoadingArticles, setIsLoadingArticles] = useState(false)
+  const [loadArticlesMessage, setLoadArticlesMessage] = useState<string | null>(null)
+  const [hugwawiData, setHugwawiData] = useState<Record<number, Record<string, any>>>({})
+  const [articleDiffs, setArticleDiffs] = useState<Record<number, Record<string, string>>>({})
+  const [resolvedFromHugwawi, setResolvedFromHugwawi] = useState<Record<number, Record<string, boolean>>>({})
 
   // Optional debug logger (no-op). Keep signature flexible so callsites don't break typechecking.
   const _log = (..._args: any[]) => {}
@@ -350,6 +355,54 @@ function App() {
       refetch()
     } catch (error: any) {
       alert('Fehler beim Synchronisieren: ' + error.message)
+    }
+  }
+
+  const handleLoadArticles = async () => {
+    if (!project) return
+    if (isLoadingArticles) return
+
+    try {
+      setIsLoadingArticles(true)
+      setLoadArticlesMessage('Artikel werden geladen...')
+
+      const resp = await api.post(`/projects/${project.id}/load-articles?auto_fill=true`)
+      const data = resp?.data || {}
+
+      // Update state with HUGWAWI data and diffs
+      setHugwawiData(data.hugwawi_data || {})
+      setArticleDiffs(data.diffs || {})
+      setResolvedFromHugwawi({}) // Reset resolved state for new load
+
+      const syncResult = data.sync_result || {}
+      const autoFilled = data.auto_filled || {}
+      const autoFilledCount = Object.keys(autoFilled).length
+
+      setLoadArticlesMessage('Artikel geladen')
+
+      // Refetch to get updated articles (auto-filled values)
+      await refetch()
+
+      const diffCount = Object.keys(data.diffs || {}).length
+      let message = `Artikel geladen:\n` +
+        `- ${syncResult.total_checked || 0} Artikelnummern geprüft\n` +
+        `- ${syncResult.exists_count || 0} im ERP vorhanden\n` +
+        `- ${syncResult.not_exists_count || 0} fehlen im ERP\n` +
+        `- ${data.hugwawi_found || 0} HUGWAWI-Datensätze gefunden\n`
+
+      if (autoFilledCount > 0) {
+        message += `- ${autoFilledCount} Artikel automatisch aus HUGWAWI befüllt\n`
+      }
+      if (diffCount > 0) {
+        message += `- ${diffCount} Artikel mit Differenzen (gelb/rot markiert)`
+      }
+
+      alert(message)
+    } catch (error: any) {
+      setLoadArticlesMessage('Fehler beim Laden')
+      alert('Fehler beim Artikel laden: ' + (error.response?.data?.detail || error.message))
+    } finally {
+      setIsLoadingArticles(false)
     }
   }
 
@@ -722,6 +775,50 @@ function App() {
             </div>
             <div style={{ marginBottom: 10, color: '#555' }}>
               {createDocumentsMessage || 'Bitte warten…'}
+            </div>
+            <div style={{ height: 8, background: '#eee', borderRadius: 6, overflow: 'hidden' }}>
+              <div
+                style={{
+                  height: '100%',
+                  width: '70%',
+                  background: '#4caf50',
+                  transition: 'width 0.3s ease'
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+      {isLoadingArticles && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0,0,0,0.45)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 2100
+          }}
+        >
+          <div
+            style={{
+              background: '#fff',
+              padding: 20,
+              width: 420,
+              maxWidth: '90vw',
+              borderRadius: 8,
+              textAlign: 'center'
+            }}
+          >
+            <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>
+              Artikel laden
+            </div>
+            <div style={{ marginBottom: 10, color: '#555' }}>
+              {loadArticlesMessage || 'Bitte warten…'}
             </div>
             <div style={{ height: 8, background: '#eee', borderRadius: 6, overflow: 'hidden' }}>
               <div
@@ -1425,6 +1522,7 @@ function App() {
             isImporting={isImporting}
             isCheckingDocuments={isCheckingDocuments}
             isCreatingDocuments={isCreatingDocuments}
+            isLoadingArticles={isLoadingArticles}
             onSelectBom={(id) => {
               setSelectedBomId(id)
               try {
@@ -1446,6 +1544,7 @@ function App() {
             onImportSolidworks={handleImportSolidworks}
             onCreateBestellartikel={openBestellartikelModal}
             onCheckERP={handleCheckERP}
+            onLoadArticles={handleLoadArticles}
             onSyncOrders={handleSyncOrders}
             onCreateDocuments={handleCreateDocuments}
             onCheckDocuments={handleCheckDocuments}
@@ -1468,10 +1567,38 @@ function App() {
                   farbe: selectlistValues[19] || [],
                   lieferzeit: selectlistValues[22] || []
                 }}
+                hugwawiData={hugwawiData}
+                articleDiffs={articleDiffs}
+                resolvedFromHugwawi={resolvedFromHugwawi}
                 onCellValueChanged={handleCellValueChanged}
                 onOpenOrders={handleOpenOrders}
                 onSelectionChanged={(sel) => setSelectedArticles(sel)}
                 onAfterBulkUpdate={() => refetch()}
+                onDiffResolved={(articleId, field, usedHugwawi) => {
+                  // Remove the resolved diff from state
+                  setArticleDiffs(prev => {
+                    const updated = { ...prev }
+                    if (updated[articleId]) {
+                      const { [field]: _, ...rest } = updated[articleId]
+                      if (Object.keys(rest).length === 0) {
+                        delete updated[articleId]
+                      } else {
+                        updated[articleId] = rest
+                      }
+                    }
+                    return updated
+                  })
+                  // Track if HUGWAWI value was adopted (for blue highlighting)
+                  if (usedHugwawi) {
+                    setResolvedFromHugwawi(prev => ({
+                      ...prev,
+                      [articleId]: {
+                        ...(prev[articleId] || {}),
+                        [field]: true
+                      }
+                    }))
+                  }
+                }}
               />
               {loading && (
                 <div style={{

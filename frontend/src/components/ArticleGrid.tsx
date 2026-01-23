@@ -23,13 +23,21 @@ interface ArticleGridProps {
     farbe: string[]
     lieferzeit: string[]
   }
+  hugwawiData?: Record<number, Record<string, any>>
+  articleDiffs?: Record<number, Record<string, string>>
   onCellValueChanged?: (params: any) => void
   onOpenOrders?: (article: Article) => void
   onSelectionChanged?: (selected: Article[]) => void
   onAfterBulkUpdate?: () => void
+  onDiffResolved?: (articleId: number, field: string, usedHugwawi: boolean) => void
+  resolvedFromHugwawi?: Record<number, Record<string, boolean>>
 }
 
-export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, selectedBomId, selectlists, onCellValueChanged, onOpenOrders, onSelectionChanged, onAfterBulkUpdate }) => {
+// Fields that can have HUGWAWI diff highlighting:
+// benennung, teilenummer, abteilung_lieferant, werkstoff, werkstoff_nr,
+// oberflaeche, oberflaechenschutz, farbe, lieferzeit, laenge, breite, hoehe, gewicht, pfad
+
+export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, selectedBomId, selectlists, hugwawiData, articleDiffs, resolvedFromHugwawi, onCellValueChanged, onOpenOrders, onSelectionChanged, onAfterBulkUpdate, onDiffResolved }) => {
   const apiBaseUrl = (api as any)?.defaults?.baseURL || ''
   const gridApiRef = useRef<any>(null)
   const gridColumnApiRef = useRef<any>(null)
@@ -57,6 +65,50 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
     if (raw === 'geliefert') return { backgroundColor: '#90ee90' }
     return undefined
   }, [])
+
+  // State for diff dropdown
+  const [diffDropdownState, setDiffDropdownState] = useState<{
+    articleId: number
+    field: string
+    frontendValue: any
+    hugwawiValue: any
+    x: number
+    y: number
+  } | null>(null)
+
+  // Diff highlighting cellStyle callback
+  const makeDiffCellStyle = useCallback((field: string) => {
+    return (params: any) => {
+      const articleId = params?.data?.id
+      if (!articleId) return undefined
+      
+      // Check if this field was resolved by adopting HUGWAWI value (blue)
+      if (resolvedFromHugwawi && resolvedFromHugwawi[articleId]?.[field]) {
+        return { backgroundColor: '#cce5ff' } // Light blue for "HUGWAWI übernommen"
+      }
+      
+      if (!articleDiffs) return undefined
+      
+      const diffs = articleDiffs[articleId]
+      if (!diffs || !diffs[field]) return undefined
+      
+      const diffType = diffs[field]
+      if (diffType === 'conflict') {
+        // Yellow for conflict (both have different values)
+        return { backgroundColor: '#ffd700', cursor: 'pointer' }
+      } else if (diffType === 'frontend_only') {
+        // Red/pink for frontend-only (HUGWAWI is missing this data)
+        return { backgroundColor: '#ffcccc' }
+      }
+      return undefined
+    }
+  }, [articleDiffs, resolvedFromHugwawi])
+
+  // Check if article has any "frontend_only" diffs (for article number highlighting)
+  const hasAnyFrontendOnlyDiff = useCallback((articleId: number) => {
+    if (!articleDiffs || !articleDiffs[articleId]) return false
+    return Object.values(articleDiffs[articleId]).some(d => d === 'frontend_only')
+  }, [articleDiffs])
 
   const a3BlockCColumns = [
     { field: 'pos_nr_display', label: 'Pos-Nr' },
@@ -247,22 +299,30 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
     return React.createElement('div', { style }, v || '')
   }, [])
 
-  // Article Number Cell Renderer (für ERP-Abgleich-Farbe)
+  // Article Number Cell Renderer (für ERP-Abgleich-Farbe + HUGWAWI-Diff-Markierung)
   const articleNumberCellRenderer = useCallback((params: ICellRendererParams) => {
+    const articleId = params.data?.id
     const style: React.CSSProperties = {
       padding: '5px',
       width: '100%',
       height: '100%'
     }
     
-    if (params.data?.erp_exists === true) {
+    // Check if article has frontend_only diffs (needs to be exported to ERP)
+    const hasFrontendOnlyDiff = articleId && hasAnyFrontendOnlyDiff(articleId)
+    
+    if (hasFrontendOnlyDiff) {
+      // Red border to indicate that this article has data to export to HUGWAWI
+      style.backgroundColor = '#ffcccc'
+      style.borderLeft = '3px solid #ff6666'
+    } else if (params.data?.erp_exists === true) {
       style.backgroundColor = '#90EE90'
     } else if (params.data?.erp_exists === false) {
       style.backgroundColor = '#FFB6C1'
     }
     
     return React.createElement('div', { style }, params.value || '')
-  }, [])
+  }, [hasAnyFrontendOnlyDiff])
 
   const parseOptionalNumber = useCallback((value: any) => {
     if (value === '' || value === null || value === undefined) return null
@@ -292,6 +352,111 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
       }
     }
   }, [])
+
+  // DiffCellRenderer: renders cell with diff highlighting and handles dropdown for conflicts
+  const makeDiffCellRenderer = useCallback((field: string) => {
+    return (params: ICellRendererParams<Article>) => {
+      const articleId = params.data?.id
+      const frontendValue = params.value
+      const hugwawiValue = articleId && hugwawiData?.[articleId]?.[field]
+      const diffType = articleId && articleDiffs?.[articleId]?.[field]
+      
+      const handleClick = (e: React.MouseEvent) => {
+        // Only show dropdown for conflicts
+        if (diffType !== 'conflict' || !articleId) return
+        
+        // Prevent AG Grid from starting cell edit
+        e.preventDefault()
+        e.stopPropagation()
+        
+        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+        setDiffDropdownState({
+          articleId,
+          field,
+          frontendValue,
+          hugwawiValue,
+          x: rect.left,
+          y: rect.bottom
+        })
+      }
+      
+      const style: React.CSSProperties = {
+        padding: '2px 5px',
+        width: '100%',
+        height: '100%',
+        cursor: diffType === 'conflict' ? 'pointer' : 'default'
+      }
+      
+      // Add visual indicator for conflict cells
+      const displayValue = frontendValue ?? ''
+      const indicator = diffType === 'conflict' ? ' ⚡' : ''
+      
+      // For conflict cells, we need to intercept the click properly
+      // Use onMouseDown instead of onClick to fire before AG Grid's click handler
+      if (diffType === 'conflict') {
+        return React.createElement('div', { 
+          style, 
+          onMouseDown: handleClick,
+          title: 'Klicken um zwischen Frontend und HUGWAWI Wert zu wählen'
+        }, `${displayValue}${indicator}`)
+      }
+      
+      return React.createElement('div', { style }, displayValue)
+    }
+  }, [hugwawiData, articleDiffs])
+
+  // Handler for selecting a value from the diff dropdown
+  const handleDiffSelection = useCallback(async (useHugwawi: boolean) => {
+    if (!diffDropdownState) return
+    
+    const { articleId, field, frontendValue, hugwawiValue } = diffDropdownState
+    const newValue = useHugwawi ? hugwawiValue : frontendValue
+    
+    // Save current scroll position before update
+    const gridApi = gridApiRef.current
+    let scrollTop = 0
+    if (gridApi) {
+      try {
+        const pixelRange = gridApi.getVerticalPixelRange?.()
+        scrollTop = pixelRange?.top ?? 0
+      } catch {
+        // Fallback if API not available
+      }
+    }
+    
+    try {
+      await api.patch(`/articles/${articleId}`, { [field]: newValue })
+      
+      // Notify parent that diff is resolved (and whether HUGWAWI value was chosen)
+      if (onDiffResolved) {
+        onDiffResolved(articleId, field, useHugwawi)
+      }
+      
+      // Refresh the grid
+      if (onAfterBulkUpdate) {
+        onAfterBulkUpdate()
+      }
+      
+      // Restore scroll position after grid refresh
+      // Use multiple timeouts to ensure grid has fully rendered
+      const restoreScroll = () => {
+        const api = gridApiRef.current
+        if (api && scrollTop > 0) {
+          // Try direct scroll position first (AG Grid Community)
+          const gridBodyViewport = document.querySelector('.ag-body-viewport')
+          if (gridBodyViewport) {
+            gridBodyViewport.scrollTop = scrollTop
+          }
+        }
+      }
+      setTimeout(restoreScroll, 50)
+      setTimeout(restoreScroll, 150) // Backup in case first attempt was too early
+    } catch (e: any) {
+      alert('Fehler beim Speichern: ' + (e.response?.data?.detail || e.message))
+    }
+    
+    setDiffDropdownState(null)
+  }, [diffDropdownState, onDiffResolved, onAfterBulkUpdate])
 
   const SelectlistEditor = useMemo(() => {
     return forwardRef<any, { value?: string; values?: string[]; colDef?: any }>((props, ref) => {
@@ -712,9 +877,9 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
           cellEditor: 'agTextCellEditor',
           cellRenderer: articleNumberCellRenderer
         },
-        { field: 'benennung', headerName: 'Bezeichnung', width: 280, editable: false },
+        { field: 'benennung', headerName: 'Bezeichnung', width: 280, editable: true, cellEditor: 'agTextCellEditor', cellStyle: makeDiffCellStyle('benennung'), cellRenderer: makeDiffCellRenderer('benennung') },
         { field: 'konfiguration', headerName: 'Konfiguration', width: 60, editable: false },
-        { field: 'teilenummer', headerName: 'Teilenummer', width: 140, editable: true, cellEditor: 'agTextCellEditor' },
+        { field: 'teilenummer', headerName: 'Teilenummer', width: 140, editable: true, cellEditor: 'agTextCellEditor', cellStyle: makeDiffCellStyle('teilenummer'), cellRenderer: makeDiffCellRenderer('teilenummer') },
         {
           field: 'menge',
           headerName: 'Menge',
@@ -728,18 +893,18 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
         },
         { field: 'p_menge', headerName: 'P-Menge', width: 90, editable: true, headerClass: 'rotated-header', valueParser: (p) => parseOptionalInt(p.newValue) },
         { field: 'teiletyp_fertigungsplan', headerName: 'Teiletyp/Fertigungsplan', width: 180, editable: true, maxLength: 150 },
-        { field: 'abteilung_lieferant', headerName: 'Abteilung / Lieferant', width: 150, editable: true, maxLength: 150, cellEditor: SelectlistEditor, cellEditorParams: makeSelectEditorParams(deptValues), cellRenderer: (params: ICellRendererParams<Article>) => React.createElement('div', null, params.value ?? '') },
-        { field: 'werkstoff', headerName: 'Werkstoff-Nr.', width: 120, editable: true, maxLength: 150, cellEditor: SelectlistEditor, cellEditorParams: makeSelectEditorParams(werkstoffValues), cellRenderer: (params: ICellRendererParams<Article>) => React.createElement('div', null, params.value ?? '') },
-        { field: 'werkstoff_nr', headerName: 'Werkstoff', width: 120, editable: true, maxLength: 150, cellEditor: SelectlistEditor, cellEditorParams: makeSelectEditorParams(werkstoffNrValues), cellRenderer: (params: ICellRendererParams<Article>) => React.createElement('div', null, params.value ?? '') },
-        { field: 'oberflaeche', headerName: 'Oberfläche', width: 120, editable: true, maxLength: 150, cellEditor: SelectlistEditor, cellEditorParams: makeSelectEditorParams(oberflaecheValues), cellRenderer: (params: ICellRendererParams<Article>) => React.createElement('div', null, params.value ?? '') },
-        { field: 'oberflaechenschutz', headerName: 'Oberflächenschutz', width: 150, editable: true, maxLength: 150, cellEditor: SelectlistEditor, cellEditorParams: makeSelectEditorParams(oberflaechenschutzValues), cellRenderer: (params: ICellRendererParams<Article>) => React.createElement('div', null, params.value ?? '') },
-        { field: 'farbe', headerName: 'Farbe', width: 100, editable: true, maxLength: 150, cellEditor: SelectlistEditor, cellEditorParams: makeSelectEditorParams(farbeValues), cellRenderer: (params: ICellRendererParams<Article>) => React.createElement('div', null, params.value ?? '') },
-        { field: 'lieferzeit', headerName: 'Lieferzeit', width: 100, editable: true, maxLength: 150, cellEditor: SelectlistEditor, cellEditorParams: makeSelectEditorParams(lieferzeitValues), cellRenderer: (params: ICellRendererParams<Article>) => React.createElement('div', null, params.value ?? '') },
-        { field: 'laenge', headerName: 'Länge', width: 100, editable: true, valueParser: (p) => parseOptionalNumber(p.newValue) },
-        { field: 'breite', headerName: 'Breite', width: 100, editable: true, valueParser: (p) => parseOptionalNumber(p.newValue) },
-        { field: 'hoehe', headerName: 'Höhe', width: 100, editable: true, valueParser: (p) => parseOptionalNumber(p.newValue) },
-        { field: 'gewicht', headerName: 'Gewicht', width: 100, editable: true, valueParser: (p) => parseOptionalNumber(p.newValue) },
-        { field: 'pfad', headerName: 'Pfad', width: 300, editable: false },
+        { field: 'abteilung_lieferant', headerName: 'Abteilung / Lieferant', width: 150, editable: true, maxLength: 150, cellEditor: SelectlistEditor, cellEditorParams: makeSelectEditorParams(deptValues), cellStyle: makeDiffCellStyle('abteilung_lieferant'), cellRenderer: makeDiffCellRenderer('abteilung_lieferant') },
+        { field: 'werkstoff', headerName: 'Werkstoff-Nr.', width: 120, editable: true, maxLength: 150, cellEditor: SelectlistEditor, cellEditorParams: makeSelectEditorParams(werkstoffValues), cellStyle: makeDiffCellStyle('werkstoff'), cellRenderer: makeDiffCellRenderer('werkstoff') },
+        { field: 'werkstoff_nr', headerName: 'Werkstoff', width: 120, editable: true, maxLength: 150, cellEditor: SelectlistEditor, cellEditorParams: makeSelectEditorParams(werkstoffNrValues), cellStyle: makeDiffCellStyle('werkstoff_nr'), cellRenderer: makeDiffCellRenderer('werkstoff_nr') },
+        { field: 'oberflaeche', headerName: 'Oberfläche', width: 120, editable: true, maxLength: 150, cellEditor: SelectlistEditor, cellEditorParams: makeSelectEditorParams(oberflaecheValues), cellStyle: makeDiffCellStyle('oberflaeche'), cellRenderer: makeDiffCellRenderer('oberflaeche') },
+        { field: 'oberflaechenschutz', headerName: 'Oberflächenschutz', width: 150, editable: true, maxLength: 150, cellEditor: SelectlistEditor, cellEditorParams: makeSelectEditorParams(oberflaechenschutzValues), cellStyle: makeDiffCellStyle('oberflaechenschutz'), cellRenderer: makeDiffCellRenderer('oberflaechenschutz') },
+        { field: 'farbe', headerName: 'Farbe', width: 100, editable: true, maxLength: 150, cellEditor: SelectlistEditor, cellEditorParams: makeSelectEditorParams(farbeValues), cellStyle: makeDiffCellStyle('farbe'), cellRenderer: makeDiffCellRenderer('farbe') },
+        { field: 'lieferzeit', headerName: 'Lieferzeit', width: 100, editable: true, maxLength: 150, cellEditor: SelectlistEditor, cellEditorParams: makeSelectEditorParams(lieferzeitValues), cellStyle: makeDiffCellStyle('lieferzeit'), cellRenderer: makeDiffCellRenderer('lieferzeit') },
+        { field: 'laenge', headerName: 'Länge', width: 100, editable: true, valueParser: (p) => parseOptionalNumber(p.newValue), cellStyle: makeDiffCellStyle('laenge'), cellRenderer: makeDiffCellRenderer('laenge') },
+        { field: 'breite', headerName: 'Breite', width: 100, editable: true, valueParser: (p) => parseOptionalNumber(p.newValue), cellStyle: makeDiffCellStyle('breite'), cellRenderer: makeDiffCellRenderer('breite') },
+        { field: 'hoehe', headerName: 'Höhe', width: 100, editable: true, valueParser: (p) => parseOptionalNumber(p.newValue), cellStyle: makeDiffCellStyle('hoehe'), cellRenderer: makeDiffCellRenderer('hoehe') },
+        { field: 'gewicht', headerName: 'Gewicht', width: 100, editable: true, valueParser: (p) => parseOptionalNumber(p.newValue), cellStyle: makeDiffCellStyle('gewicht'), cellRenderer: makeDiffCellRenderer('gewicht') },
+        { field: 'pfad', headerName: 'Pfad', width: 300, editable: false, cellStyle: makeDiffCellStyle('pfad'), cellRenderer: makeDiffCellRenderer('pfad') },
         { field: 'sldasm_sldprt_pfad', headerName: 'SLDASM/SLDPRT Pfad', width: 300, editable: false },
         { field: 'slddrw_pfad', headerName: 'SLDDRW Pfad', width: 300, editable: false },
         { field: 'in_stueckliste_anzeigen', headerName: 'In Stückliste anzeigen', width: 120, editable: true, cellRenderer: 'agCheckboxCellRenderer' }
@@ -760,7 +925,9 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
     oberflaecheValues,
     oberflaechenschutzValues,
     farbeValues,
-    lieferzeitValues
+    lieferzeitValues,
+    makeDiffCellStyle,
+    makeDiffCellRenderer
   ])
 
   const defaultColDef = useMemo<ColDef>(() => ({
@@ -1029,6 +1196,121 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
 
   return (
     <div style={{ width: '100%', height: '100%' }} onKeyDownCapture={handleKeyDownCapture} onMouseDownCapture={handleMouseDownCapture}>
+      {/* Diff dropdown for conflict resolution */}
+      {diffDropdownState && (() => {
+        // Calculate position - open upwards if too close to bottom
+        const dialogHeight = 320 // Approximate height of dialog
+        const viewportHeight = window.innerHeight
+        const spaceBelow = viewportHeight - diffDropdownState.y
+        const openUpward = spaceBelow < dialogHeight && diffDropdownState.y > dialogHeight
+        
+        // Also check horizontal bounds
+        const dialogWidth = 320
+        const viewportWidth = window.innerWidth
+        let leftPos = diffDropdownState.x
+        if (leftPos + dialogWidth > viewportWidth - 20) {
+          leftPos = viewportWidth - dialogWidth - 20
+        }
+        if (leftPos < 20) leftPos = 20
+        
+        return (
+          <div
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              zIndex: 2500
+            }}
+            onClick={() => setDiffDropdownState(null)}
+          >
+            <div
+              style={{
+                position: 'absolute',
+                left: leftPos,
+                ...(openUpward 
+                  ? { bottom: viewportHeight - diffDropdownState.y + 26 }
+                  : { top: diffDropdownState.y }
+                ),
+                background: '#fff',
+                border: '1px solid #ccc',
+                borderRadius: 4,
+                boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                minWidth: 300,
+                maxWidth: 400,
+                zIndex: 2501
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div style={{ padding: '10px 12px', borderBottom: '1px solid #eee', fontWeight: 600, fontSize: 13 }}>
+                Wert auswählen für: {diffDropdownState.field}
+              </div>
+              
+              {/* Legend */}
+              <div style={{ padding: '8px 12px', borderBottom: '1px solid #eee', backgroundColor: '#fafafa', fontSize: 11 }}>
+                <div style={{ fontWeight: 600, marginBottom: 6 }}>Legende:</div>
+                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    <span style={{ background: '#ffd700', padding: '1px 6px', borderRadius: 3, fontSize: 10 }}>Gelb</span>
+                    <span>= Konflikt (unterschiedliche Werte)</span>
+                  </span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    <span style={{ background: '#ffcccc', padding: '1px 6px', borderRadius: 3, fontSize: 10 }}>Rot</span>
+                    <span>= Nur im Frontend (fehlt in HUGWAWI)</span>
+                  </span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    <span style={{ background: '#cce5ff', padding: '1px 6px', borderRadius: 3, fontSize: 10 }}>Blau</span>
+                    <span>= HUGWAWI übernommen</span>
+                  </span>
+                </div>
+              </div>
+              
+              {/* Frontend Value Option */}
+              <div
+                style={{
+                  padding: '12px',
+                  cursor: 'pointer',
+                  borderBottom: '1px solid #eee',
+                  backgroundColor: '#f0fff0'
+                }}
+                onClick={() => handleDiffSelection(false)}
+                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#d0ffd0')}
+                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = '#f0fff0')}
+              >
+                <div style={{ fontSize: 11, color: '#666', marginBottom: 4 }}>Frontend (aktuell behalten):</div>
+                <div style={{ fontWeight: 500, wordBreak: 'break-word' }}>{diffDropdownState.frontendValue || '(leer)'}</div>
+              </div>
+              
+              {/* HUGWAWI Value Option */}
+              <div
+                style={{
+                  padding: '12px',
+                  cursor: 'pointer',
+                  backgroundColor: '#fff0f0'
+                }}
+                onClick={() => handleDiffSelection(true)}
+                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#ffd0d0')}
+                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = '#fff0f0')}
+              >
+                <div style={{ fontSize: 11, color: '#666', marginBottom: 4 }}>HUGWAWI (übernehmen):</div>
+                <div style={{ fontWeight: 500, wordBreak: 'break-word' }}>{diffDropdownState.hugwawiValue || '(leer)'}</div>
+              </div>
+              
+              {/* Cancel Button */}
+              <div style={{ padding: '10px 12px', borderTop: '1px solid #eee', textAlign: 'right' }}>
+                <button
+                  onClick={() => setDiffDropdownState(null)}
+                  style={{ padding: '6px 14px', fontSize: 12 }}
+                >
+                  Abbrechen
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
       {writebackOpen && (
         <div
           style={{
@@ -1231,6 +1513,23 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
           <span style={{ background: '#90EE90', border: '1px solid #6fd66f', padding: '1px 6px', borderRadius: 3 }}>x</span>
           <span>Dokument vorhanden</span>
         </span>
+        {(Object.keys(articleDiffs || {}).length > 0 || Object.keys(resolvedFromHugwawi || {}).length > 0) && (
+          <>
+            <span style={{ marginLeft: 12, fontWeight: 700 }}>Legende HUGWAWI:</span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ background: '#ffd700', border: '1px solid #d1b400', padding: '1px 6px', borderRadius: 3 }}>⚡</span>
+              <span>Konflikt (klicken)</span>
+            </span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ background: '#ffcccc', border: '1px solid #e59aa6', padding: '1px 6px', borderRadius: 3 }}>&nbsp;</span>
+              <span>Nur Frontend</span>
+            </span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ background: '#cce5ff', border: '1px solid #99c2e6', padding: '1px 6px', borderRadius: 3 }}>&nbsp;</span>
+              <span>HUGWAWI übernommen</span>
+            </span>
+          </>
+        )}
       </div>
       <div className="ag-theme-alpine" style={{ width: '100%', height: '100%' }}>
         <AgGridReact

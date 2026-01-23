@@ -11,10 +11,12 @@ interface ProjectHeaderProps {
   isImporting: boolean
   isCheckingDocuments: boolean
   isCreatingDocuments: boolean
+  isLoadingArticles?: boolean
   onSelectBom: (bomId: number) => void
   onImportSolidworks: () => void
   onCreateBestellartikel: () => void
   onCheckERP: () => void
+  onLoadArticles?: () => void
   onSyncOrders: () => void
   onCreateDocuments: () => void
   onCheckDocuments: () => void
@@ -30,10 +32,12 @@ export const ProjectHeader: React.FC<ProjectHeaderProps> = ({
   isImporting,
   isCheckingDocuments,
   isCreatingDocuments,
+  isLoadingArticles,
   onSelectBom,
   onImportSolidworks,
   onCreateBestellartikel,
   onCheckERP,
+  onLoadArticles,
   onSyncOrders,
   onCreateDocuments,
   onCheckDocuments,
@@ -91,6 +95,9 @@ export const ProjectHeader: React.FC<ProjectHeaderProps> = ({
           Bestellartikel erstellen
         </button>
         <button onClick={onCheckERP}>Artikel-Sync</button>
+        <button onClick={onLoadArticles} disabled={isLoadingArticles} style={{ fontWeight: 'bold' }}>
+          {isLoadingArticles ? 'Laden...' : 'Artikel laden'}
+        </button>
         <button onClick={onSyncOrders}>BN-Sync</button>
         <button onClick={onCreateDocuments} style={{ fontWeight: 'bold' }} disabled={isCreatingDocuments}>
           {isCreatingDocuments ? 'Dokumente erstellen...' : 'Dokumente erstellen'}

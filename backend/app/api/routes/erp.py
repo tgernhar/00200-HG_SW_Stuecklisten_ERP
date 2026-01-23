@@ -87,6 +87,105 @@ async def sync_orders(project_id: int, bom_id: int | None = None, db: Session = 
     return result
 
 
+@router.post("/projects/{project_id}/load-articles")
+async def load_articles(
+    project_id: int,
+    auto_fill: bool = Query(
+        default=True,
+        description="Wenn true, werden leere Frontend-Felder automatisch mit HUGWAWI-Daten befüllt.",
+    ),
+    db: Session = Depends(get_db),
+):
+    """
+    Lädt Artikel aus HUGWAWI und berechnet Differenzen.
+    
+    Workflow:
+    1. Artikel-Sync ausführen (check_all_articlenumbers)
+    2. Custom Properties aus HUGWAWI laden
+    3. Differenzen berechnen
+    4. Optional: Leere Frontend-Felder automatisch befüllen
+    5. Response mit hugwawi_data und diffs zurückgeben
+    """
+    from app.services.erp_service import (
+        check_all_articlenumbers,
+        fetch_hugwawi_custom_properties,
+        compute_article_diffs,
+        HUGWAWI_FIELD_MAPPING,
+    )
+    from app.core.database import get_erp_db_connection
+    from app.models.article import Article
+
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Projekt nicht gefunden")
+
+    # 1. Artikel-Sync ausführen
+    sync_result = await check_all_articlenumbers(project_id, db)
+
+    # 2. Alle Artikelnummern des Projekts sammeln
+    articles = db.query(Article).filter(Article.project_id == project_id).all()
+    articlenumbers = list(set(
+        (a.hg_artikelnummer or "").strip()
+        for a in articles
+        if (a.hg_artikelnummer or "").strip() and (a.hg_artikelnummer or "").strip() != "-"
+    ))
+
+    # 3. Custom Properties aus HUGWAWI laden
+    erp_connection = get_erp_db_connection()
+    try:
+        hugwawi_data = fetch_hugwawi_custom_properties(articlenumbers, erp_connection)
+    finally:
+        erp_connection.close()
+
+    # 4. Differenzen berechnen
+    hugwawi_by_id, diffs_by_id = compute_article_diffs(articles, hugwawi_data)
+
+    # 5. Optional: Auto-fill leere Frontend-Felder
+    auto_filled = {}
+    if auto_fill:
+        for article in articles:
+            article_id = article.id
+            diffs = diffs_by_id.get(article_id, {})
+            hugwawi_props = hugwawi_by_id.get(article_id, {})
+            
+            filled_fields = {}
+            for field, diff_type in list(diffs.items()):
+                if diff_type == "hugwawi_only":
+                    # Frontend leer, HUGWAWI hat Wert -> übernehmen
+                    hugwawi_val = hugwawi_props.get(field)
+                    if hugwawi_val is not None:
+                        setattr(article, field, hugwawi_val)
+                        filled_fields[field] = hugwawi_val
+                        # Entferne aus diffs, da jetzt kein Unterschied mehr
+                        del diffs[field]
+            
+            if filled_fields:
+                auto_filled[article_id] = filled_fields
+            
+            # Update diffs_by_id (leere dicts entfernen)
+            if not diffs:
+                diffs_by_id.pop(article_id, None)
+            else:
+                diffs_by_id[article_id] = diffs
+        
+        db.commit()
+
+    return {
+        "success": True,
+        "sync_result": {
+            "total_checked": sync_result["total_checked"],
+            "exists_count": sync_result["exists_count"],
+            "not_exists_count": sync_result["not_exists_count"],
+        },
+        "hugwawi_data": hugwawi_by_id,
+        "diffs": diffs_by_id,
+        "auto_filled": auto_filled,
+        "total_articles": len(articles),
+        "hugwawi_found": len(hugwawi_by_id),
+        "articles_with_diffs": len(diffs_by_id),
+    }
+
+
 @router.get("/projects/{project_id}/export-hugwawi-articles-csv")
 async def export_hugwawi_articles_csv(
     project_id: int,

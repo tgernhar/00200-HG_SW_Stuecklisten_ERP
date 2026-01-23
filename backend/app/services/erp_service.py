@@ -235,6 +235,204 @@ def list_selectlist_values(selectlist_id: int, db_connection) -> list[dict]:
         cursor.close()
 
 
+# Mapping HUGWAWI -> App-DB fields for Custom Properties
+HUGWAWI_FIELD_MAPPING = {
+    "description": "benennung",
+    "sparepart": "teilenummer",
+    "department": "abteilung_lieferant",
+    "customtext1": "werkstoff",
+    "customtext2": "werkstoff_nr",
+    "customtext3": "oberflaeche",
+    "customtext5": "oberflaechenschutz",
+    "customtext4": "farbe",
+    "customtext6": "lieferzeit",
+    "customtext7": "pfad",
+    "customfloat1": "laenge",
+    "customfloat2": "breite",
+    "customfloat3": "hoehe",
+    "weight": "gewicht",
+}
+
+
+def _is_empty_value(val, field: str = "") -> bool:
+    """
+    Prüft ob ein Wert als "leer" gilt.
+    - None, leerer String
+    - "-" (wird als leer behandelt)
+    - "(leer)" bei numerischen Feldern
+    """
+    if val is None:
+        return True
+    if isinstance(val, str):
+        val_str = val.strip()
+        if val_str == "" or val_str == "-":
+            return True
+        # "(leer)" bei numerischen Feldern als leer behandeln
+        if field in ("laenge", "breite", "hoehe", "gewicht"):
+            if val_str.lower() == "(leer)":
+                return True
+    return False
+
+
+def fetch_hugwawi_custom_properties(articlenumbers: list[str], db_connection) -> dict[str, dict]:
+    """
+    Lädt Custom Properties aus HUGWAWI für eine Liste von Artikelnummern.
+    
+    Args:
+        articlenumbers: Liste von Artikelnummern zum Abfragen
+        db_connection: MySQL-Verbindung zur ERP-Datenbank
+    
+    Returns:
+        Dict: {articlenumber: {app_db_field: value, ...}, ...}
+        Die Feldnamen sind bereits auf App-DB-Felder gemappt.
+    """
+    if not articlenumbers:
+        return {}
+    
+    cursor = db_connection.cursor(dictionary=True)
+    try:
+        placeholders = ", ".join(["%s"] * len(articlenumbers))
+        query = f"""
+            SELECT 
+                a.articlenumber,
+                a.description,
+                a.sparepart,
+                d.name AS department,
+                a.customtext1,
+                a.customtext2,
+                a.customtext3,
+                a.customtext4,
+                a.customtext5,
+                a.customtext6,
+                a.customtext7,
+                a.customfloat1,
+                a.customfloat2,
+                a.customfloat3,
+                a.weight
+            FROM article a
+            LEFT JOIN department d ON a.department = d.id
+            WHERE a.articlenumber IN ({placeholders})
+        """
+        cursor.execute(query, articlenumbers)
+        rows = cursor.fetchall() or []
+        
+        result = {}
+        for row in rows:
+            articlenumber = row.get("articlenumber")
+            if not articlenumber:
+                continue
+            
+            # Map HUGWAWI fields to App-DB fields
+            mapped_data = {}
+            for hugwawi_field, app_field in HUGWAWI_FIELD_MAPPING.items():
+                value = row.get(hugwawi_field)
+                # Normalize empty strings to None for consistent comparison
+                if value == "" or value == "":
+                    value = None
+                # Convert floats to proper type
+                if app_field in ("laenge", "breite", "hoehe", "gewicht") and value is not None:
+                    try:
+                        value = float(value)
+                    except (ValueError, TypeError):
+                        value = None
+                mapped_data[app_field] = value
+            
+            result[articlenumber] = mapped_data
+        
+        return result
+    finally:
+        cursor.close()
+
+
+def compute_article_diffs(
+    articles: list,
+    hugwawi_data: dict[str, dict]
+) -> tuple[dict[int, dict], dict[int, dict]]:
+    """
+    Berechnet Differenzen zwischen Frontend-Artikeln und HUGWAWI-Daten.
+    
+    Args:
+        articles: Liste von Article-Objekten aus der App-DB
+        hugwawi_data: Dict {articlenumber: {field: value}} aus HUGWAWI
+    
+    Returns:
+        Tuple:
+        - hugwawi_by_id: {article_id: {field: hugwawi_value, ...}}
+        - diffs_by_id: {article_id: {field: "conflict"|"hugwawi_only"|"frontend_only", ...}}
+    """
+    comparable_fields = list(HUGWAWI_FIELD_MAPPING.values())
+    
+    hugwawi_by_id = {}
+    diffs_by_id = {}
+    
+    for article in articles:
+        article_id = article.id
+        articlenumber = (article.hg_artikelnummer or "").strip()
+        
+        if not articlenumber or articlenumber == "-":
+            continue
+        
+        hugwawi_props = hugwawi_data.get(articlenumber, {})
+        if not hugwawi_props:
+            # Article not found in HUGWAWI - all filled frontend fields are "frontend_only"
+            diffs = {}
+            for field in comparable_fields:
+                frontend_val = getattr(article, field, None)
+                # Behandle "-" und "(leer)" als leer
+                if not _is_empty_value(frontend_val, field):
+                    diffs[field] = "frontend_only"
+            if diffs:
+                diffs_by_id[article_id] = diffs
+            continue
+        
+        hugwawi_by_id[article_id] = hugwawi_props
+        
+        diffs = {}
+        for field in comparable_fields:
+            frontend_val = getattr(article, field, None)
+            hugwawi_val = hugwawi_props.get(field)
+            
+            # Normalize for comparison using _is_empty_value
+            # "-" und "(leer)" werden als leer behandelt
+            frontend_empty = _is_empty_value(frontend_val, field)
+            hugwawi_empty = _is_empty_value(hugwawi_val, field)
+            
+            if frontend_empty and hugwawi_empty:
+                # Both empty - no diff
+                continue
+            elif frontend_empty and not hugwawi_empty:
+                # Frontend empty, HUGWAWI has value
+                diffs[field] = "hugwawi_only"
+            elif not frontend_empty and hugwawi_empty:
+                # Frontend has value, HUGWAWI empty
+                diffs[field] = "frontend_only"
+            else:
+                # Both have values - compare
+                # Normalize for comparison (string vs number)
+                frontend_str = str(frontend_val).strip() if frontend_val is not None else ""
+                hugwawi_str = str(hugwawi_val).strip() if hugwawi_val is not None else ""
+                
+                # For floats, compare numerically
+                if field in ("laenge", "breite", "hoehe", "gewicht"):
+                    try:
+                        frontend_num = float(frontend_val) if frontend_val is not None else None
+                        hugwawi_num = float(hugwawi_val) if hugwawi_val is not None else None
+                        if frontend_num is not None and hugwawi_num is not None:
+                            # Compare with tolerance
+                            if abs(frontend_num - hugwawi_num) < 0.001:
+                                continue  # Same value
+                    except (ValueError, TypeError):
+                        pass
+                
+                if frontend_str.lower() != hugwawi_str.lower():
+                    diffs[field] = "conflict"
+        
+        if diffs:
+            diffs_by_id[article_id] = diffs
+    
+    return hugwawi_by_id, diffs_by_id
+
+
 async def check_all_articlenumbers(project_id: int, db: Session) -> dict:
     """
     Batch-Prüfung aller Artikelnummern im ERP
