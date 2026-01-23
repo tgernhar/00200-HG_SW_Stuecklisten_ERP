@@ -19,30 +19,6 @@ import ctypes
 from ctypes import wintypes
 import json
 
-# region agent log
-# Debug-mode NDJSON logger (no secrets). Writes to repo-root/.cursor/debug.log
-def _agent_log(hypothesisId: str, location: str, message: str, data: dict | None = None, runId: str = "run1"):
-    try:
-        connector_dir2 = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # .../solidworks-connector
-        repo_root = os.path.dirname(connector_dir2)
-        log_path = os.path.join(repo_root, ".cursor", "debug.log")
-        payload = {
-            "sessionId": "debug-session",
-            "runId": runId,
-            "hypothesisId": hypothesisId,
-            "location": location,
-            "message": message,
-            "data": data or {},
-            "timestamp": int(time.time() * 1000),
-        }
-        os.makedirs(os.path.dirname(log_path), exist_ok=True)
-        with open(log_path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(payload, ensure_ascii=False) + "\n")
-    except Exception:
-        # never crash runtime due to debug logging
-        pass
-# endregion
-
 # Konfiguriere Logging
 connector_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 log_dir = os.path.join(connector_dir, 'logs')
@@ -84,20 +60,6 @@ connector_logger.propagate = False  # Verhindere Propagation zum Root-Logger, da
 connector_logger.info(f"SOLIDWORKS-Connector-Logging initialisiert. Log-Datei: {log_file}")
 
 app = FastAPI(title="SOLIDWORKS Connector API", version="1.0.0")
-
-# region agent log
-@app.on_event("startup")
-async def _startup_agent_log():
-    try:
-        routes = []
-        for r in getattr(app, "routes", []) or []:
-            p = getattr(r, "path", None)
-            m = getattr(r, "methods", None)
-            routes.append({"path": p, "methods": sorted(list(m)) if m else None})
-        _agent_log("H2", "solidworks-connector/src/main.py:startup", "startup_routes", {"route_count": len(routes), "routes": routes[:50]})
-    except Exception:
-        pass
-# endregion
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
@@ -278,16 +240,13 @@ def get_all_parts_from_assembly(request: AssemblyRequest):
     """
     connector = None
     try:
-        # region agent log
         connector_logger.info(f"get-all-parts-from-assembly aufgerufen mit filepath: {request.assembly_filepath}")
-        _agent_log("H1", "solidworks-connector/src/main.py:get_all_parts_from_assembly", "enter_v1", {"assembly_filepath": request.assembly_filepath})
         connector = get_connector()
         connector_logger.info(f"Connector-Instanz erhalten, rufe get_all_parts_and_properties_from_assembly auf...")
         results = connector.get_all_parts_and_properties_from_assembly(
             request.assembly_filepath
         )
         connector_logger.info(f"Erfolgreich: {len(results) if results else 0} Ergebnisse erhalten")
-        _agent_log("H1", "solidworks-connector/src/main.py:get_all_parts_from_assembly", "exit_v1", {"results_len": len(results) if results else 0})
         
         # Session-Beendigung: Schließe SolidWorks Session VERZÖGERT (10s) nach Import
         # Verzögerung gibt SOLIDWORKS Zeit zum Stabilisieren und vermeidet Crashes
@@ -319,7 +278,6 @@ def get_all_parts_from_assembly(request: AssemblyRequest):
         }
     except Exception as e:
         connector_logger.error(f"Fehler in get-all-parts-from-assembly: {e}", exc_info=True)
-        _agent_log("H1", "solidworks-connector/src/main.py:get_all_parts_from_assembly", "error_v1", {"error": str(e)})
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -330,13 +288,11 @@ def get_all_parts_from_assembly_v2(request: AssemblyRequest):
     Currently returns the same shape as v1.
     """
     try:
-        _agent_log("H2", "solidworks-connector/src/main.py:get_all_parts_from_assembly_v2", "enter_v2", {"assembly_filepath": request.assembly_filepath})
         return get_all_parts_from_assembly(request)
     except HTTPException:
         raise
     except Exception as e:
         connector_logger.error(f"Fehler in get-all-parts-from-assembly-v2: {e}", exc_info=True)
-        _agent_log("H2", "solidworks-connector/src/main.py:get_all_parts_from_assembly_v2", "error_v2", {"error": str(e)})
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/solidworks/create-3d-documents")
@@ -345,12 +301,6 @@ def create_3d_documents(request: Create3DDocumentsRequest):
     Erstellt 3D-Dokumente (STEP, X_T, STL)
     """
     try:
-        _agent_log(
-            "C",
-            "solidworks-connector/src/main.py:create_3d_documents",
-            "enter",
-            {"filepath": request.filepath, "step": request.step, "x_t": request.x_t, "stl": request.stl},
-        )
         connector = get_connector()
         success = connector.create_3d_documents(
             request.filepath,
@@ -403,30 +353,12 @@ def create_3d_documents(request: Create3DDocumentsRequest):
             created_files = list(dict.fromkeys(created_files))
 
             if missing:
-                _agent_log(
-                    "C",
-                    "solidworks-connector/src/main.py:create_3d_documents",
-                    "missing_outputs",
-                    {"missing": missing, "created_files": created_files},
-                )
                 raise HTTPException(status_code=500, detail=f"3D Export unvollständig, fehlend: {missing[:3]}")
 
             return {"success": True, "created_files": created_files}
         else:
-            _agent_log(
-                "C",
-                "solidworks-connector/src/main.py:create_3d_documents",
-                "exit_false",
-                {"filepath": request.filepath},
-            )
             raise HTTPException(status_code=500, detail="Fehler beim Erstellen der 3D-Dokumente")
     except Exception as e:
-        _agent_log(
-            "C",
-            "solidworks-connector/src/main.py:create_3d_documents",
-            "exception",
-            {"err": f"{type(e).__name__}: {e}"},
-        )
         raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -19,9 +19,9 @@ import win32con
 # Logger für SOLIDWORKS-Connector
 connector_logger = logging.getLogger('solidworks_connector')
 
-# NOTE: previously used for debug-mode ingest; kept as no-op to avoid churn.
 def _agent_log(*args, **kwargs):
-    return
+    """No-op stub for debug logging calls (can be removed in future cleanup)."""
+    pass
 
 def _basename_noext_any(path: str) -> str:
     try:
@@ -121,20 +121,6 @@ class SolidWorksConnector:
     
     def disconnect(self):
         """Verbindung zu SOLIDWORKS trennen"""
-        try:
-            import json
-            with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
-                _f.write(json.dumps({
-                    "sessionId": "debug-session",
-                    "runId": "sw-activity",
-                    "hypothesisId": "SW_LIFECYCLE",
-                    "location": "solidworks-connector/src/SolidWorksConnector.py:disconnect",
-                    "message": "disconnect",
-                    "data": {"had_app": self.sw_app is not None},
-                    "timestamp": int(time.time() * 1000),
-                }) + "\n")
-        except Exception:
-            pass
         if self.sw_app:
             self.sw_app = None
 
