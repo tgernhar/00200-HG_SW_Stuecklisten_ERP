@@ -91,6 +91,8 @@ class ArticleGridRow(ArticleBase):
     hg_lt: Optional[str] = None
     bestaetigter_lt: Optional[str] = None
     order_count: Optional[int] = None
+    # Lieferstatus: "none" (keine LS), "complete" (Liefermenge >= Bestellmenge), "partial" (LS existiert aber Menge < Bestellmenge)
+    delivery_status: Optional[str] = None
 
     # Block B (Flags: leer, "1", "x")
     pdf_drucken: Optional[str] = None

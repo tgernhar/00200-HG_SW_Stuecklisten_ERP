@@ -199,6 +199,82 @@ def fetch_delivery_notes_for_order(order_name: str, db_connection) -> list[dict]
         cursor.close()
 
 
+def fetch_delivery_status_batch(order_names: list[str], order_quantities: dict[str, int], db_connection) -> dict[str, str]:
+    """
+    Berechnet den Lieferstatus für mehrere Aufträge in einem Batch.
+    
+    Args:
+        order_names: Liste von ordertable.name (z.B. ["BN-12345", "BN-12346"])
+        order_quantities: Dict von order_name -> bestellte Menge
+        db_connection: MySQL-Verbindung zu HUGWAWI
+    
+    Returns:
+        Dict von order_name -> status ("none", "partial", "complete")
+        - "none": Keine Lieferscheine vorhanden
+        - "partial": Liefermenge < Bestellmenge
+        - "complete": Liefermenge >= Bestellmenge
+    """
+    if not order_names:
+        return {}
+    
+    result = {name: "none" for name in order_names}
+    cursor = db_connection.cursor(dictionary=True)
+    
+    try:
+        # Erst alle Order-IDs für die Namen finden
+        placeholders = ", ".join(["%s"] * len(order_names))
+        cursor.execute(
+            f"""
+            SELECT id, name FROM ordertable WHERE name IN ({placeholders})
+            """,
+            order_names,
+        )
+        order_rows = cursor.fetchall() or []
+        
+        if not order_rows:
+            return result
+        
+        order_id_to_name = {row["id"]: row["name"] for row in order_rows}
+        order_ids = list(order_id_to_name.keys())
+        
+        if not order_ids:
+            return result
+        
+        # Summe der gelieferten Mengen pro Order abrufen
+        placeholders = ", ".join(["%s"] * len(order_ids))
+        cursor.execute(
+            f"""
+            SELECT 
+                dn.orderId,
+                COALESCE(SUM(dna.amount), 0) AS total_delivered
+            FROM incomingDeliveryNote dn
+            LEFT JOIN incomingDeliveryNoteArticle dna ON dna.deliveryNoteId = dn.id
+            WHERE dn.orderId IN ({placeholders})
+            GROUP BY dn.orderId
+            """,
+            order_ids,
+        )
+        delivery_rows = cursor.fetchall() or []
+        
+        # Status berechnen
+        for row in delivery_rows:
+            order_id = row["orderId"]
+            total_delivered = int(row["total_delivered"] or 0)
+            order_name = order_id_to_name.get(order_id)
+            
+            if order_name:
+                ordered_qty = order_quantities.get(order_name, 0)
+                if total_delivered > 0:
+                    if total_delivered >= ordered_qty:
+                        result[order_name] = "complete"
+                    else:
+                        result[order_name] = "partial"
+        
+        return result
+    finally:
+        cursor.close()
+
+
 def list_bestellartikel_templates(db_connection) -> list[dict]:
     """
     Listet HUGWAWI Artikel, deren Artikelnummer mit '099900-' beginnt.

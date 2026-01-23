@@ -291,6 +291,45 @@ async def get_articles(
         .all()
     )
 
+    # Sammle alle Order-Namen und Mengen für Lieferstatus-Berechnung
+    order_names_set = set()
+    order_quantities: dict[str, int] = {}
+    article_order_info: dict[int, tuple[list, int]] = {}  # article.id -> (order_names, total_qty)
+    
+    for a in articles:
+        orders_list = list(getattr(a, "orders", None) or [])
+        if orders_list:
+            article_order_names = []
+            article_total_qty = 0
+            for o in orders_list:
+                hg_bnr = getattr(o, "hg_bnr", None)
+                bnr_menge = int(getattr(o, "bnr_menge", 0) or 0)
+                if hg_bnr:
+                    order_names_set.add(hg_bnr)
+                    article_order_names.append(hg_bnr)
+                    # Akkumuliere Menge pro Order-Name
+                    order_quantities[hg_bnr] = order_quantities.get(hg_bnr, 0) + bnr_menge
+                    article_total_qty += bnr_menge
+            article_order_info[a.id] = (article_order_names, article_total_qty)
+    
+    # Batch-Fetch Lieferstatus aus HUGWAWI
+    delivery_status_map: dict[str, str] = {}
+    if order_names_set:
+        try:
+            from app.core.database import get_erp_db_connection
+            from app.services.erp_service import fetch_delivery_status_batch
+            erp_conn = get_erp_db_connection()
+            try:
+                delivery_status_map = fetch_delivery_status_batch(
+                    list(order_names_set), order_quantities, erp_conn
+                )
+            finally:
+                erp_conn.close()
+        except Exception as e:
+            # Bei Fehler: Alle als "none" behandeln
+            _agent_log(f"Fehler beim Laden des Lieferstatus: {e}")
+            delivery_status_map = {name: "none" for name in order_names_set}
+
     rows: List[ArticleGridRow] = []
     for a in articles:
         # Order: erste Bestellung verwenden; bei mehreren Bestellungen Anzahl anzeigen
@@ -393,6 +432,23 @@ async def get_articles(
             hg_lt=("-" if order_count > 1 else _date_to_str(getattr(order, "hg_lt", None) if order else None)),
             bestaetigter_lt=("-" if order_count > 1 else _date_to_str(getattr(order, "bestaetigter_lt", None) if order else None)),
             order_count=order_count,
+            # Lieferstatus berechnen: "complete" wenn alle zugehörigen Orders "complete" sind,
+            # "partial" wenn mindestens eine "partial" ist, sonst "none"
+            delivery_status=(
+                (lambda: (
+                    "complete" if (
+                        a.id in article_order_info 
+                        and article_order_info[a.id][0]
+                        and all(delivery_status_map.get(n, "none") == "complete" for n in article_order_info[a.id][0])
+                    ) else (
+                        "partial" if (
+                            a.id in article_order_info 
+                            and article_order_info[a.id][0]
+                            and any(delivery_status_map.get(n, "none") in ("complete", "partial") for n in article_order_info[a.id][0])
+                        ) else "none"
+                    )
+                ))() if order_count else "none"
+            ),
 
             # Block B flags
             pdf_drucken=_flag_or_empty(getattr(flags, "pdf_drucken", "")) if flags else "",

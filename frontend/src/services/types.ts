@@ -82,6 +82,8 @@ export interface Article {
   hg_lt?: string
   bestaetigter_lt?: string
   order_count?: number
+  // Lieferstatus: "none" | "partial" | "complete"
+  delivery_status?: string
 
   // Block B: Dokument-Flags (leer | "1" | "x")
   pdf_drucken?: string

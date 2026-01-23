@@ -99,6 +99,34 @@ async def get_delivery_notes(order_name: str):
         erp_connection.close()
 
 
+@router.post("/orders/delivery-status")
+async def get_orders_delivery_status(order_data: list[dict]):
+    """
+    Berechnet den Lieferstatus für mehrere Aufträge.
+    
+    Args:
+        order_data: Liste von {order_name: str, quantity: int}
+    
+    Returns:
+        Dict von order_name -> status ("none", "partial", "complete")
+    """
+    from app.services.erp_service import fetch_delivery_status_batch
+    from app.core.database import get_erp_db_connection
+    
+    if not order_data:
+        return {"status_map": {}}
+    
+    order_names = [d.get("order_name", "") for d in order_data if d.get("order_name")]
+    order_quantities = {d.get("order_name", ""): int(d.get("quantity", 0) or 0) for d in order_data if d.get("order_name")}
+    
+    erp_connection = get_erp_db_connection()
+    try:
+        status_map = fetch_delivery_status_batch(order_names, order_quantities, erp_connection)
+        return {"status_map": status_map}
+    finally:
+        erp_connection.close()
+
+
 @router.post("/projects/{project_id}/sync-orders")
 async def sync_orders(project_id: int, bom_id: int | None = None, db: Session = Depends(get_db)):
     """Bestellungen synchronisieren"""

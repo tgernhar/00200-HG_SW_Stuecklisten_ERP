@@ -60,11 +60,11 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
   const bnrStatusCellStyle = useCallback((params: ICellRendererParams<Article>) => {
     const raw = String(params.value ?? '').trim().toLowerCase()
     if (!raw) return undefined
-    if (raw === 'bestellt') return { backgroundColor: '#add8e6' }
-    if (raw === 'ab erhalten') return { backgroundColor: '#ffa500' }
-    if (raw === 'email versendet') return { backgroundColor: '#ffd700' }
-    if (raw === 'geliefert') return { backgroundColor: '#90ee90' }
-    return undefined
+    if (raw === 'geliefert') return { backgroundColor: '#c8e6c9' }         // Grün
+    if (raw === 'unbearbeitet') return { backgroundColor: '#ffcdd2' }      // Rot
+    if (raw === 'bestellt') return { backgroundColor: '#ffcc80' }          // Orange
+    if (raw === 'ab erhalten') return { backgroundColor: '#fff9c4' }       // Gelb
+    return { backgroundColor: '#e0e0e0' }  // Grau für alle anderen
   }, [])
 
   // State for diff dropdown
@@ -723,6 +723,32 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
             const a = params.data
             const hasOrders = !!(a && (a as any).order_count && (a as any).order_count > 0)
             if (!hasOrders || !onOpenOrders) return null
+            
+            // Button-Farbe basierend auf BNR-Status
+            const bnrStatus = String((a as any).bnr_status || '').trim().toLowerCase()
+            
+            let backgroundColor = '#e0e0e0'  // Grau als Default
+            let borderColor = '#bdbdbd'
+            let tooltip = 'Bestellung anzeigen'
+            
+            if (bnrStatus === 'geliefert') {
+              backgroundColor = '#c8e6c9'  // Grün
+              borderColor = '#81c784'
+              tooltip = 'Bestellung anzeigen (Status: Geliefert)'
+            } else if (bnrStatus === 'unbearbeitet') {
+              backgroundColor = '#ffcdd2'  // Rot
+              borderColor = '#ef9a9a'
+              tooltip = 'Bestellung anzeigen (Status: Unbearbeitet)'
+            } else if (bnrStatus === 'bestellt') {
+              backgroundColor = '#ffcc80'  // Orange
+              borderColor = '#ffb74d'
+              tooltip = 'Bestellung anzeigen (Status: Bestellt)'
+            } else if (bnrStatus === 'ab erhalten') {
+              backgroundColor = '#fff9c4'  // Gelb
+              borderColor = '#fdd835'
+              tooltip = 'Bestellung anzeigen (Status: AB erhalten)'
+            }
+            
             return React.createElement(
               'button',
               {
@@ -731,17 +757,18 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
                   e?.stopPropagation?.()
                   if (a && onOpenOrders) onOpenOrders(a)
                 },
+                title: tooltip,
                 style: {
                   padding: '2px 6px',
                   fontSize: '11px',
                   lineHeight: '12px',
                   borderRadius: 6,
-                  border: '1px solid #ddd',
-                  background: '#fff',
+                  border: `1px solid ${borderColor}`,
+                  background: backgroundColor,
                   cursor: 'pointer'
                 }
               },
-              'Anzeigen'
+              'BN-Anzeigen'
             )
           }
         }

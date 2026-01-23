@@ -8,6 +8,23 @@ interface OrdersDrawerProps {
   onClose: () => void
 }
 
+// Hilfsfunktion für Zeilenfarbe basierend auf BNR-Status
+const getRowBackgroundColor = (bnrStatus: string): string => {
+  const status = String(bnrStatus || '').trim().toLowerCase()
+  switch (status) {
+    case 'geliefert':
+      return '#c8e6c9'  // Grün
+    case 'unbearbeitet':
+      return '#ffcdd2'  // Rot
+    case 'bestellt':
+      return '#ffcc80'  // Orange
+    case 'ab erhalten':
+      return '#fff9c4'  // Gelb
+    default:
+      return '#e0e0e0'  // Grau
+  }
+}
+
 export const OrdersDrawer: React.FC<OrdersDrawerProps> = ({ articleId, articleNumber, onClose }) => {
   const [orders, setOrders] = useState<Order[]>([])
   const [loading, setLoading] = useState(false)
@@ -27,7 +44,8 @@ export const OrdersDrawer: React.FC<OrdersDrawerProps> = ({ articleId, articleNu
       setExpandedOrders(new Set())
       try {
         const res = await api.get(`/articles/${articleId}/orders`)
-        setOrders(Array.isArray(res.data) ? res.data : [])
+        const ordersData: Order[] = Array.isArray(res.data) ? res.data : []
+        setOrders(ordersData)
       } catch (e: any) {
         setError(e?.response?.data?.detail || e?.message || 'Fehler beim Laden der Bestellungen')
       } finally {
@@ -121,6 +139,76 @@ export const OrdersDrawer: React.FC<OrdersDrawerProps> = ({ articleId, articleNu
         </div>
 
         <div style={{ padding: '12px 16px', overflow: 'auto', flex: 1 }}>
+          {/* Legende für BNR-Status Farben */}
+          <div style={{ 
+            marginBottom: 12, 
+            padding: '8px 12px', 
+            backgroundColor: '#f5f5f5', 
+            borderRadius: 6,
+            fontSize: 11,
+            display: 'flex',
+            gap: 12,
+            flexWrap: 'wrap',
+            alignItems: 'center'
+          }}>
+            <span style={{ fontWeight: 600, color: '#333' }}>Legende BNR-Status:</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span style={{ 
+                display: 'inline-block', 
+                width: 16, 
+                height: 16, 
+                backgroundColor: '#c8e6c9', 
+                border: '1px solid #81c784', 
+                borderRadius: 3 
+              }}></span>
+              <span>Geliefert</span>
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span style={{ 
+                display: 'inline-block', 
+                width: 16, 
+                height: 16, 
+                backgroundColor: '#ffcdd2', 
+                border: '1px solid #ef9a9a', 
+                borderRadius: 3 
+              }}></span>
+              <span>Unbearbeitet</span>
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span style={{ 
+                display: 'inline-block', 
+                width: 16, 
+                height: 16, 
+                backgroundColor: '#ffcc80', 
+                border: '1px solid #ffb74d', 
+                borderRadius: 3 
+              }}></span>
+              <span>Bestellt</span>
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span style={{ 
+                display: 'inline-block', 
+                width: 16, 
+                height: 16, 
+                backgroundColor: '#fff9c4', 
+                border: '1px solid #fdd835', 
+                borderRadius: 3 
+              }}></span>
+              <span>AB erhalten</span>
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span style={{ 
+                display: 'inline-block', 
+                width: 16, 
+                height: 16, 
+                backgroundColor: '#e0e0e0', 
+                border: '1px solid #bdbdbd', 
+                borderRadius: 3 
+              }}></span>
+              <span>Sonstige</span>
+            </span>
+          </div>
+
           {loading && <div style={{ color: '#666' }}>Lade…</div>}
           {error && <div style={{ color: '#c00' }}>Fehler: {error}</div>}
 
@@ -152,12 +240,16 @@ export const OrdersDrawer: React.FC<OrdersDrawerProps> = ({ articleId, articleNu
                       const isExpanded = expandedOrders.has(orderName)
                       const isLoadingDN = loadingDeliveryNotes[orderName]
                       const deliveryNotes = deliveryNotesMap[orderName] || []
+                      const rowBgColor = getRowBackgroundColor(o.bnr_status || '')
                       
                       return (
                         <React.Fragment key={o.id}>
-                          <tr style={{ borderTop: '1px solid #eee' }}>
+                          <tr style={{ 
+                            borderTop: '1px solid #eee',
+                            backgroundColor: rowBgColor
+                          }}>
                             <td style={{ padding: '8px 6px', fontSize: 12 }}>{orderName}</td>
-                            <td style={{ padding: '8px 6px', fontSize: 12 }}>{o.bnr_status || ''}</td>
+                            <td style={{ padding: '8px 6px', fontSize: 12, fontWeight: 500 }}>{o.bnr_status || ''}</td>
                             <td style={{ padding: '8px 6px', fontSize: 12, textAlign: 'right' }}>
                               {o.bnr_menge ?? ''}
                             </td>
