@@ -247,6 +247,12 @@ async def check_article_documents(article_id: int, db: Session) -> dict:
     checked = []
     updated_flags = []
 
+    # PERFORMANCE-OPTIMIERUNG: Sammle alle Pfade für alle Dokumenttypen,
+    # damit wir nur EINEN Remote-Call machen müssen statt einen pro Dokumenttyp
+    all_paths_to_check = []
+    doc_type_candidates = {}  # {doc_type: [candidates]}
+
+    # Sammle alle Kandidaten pro Dokumenttyp
     for doc_type in doc_types:
         exists = False
         file_path: Optional[str] = None

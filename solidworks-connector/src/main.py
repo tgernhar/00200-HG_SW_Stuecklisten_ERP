@@ -248,6 +248,7 @@ def get_all_parts_from_assembly(request: AssemblyRequest):
     """
     Liest alle Teile und Properties aus Assembly
     """
+    connector = None
     try:
         # region agent log
         connector_logger.info(f"get-all-parts-from-assembly aufgerufen mit filepath: {request.assembly_filepath}")
@@ -257,6 +258,16 @@ def get_all_parts_from_assembly(request: AssemblyRequest):
             request.assembly_filepath
         )
         connector_logger.info(f"Erfolgreich: {len(results) if results else 0} Ergebnisse erhalten")
+        
+        # Session-Beendigung: Schließe SolidWorks Session nach erfolgreichem Import
+        # Nur wenn der Connector die Session gestartet hat
+        try:
+            if connector and connector.can_close_app():
+                connector.close_app(reason="import_completed")
+                connector_logger.info("SolidWorks Session nach erfolgreichem Import geschlossen")
+        except Exception as close_err:
+            connector_logger.warning(f"Fehler beim Schließen der Session nach Import: {close_err}")
+        
         return {
             "success": True,
             "results": results
@@ -271,6 +282,7 @@ def get_all_parts_from_assembly_v2(request: AssemblyRequest):
     """
     Liest alle Teile und Properties aus Assembly (V2)
     """
+    connector = None
     try:
         connector_logger.info(
             f"get-all-parts-from-assembly-v2 aufgerufen mit filepath: {request.assembly_filepath}"
@@ -281,6 +293,16 @@ def get_all_parts_from_assembly_v2(request: AssemblyRequest):
             request.assembly_filepath
         )
         connector_logger.info(f"Erfolgreich (V2): {len(results) if results else 0} Ergebnisse erhalten")
+        
+        # Session-Beendigung: Schließe SolidWorks Session nach erfolgreichem Import
+        # Nur wenn der Connector die Session gestartet hat
+        try:
+            if connector and connector.can_close_app():
+                connector.close_app(reason="import_completed")
+                connector_logger.info("SolidWorks Session nach erfolgreichem Import geschlossen")
+        except Exception as close_err:
+            connector_logger.warning(f"Fehler beim Schließen der Session nach Import: {close_err}")
+        
         return {
             "success": True,
             "results": results
@@ -289,11 +311,6 @@ def get_all_parts_from_assembly_v2(request: AssemblyRequest):
         connector_logger.error(f"Fehler in get-all-parts-from-assembly-v2: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/solidworks/get-all-parts-from-assembly-v2")
-def get_all_parts_from_assembly_v2(request: AssemblyRequest):
-    connector = get_connector_v2()
-    results = connector.get_all_parts_and_properties_from_assembly(request.assembly_filepath)
-    return {"success": True, "results": results}
 
 @app.post("/api/solidworks/create-3d-documents")
 def create_3d_documents(request: Create3DDocumentsRequest):
@@ -550,6 +567,7 @@ def set_custom_properties(request: SetCustomPropertiesRequest):
     """
     Setzt Custom Properties in einer SOLIDWORKS Datei (SLDPRT/SLDASM).
     """
+    connector = None
     try:
         connector = get_connector()
         result = connector.set_custom_properties(
@@ -558,6 +576,16 @@ def set_custom_properties(request: SetCustomPropertiesRequest):
             properties=request.properties,
             scope=request.scope,
         )
+        
+        # Session-Beendigung: Schließe SolidWorks Session nach erfolgreichem Export
+        # Nur wenn der Connector die Session gestartet hat
+        try:
+            if connector and connector.can_close_app():
+                connector.close_app(reason="export_completed")
+                connector_logger.info("SolidWorks Session nach erfolgreichem Export geschlossen")
+        except Exception as close_err:
+            connector_logger.warning(f"Fehler beim Schließen der Session nach Export: {close_err}")
+        
         return {"success": True, "result": result}
     except Exception as e:
         connector_logger.error(f"Fehler in set-custom-properties: {e}", exc_info=True)

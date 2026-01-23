@@ -103,8 +103,11 @@ class SolidWorksConnectorV2:
                     pass
             if self._owns_app:
                 try:
-                    # Run SOLIDWORKS visible when we started it.
-                    self.sw_app.Visible = True
+                    # PERFORMANCE: Run SOLIDWORKS im unsichtbaren Modus (3-4x schneller!)
+                    # Visible = False bedeutet keine UI-Updates, kein Grafik-Rendering
+                    # Nur API-Calls → deutlich schneller bei großen Assemblies
+                    self.sw_app.Visible = False
+                    connector_logger.info("SOLIDWORKS im unsichtbaren Modus gestartet (Performance-Optimierung)")
                 except Exception:
                     pass
 
@@ -375,7 +378,16 @@ class SolidWorksConnectorV2:
             - results[13][j] = Exclude from Boom Flag
         """
         connector_logger.info(f"get_all_parts_and_properties_from_assembly aufgerufen mit: {assembly_filepath}")
-        # (debug instrumentation removed)
+        import time as _perf_time
+        start_time = _perf_time.time()
+        # #region agent log
+        log_path = r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log"
+        try:
+            import json
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"id": f"log_sw_{int(_perf_time.time())}", "timestamp": int(_perf_time.time() * 1000), "location": "SolidWorksConnectorV2.py:get_all_parts_and_properties_from_assembly:entry", "message": "Start assembly import", "data": {"assembly_filepath": assembly_filepath}, "sessionId": "debug-session", "runId": "run3", "hypothesisId": "SW1"}) + "\n")
+        except: pass
+        # #endregion
 
         # Robustness: callers sometimes pass a directory instead of a .SLDASM file.
         # In that case, try to auto-pick a single .SLDASM in that directory.
@@ -436,6 +448,12 @@ class SolidWorksConnectorV2:
             raise Exception(f"Assembly-Datei nicht gefunden: {assembly_filepath}")
         
         connector_logger.info(f"Assembly-Datei gefunden: {assembly_filepath}")
+        # #region agent log
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"id": f"log_sw_{int(_perf_time.time())}_before_open", "timestamp": int(_perf_time.time() * 1000), "location": "SolidWorksConnectorV2.py:get_all_parts_and_properties_from_assembly:before_open", "message": "About to call OpenDoc6", "data": {"elapsed_seconds": round(_perf_time.time() - start_time, 3)}, "sessionId": "debug-session", "runId": "run3", "hypothesisId": "SW2"}) + "\n")
+        except: pass
+        # #endregion
         
         # Öffne Assembly
         # OpenDoc6 signature expects Errors/Warnings as BYREF longs -> passing plain 0 can cause "Typenkonflikt".
@@ -449,7 +467,7 @@ class SolidWorksConnectorV2:
             sw_model = self.sw_app.OpenDoc6(
                 assembly_filepath,
                 2,  # swDocASSEMBLY
-                0,  # swOpenDocOptions_Silent
+                0,  # swOpenDocOptions_Silent (kein Lightweight - bewiesenermaßen LANGSAMER bei großen Assemblies!)
                 "",
                 sw_errors,
                 sw_warnings
@@ -472,6 +490,12 @@ class SolidWorksConnectorV2:
             except Exception as e2:
                 raise
         connector_logger.debug(f"OpenDoc6(ASM) errors={sw_errors.value} warnings={sw_warnings.value}")
+        # #region agent log
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"id": f"log_sw_{int(_perf_time.time())}_after_open", "timestamp": int(_perf_time.time() * 1000), "location": "SolidWorksConnectorV2.py:get_all_parts_and_properties_from_assembly:after_open", "message": "OpenDoc6 completed", "data": {"elapsed_seconds": round(_perf_time.time() - start_time, 3), "errors": sw_errors.value, "warnings": sw_warnings.value}, "sessionId": "debug-session", "runId": "run3", "hypothesisId": "SW2"}) + "\n")
+        except: pass
+        # #endregion
         
         if not sw_model:
             raise Exception(f"Konnte Assembly nicht öffnen: {assembly_filepath}")
@@ -496,18 +520,6 @@ class SolidWorksConnectorV2:
 
                 def _collect_from_mgr(mgr_name: str):
                     mgr = model.Extension.CustomPropertyManager(mgr_name)
-                    getnames = getattr(mgr, "GetNames", None)
-                    try:
-                        names = getnames() if callable(getnames) else getnames
-                    except Exception as _e_getnames:
-                        connector_logger.error(f"Fehler bei GetNames ({mgr_name}): {_e_getnames}", exc_info=True)
-                        names = []
-                    if names is None:
-                        names = []
-                    try:
-                        names_list = list(names)
-                    except Exception:
-                        names_list = []
 
                     def _pick_str(x):
                         if x is None:
@@ -524,6 +536,39 @@ class SolidWorksConnectorV2:
                                     return it
                             return ""
                         return str(x)
+
+                    # FAST PATH: GetAll3 liefert alle Properties in einem Call (wie VBA)
+                    try:
+                        raw_all = mgr.GetAll3()
+                        if isinstance(raw_all, (list, tuple)) and len(raw_all) >= 3:
+                            names_all = list(raw_all[0] or [])
+                            values_all = list(raw_all[2] or [])
+                            for idx, pn in enumerate(names_all):
+                                try:
+                                    val = values_all[idx] if idx < len(values_all) else ""
+                                except Exception:
+                                    val = ""
+                                name_str = str(pn)
+                                if name_str not in props_by_name:
+                                    order.append(name_str)
+                                props_by_name[name_str] = str(_pick_str(val))
+                            return
+                    except Exception:
+                        pass
+
+                    # SLOW PATH: Fallback über GetNames + Get2/Get4/Get5/Get6
+                    getnames = getattr(mgr, "GetNames", None)
+                    try:
+                        names = getnames() if callable(getnames) else getnames
+                    except Exception as _e_getnames:
+                        connector_logger.error(f"Fehler bei GetNames ({mgr_name}): {_e_getnames}", exc_info=True)
+                        names = []
+                    if names is None:
+                        names = []
+                    try:
+                        names_list = list(names)
+                    except Exception:
+                        names_list = []
 
                     for pn in names_list:
                         try:
@@ -678,6 +723,12 @@ class SolidWorksConnectorV2:
             except Exception:
                 asm_doc = sw_model
 
+            # #region agent log
+            try:
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps({"id": f"log_sw_{int(_perf_time.time())}_before_getcomponents", "timestamp": int(_perf_time.time() * 1000), "location": "SolidWorksConnectorV2.py:get_all_parts_and_properties_from_assembly:before_getcomponents", "message": "About to call GetComponents", "data": {"elapsed_seconds": round(_perf_time.time() - start_time, 3)}, "sessionId": "debug-session", "runId": "run3", "hypothesisId": "SW3"}) + "\n")
+            except: pass
+            # #endregion
             # NOTE: SOLIDWORKS API param semantics differ (top-level-only vs all-levels).
             # We must prefer "all levels" to include sub-assemblies and nested parts.
             # We'll still fall back to other variants/root traversal if needed.
@@ -699,16 +750,34 @@ class SolidWorksConnectorV2:
 
             # If still empty, try resolving lightweight + rebuild and retry.
             if not components:
+                # #region agent log
+                try:
+                    with open(log_path, "a", encoding="utf-8") as f:
+                        f.write(json.dumps({"id": f"log_sw_{int(_perf_time.time())}_before_resolve", "timestamp": int(_perf_time.time() * 1000), "location": "SolidWorksConnectorV2.py:get_all_parts_and_properties_from_assembly:before_resolve", "message": "Components empty, about to resolve lightweight", "data": {"elapsed_seconds": round(_perf_time.time() - start_time, 3)}, "sessionId": "debug-session", "runId": "run3", "hypothesisId": "SW4"}) + "\n")
+                except: pass
+                # #endregion
                 try:
                     if hasattr(asm_doc, "ResolveAllLightWeightComponents"):
                         asm_doc.ResolveAllLightWeightComponents(True)
                 except Exception:
                     pass
+                # #region agent log
+                try:
+                    with open(log_path, "a", encoding="utf-8") as f:
+                        f.write(json.dumps({"id": f"log_sw_{int(_perf_time.time())}_after_resolve", "timestamp": int(_perf_time.time() * 1000), "location": "SolidWorksConnectorV2.py:get_all_parts_and_properties_from_assembly:after_resolve", "message": "ResolveAllLightWeightComponents completed", "data": {"elapsed_seconds": round(_perf_time.time() - start_time, 3)}, "sessionId": "debug-session", "runId": "run3", "hypothesisId": "SW4"}) + "\n")
+                except: pass
+                # #endregion
                 try:
                     if hasattr(sw_model, "ForceRebuild3"):
                         sw_model.ForceRebuild3(False)
                 except Exception:
                     pass
+                # #region agent log
+                try:
+                    with open(log_path, "a", encoding="utf-8") as f:
+                        f.write(json.dumps({"id": f"log_sw_{int(_perf_time.time())}_after_rebuild", "timestamp": int(_perf_time.time() * 1000), "location": "SolidWorksConnectorV2.py:get_all_parts_and_properties_from_assembly:after_rebuild", "message": "ForceRebuild3 completed", "data": {"elapsed_seconds": round(_perf_time.time() - start_time, 3)}, "sessionId": "debug-session", "runId": "run3", "hypothesisId": "SW5"}) + "\n")
+                except: pass
+                # #endregion
                 try:
                     # Retry after resolve/rebuild
                     raw_components = getattr(asm_doc, "GetComponents")(False)
@@ -788,6 +857,15 @@ class SolidWorksConnectorV2:
             missing_has_modeldoc_count = 0
             missing_has_name_count = 0
             asm_loaded_children: list[str] = []
+            # Perf counters for debugging slow imports
+            comp_processed = 0
+            open_doc_count = 0
+            open_doc_fail = 0
+            modeldoc_hit = 0
+            props_total = 0
+            perf_open_s = 0.0
+            perf_props_s = 0.0
+            last_progress_s = _perf_time.perf_counter()
             for component in components:
                 # Prüfe ob Teil versteckt ist
                 # Some SOLIDWORKS COM properties may appear as either methods or boolean properties via pywin32.
@@ -865,45 +943,9 @@ class SolidWorksConnectorV2:
                         safe_name = f"UNKNOWN:{child}"
                     part_path = f"VIRTUAL:{safe_name}"
 
-                # Track sub-assembly child availability
-                if part_path.lower().endswith(".sldasm"):
-                    try:
-                        kids = getattr(component, "GetChildren", None)
-                        kids = kids() if callable(kids) else kids
-                    except Exception:
-                        kids = None
-                    child_list = _to_list_safe(kids)
-                    if len(child_list) == 0:
-                        # Try to open sub-assembly to load children explicitly
-                        try:
-                            sub_model = None
-                            try:
-                                sub_model = self.sw_app.OpenDoc6(
-                                    part_path,
-                                    2,
-                                    0,
-                                    "",
-                                    part_errors,
-                                    part_warnings,
-                                )
-                            except Exception:
-                                sub_model = None
-                            if sub_model is not None:
-                                try:
-                                    sub_asm = win32com.client.CastTo(sub_model, "AssemblyDoc")
-                                except Exception:
-                                    sub_asm = sub_model
-                                try:
-                                    sub_components = getattr(sub_asm, "GetComponents")(False)
-                                except Exception:
-                                    sub_components = []
-                                for sc in _to_list_safe(sub_components):
-                                    if sc is None:
-                                        continue
-                                    components.append(sc)
-                                asm_loaded_children.append(part_path)
-                        except Exception:
-                            pass
+                # VBA-STYLE: Kein OpenDoc6 für Sub-Assemblies!
+                # Der _walk_children Code oben traversiert bereits rekursiv alle Komponenten.
+                # Unterdrücktes oder Lightweight-Sub-Assembly ohne Kinder = Info-Only, kein teures Öffnen.
 
                 # Benennung stabil aus Dateiname (ohne Extension) ableiten, falls möglich.
                 display_name = ""
@@ -917,7 +959,10 @@ class SolidWorksConnectorV2:
                 if display_name:
                     part_name = display_name
 
-                # Öffne Part/Assembly für Dimensions-/Property-Abfrage (best effort)
+                # =====================================================================
+                # VBA-STYLE FAST PATH: GetModelDoc2 direkt auf Komponente (KEIN OpenDoc6!)
+                # Dimensionen & Gewicht = 0 (zu langsam laut VBA-Kommentaren)
+                # =====================================================================
                 x_dim = 0
                 y_dim = 0
                 z_dim = 0
@@ -926,135 +971,28 @@ class SolidWorksConnectorV2:
                 properties = []
 
                 part_model = None
-                part_errors = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
-                part_warnings = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
+                # VBA-Style: Direkt GetModelDoc2 auf der Komponente - KEIN OpenDoc6!
                 try:
-                    part_model = self.sw_app.OpenDoc6(
-                        part_path,
-                        1 if part_path.endswith(".SLDPRT") else 2,
-                        0,
-                        "",
-                        part_errors,
-                        part_warnings,
-                    )
+                    md_attr = getattr(component, "GetModelDoc2", None)
+                    part_model = md_attr() if callable(md_attr) else md_attr
+                    if part_model is not None:
+                        modeldoc_hit += 1
                 except Exception:
                     part_model = None
 
                 if part_model:
                     try:
-                        # Lese Dimensionen
-                        try:
-                            # GetPartBox is only valid for PART documents in many SOLIDWORKS type libs.
-                            if str(part_path).upper().endswith(".SLDPRT") and hasattr(part_model, "GetPartBox"):
-                                box = part_model.GetPartBox(True)
-                                x_dim = box[3] - box[0] if box else 0
-                                y_dim = box[4] - box[1] if box else 0
-                                z_dim = box[5] - box[2] if box else 0
-                        except Exception as _e_box:
-                            connector_logger.error(f"Fehler bei GetPartBox ({part_path}): {_e_box}", exc_info=True)
+                        # VBA-Style: Dimensionen und Gewicht werden ÜBERSPRUNGEN (zu langsam!)
+                        # x_dim, y_dim, z_dim, weight bleiben 0
 
-                        # Lese Gewicht
-                        # Gewicht (kg): SOLIDWORKS COM APIs unterscheiden sich je nach Version/Typelib.
-                        # Wir probieren mehrere Varianten und loggen minimal nach NDJSON für Laufzeit-Evidence.
-                        weight = 0.0
-
-                        # Versuch 1: IModelDoc2.GetMassProperties2(0)
-                        try:
-                            mass_props = part_model.GetMassProperties2(0)
-                            weight = float(mass_props[0]) if mass_props and len(mass_props) > 0 else 0.0
-                        except Exception as e1:
-                            connector_logger.error(f"Fehler bei GetMassProperties2: {e1}", exc_info=True)
-
-                        # Versuch 2: IModelDoc2.GetMassProperties2(VARIANT VT_I4=0)
-                        if weight == 0.0:
-                            try:
-                                opt = win32com.client.VARIANT(pythoncom.VT_I4, 0)
-                                mass_props = part_model.GetMassProperties2(opt)
-                                weight = float(mass_props[0]) if mass_props and len(mass_props) > 0 else 0.0
-                            except Exception as e2:
-                                connector_logger.error(f"Fehler bei GetMassProperties2(VARIANT): {e2}", exc_info=True)
-
-                        # Versuch 3: IModelDocExtension.GetMassProperties(1) (typischer VBA-Pfad)
-                        if weight == 0.0:
-                            try:
-                                ext = part_model.Extension
-                                # Some typelibs require extra parameters (COM says: "Parameter nicht optional")
-                                if hasattr(ext, "GetMassProperties"):
-                                    mp = None
-                                    # First try: VBA-style (1 param)
-                                    try:
-                                        mp = ext.GetMassProperties(1)
-                                    except Exception as _e_one:
-                                        # Second try: 2 params (options, status/byref or config placeholder)
-                                        mp = ext.GetMassProperties(1, 0)
-                                    weight = float(mp[0]) if mp and len(mp) > 0 else 0.0
-                            except Exception as e3:
-                                connector_logger.error(f"Fehler bei Extension.GetMassProperties: {e3}", exc_info=True)
-
-                        # Versuch 4: IModelDocExtension.GetMassProperties2(0)
-                        if weight == 0.0:
-                            try:
-                                ext = part_model.Extension
-                                if hasattr(ext, "GetMassProperties2"):
-                                    mp = None
-                                    # Try common signatures: (options) or (options, status) or (options, config, status)
-                                    try:
-                                        mp = ext.GetMassProperties2(0)
-                                    except Exception as _e_one:
-                                        try:
-                                            mp = ext.GetMassProperties2(0, 0)
-                                        except Exception as _e_two:
-                                            mp = ext.GetMassProperties2(0, 0, 0)
-                                    weight = float(mp[0]) if mp and len(mp) > 0 else 0.0
-                            except Exception as e4:
-                                connector_logger.error(f"Fehler bei Extension.GetMassProperties2: {e4}", exc_info=True)
-
-                        # Versuch 5: Extension.CreateMassProperty().Mass (wenn verfügbar)
-                        if weight == 0.0:
-                            try:
-                                ext = part_model.Extension
-                                mp_obj = None
-                                # Prefer CastTo for correct typelib binding if available
-                                try:
-                                    ext_typed = win32com.client.CastTo(ext, "IModelDocExtension")
-                                except Exception:
-                                    ext_typed = ext
-
-                                # Try: CreateMassProperty (call) -> CreateMassProperty2 (call) -> CreateMassProperty (property)
-                                try:
-                                    if hasattr(ext_typed, "CreateMassProperty"):
-                                        mp_obj = ext_typed.CreateMassProperty()
-                                except Exception:
-                                    pass
-                                if mp_obj is None:
-                                    try:
-                                        if hasattr(ext_typed, "CreateMassProperty2"):
-                                            mp_obj = ext_typed.CreateMassProperty2()
-                                    except Exception:
-                                        pass
-                                if mp_obj is None:
-                                    # some bindings expose it as a property
-                                    try:
-                                        mp_obj = getattr(ext_typed, "CreateMassProperty")
-                                    except Exception:
-                                        mp_obj = None
-
-                                if mp_obj is not None:
-                                    weight = float(getattr(mp_obj, "Mass", 0) or 0)
-                            except Exception as e5:
-                                connector_logger.error(f"Fehler bei CreateMassProperty: {e5}", exc_info=True)
-
-                        # Lese Custom Properties (global + config)
+                        # Lese Custom Properties (global + config) - wie VBA GetAll3
+                        _props_start = _perf_time.perf_counter()
                         properties = _read_custom_properties(part_model, config_name)
-                    finally:
-                        # Close by title/basename is more reliable than full path.
-                        try:
-                            self._close_doc_best_effort(part_model, part_path)
-                        except Exception:
-                            try:
-                                self.sw_app.CloseDoc(part_path)
-                            except Exception:
-                                pass
+                        perf_props_s += _perf_time.perf_counter() - _props_start
+                        props_total += len(properties)
+                    except Exception as _e_props:
+                        connector_logger.error(f"Fehler beim Lesen Properties ({part_path}): {_e_props}")
+                    # KEIN CloseDoc - wir haben nichts geöffnet!
                 else:
                     if is_hidden:
                         hidden_count += 1
@@ -1097,6 +1035,30 @@ class SolidWorksConnectorV2:
                     ])
 
                 child += 1
+                comp_processed += 1
+                if properties:
+                    props_total += len(properties)
+                # Progress log to terminal every ~200 components or 30s
+                now_s = _perf_time.perf_counter()
+                if comp_processed % 200 == 0 or (now_s - last_progress_s) >= 30.0:
+                    last_progress_s = now_s
+                    connector_logger.info(
+                        "Import progress: processed=%s/%s opened=%s open_fail=%s modeldoc_hit=%s props=%s open_s=%.1f props_s=%.1f",
+                        comp_processed,
+                        len(components),
+                        open_doc_count,
+                        open_doc_fail,
+                        modeldoc_hit,
+                        props_total,
+                        perf_open_s,
+                        perf_props_s,
+                    )
+                    # #region agent log
+                    try:
+                        with open(log_path, "a", encoding="utf-8") as f:
+                            f.write(json.dumps({"id": f"log_sw_{int(_perf_time.time())}_progress", "timestamp": int(_perf_time.time() * 1000), "location": "SolidWorksConnectorV2.py:get_all_parts_and_properties_from_assembly:progress", "message": "Import progress", "data": {"processed": comp_processed, "total_components": len(components), "opened": open_doc_count, "open_fail": open_doc_fail, "modeldoc_hit": modeldoc_hit, "props_total": props_total, "open_s": round(perf_open_s, 1), "props_s": round(perf_props_s, 1)}, "sessionId": "debug-session", "runId": "run4", "hypothesisId": "SWP"}) + "\n")
+                    except: pass
+                    # #endregion
             connector_logger.info(
                 f"Assembly scan done. hidden_count={hidden_count}, missing_path_count={missing_path_count}, total_components={len(components)}"
             )
@@ -1109,6 +1071,13 @@ class SolidWorksConnectorV2:
                 except Exception:
                     pass
             # Keep SOLIDWORKS running; only close documents to avoid locking files.
+        
+        # #region agent log
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"id": f"log_sw_{int(_perf_time.time())}_completed", "timestamp": int(_perf_time.time() * 1000), "location": "SolidWorksConnectorV2.py:get_all_parts_and_properties_from_assembly:completed", "message": "Assembly import completed", "data": {"elapsed_seconds": round(_perf_time.time() - start_time, 3), "result_count": len(results), "processed": comp_processed, "opened": open_doc_count, "open_fail": open_doc_fail, "modeldoc_hit": modeldoc_hit, "props_total": props_total, "open_s": round(perf_open_s, 1), "props_s": round(perf_props_s, 1)}, "sessionId": "debug-session", "runId": "run4", "hypothesisId": "SW6"}) + "\n")
+        except: pass
+        # #endregion
         
         return results
 

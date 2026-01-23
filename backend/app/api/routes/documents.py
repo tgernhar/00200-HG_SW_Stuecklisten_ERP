@@ -321,7 +321,8 @@ async def batch_print_pdf_endpoint(
 @router.post("/projects/{project_id}/check-documents-batch")
 async def check_documents_batch(project_id: int, db: Session = Depends(get_db)):
     """Projektweite Dokumentprüfung (Dateisystem-Check)"""
-    from app.services.document_service import check_article_documents
+    # Performance-optimierte Version verwenden
+    from app.services.document_service_optimized import check_article_documents_optimized as check_article_documents
 
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:

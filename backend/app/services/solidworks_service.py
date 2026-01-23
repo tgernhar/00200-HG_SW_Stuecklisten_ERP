@@ -250,6 +250,9 @@ async def import_solidworks_assembly(
         key = (str(part_path or ""), str(config or ""))
         if not key[0]:
             continue
+        # Filter Unknown-Artikel (Performance-Optimierung: Skip Unknown-Artikel beim Import)
+        if str(key[0]).upper().startswith("VIRTUAL:UNKNOWN:") or "UNKNOWN:" in str(partname or "").upper():
+            continue  # Skip Unknown-Artikel
         if str(key[0]).lower().startswith("virtual:"):
             virtual_count += 1
 
