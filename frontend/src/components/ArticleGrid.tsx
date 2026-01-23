@@ -1454,6 +1454,7 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
       <div style={{ display: 'flex', gap: '12px', alignItems: 'center', padding: '6px 8px', fontSize: '12px' }}>
         <button
           onClick={handlePushSelectedToSolidworks}
+          title="Schreibt die Custom Properties der ausgewählten Artikel zurück in die SOLIDWORKS-Bauteile"
           style={{
             padding: '6px 10px',
             border: '1px solid #ccc',
@@ -1466,6 +1467,7 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
         </button>
         <button
           onClick={handleHideSelection}
+          title="Blendet die ausgewählten Artikel in der Stückliste aus (werden nicht gelöscht, nur ausgeblendet)"
           style={{
             padding: '6px 10px',
             border: '1px solid #ccc',
@@ -1478,6 +1480,7 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
         </button>
         <button
           onClick={handleShowSelection}
+          title="Macht ausgeblendete Artikel wieder sichtbar in der Stückliste"
           style={{
             padding: '6px 10px',
             border: '1px solid #ccc',
@@ -1490,6 +1493,7 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
         </button>
         <button
           onClick={handleExportBlockCA3}
+          title="Exportiert die aktuelle Stückliste als PDF-Dokument im CA3-Block-Format"
           style={{
             padding: '6px 10px',
             border: '1px solid #ccc',
@@ -1512,6 +1516,7 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
               alert('Fehler beim Einfügen: ' + (e.response?.data?.detail || e.message))
             }
           }}
+          title="Fügt eine neue leere Zeile am Ende der Stückliste hinzu für manuelle Einträge"
           style={{
             padding: '6px 10px',
             border: '1px solid #ccc',
@@ -1543,6 +1548,7 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
               alert('Fehler beim Löschen: ' + (e.response?.data?.detail || e.message))
             }
           }}
+          title="Löscht die ausgewählten Artikel dauerhaft aus der Stückliste (erfordert Passwort)"
           style={{
             padding: '6px 10px',
             border: '1px solid #ccc',

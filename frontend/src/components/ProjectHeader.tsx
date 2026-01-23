@@ -87,26 +87,74 @@ export const ProjectHeader: React.FC<ProjectHeaderProps> = ({
         </select>
       </div>
       <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-        <button onClick={onGoHome}>Zur Startseite</button>
-        <button onClick={onImportSolidworks} disabled={isImporting}>
+        <button 
+          onClick={onGoHome}
+          title="Zurück zur Projektübersicht"
+        >
+          Zur Startseite
+        </button>
+        <button 
+          onClick={onImportSolidworks} 
+          disabled={isImporting}
+          title="Importiert die Stückliste aus einer SOLIDWORKS Baugruppe. Die Baugruppe muss in SOLIDWORKS geöffnet sein."
+        >
           {isImporting ? 'Import läuft...' : 'Import SOLIDWORKS'}
         </button>
-        <button onClick={onCreateBestellartikel} style={{ fontWeight: 'bold' }}>
+        <button 
+          onClick={onCreateBestellartikel} 
+          style={{ fontWeight: 'bold' }}
+          title="Erstellt einen neuen Bestellartikel als Unterposition zum ausgewählten Artikel"
+        >
           Bestellartikel erstellen
         </button>
-        <button onClick={onCheckERP}>Artikel-Sync</button>
-        <button onClick={onLoadArticles} disabled={isLoadingArticles} style={{ fontWeight: 'bold' }}>
+        <button 
+          onClick={onCheckERP}
+          title="Prüft alle Artikelnummern gegen die HUGWAWI-Datenbank und markiert ob sie dort existieren"
+        >
+          Artikel-Sync
+        </button>
+        <button 
+          onClick={onLoadArticles} 
+          disabled={isLoadingArticles} 
+          style={{ fontWeight: 'bold' }}
+          title="Lädt Custom Properties aus HUGWAWI, zeigt Differenzen an, füllt leere Felder automatisch und sucht erweiterte Artikel (mit _ Suffix)"
+        >
           {isLoadingArticles ? 'Laden...' : 'Artikel laden'}
         </button>
-        <button onClick={onSyncOrders}>BN-Sync</button>
-        <button onClick={onCreateDocuments} style={{ fontWeight: 'bold' }} disabled={isCreatingDocuments}>
+        <button 
+          onClick={onSyncOrders}
+          title="Synchronisiert Bestellnummern und Bestellpositionen mit der HUGWAWI-Datenbank"
+        >
+          BN-Sync
+        </button>
+        <button 
+          onClick={onCreateDocuments} 
+          style={{ fontWeight: 'bold' }} 
+          disabled={isCreatingDocuments}
+          title="Erstellt PDF-Zeichnungen und STEP-Dateien für alle markierten Artikel über SOLIDWORKS"
+        >
           {isCreatingDocuments ? 'Dokumente erstellen...' : 'Dokumente erstellen'}
         </button>
-        <button onClick={onCheckDocuments} disabled={isCheckingDocuments}>
+        <button 
+          onClick={onCheckDocuments} 
+          disabled={isCheckingDocuments}
+          title="Prüft ob PDF-Zeichnungen und STEP-Dateien für alle Artikel vorhanden sind"
+        >
           {isCheckingDocuments ? 'Dokumente prüfen...' : 'Dokumente prüfen'}
         </button>
-        <button onClick={onPrintPDFQueueMerged} style={{ fontWeight: 'bold' }}>PDF drucken</button>
-        <button onClick={onExport}>ERP-Artikel-Export</button>
+        <button 
+          onClick={onPrintPDFQueueMerged} 
+          style={{ fontWeight: 'bold' }}
+          title="Erstellt eine zusammengefasste PDF-Datei aus allen Zeichnungen der Stückliste zum Drucken"
+        >
+          PDF drucken
+        </button>
+        <button 
+          onClick={onExport}
+          title="Exportiert alle Artikel die noch nicht in HUGWAWI existieren als CSV-Datei für den Import ins ERP-System"
+        >
+          ERP-Artikel-Export
+        </button>
       </div>
     </div>
   )
