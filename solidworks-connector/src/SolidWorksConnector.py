@@ -942,7 +942,7 @@ class SolidWorksConnector:
 
                 if part_model:
                     try:
-                        # Lese Dimensionen
+                        # Lese Dimensionen (nur für Parts; bei Fehler still ignorieren)
                         try:
                             # GetPartBox is only valid for PART documents in many SOLIDWORKS type libs.
                             if str(part_path).upper().endswith(".SLDPRT") and hasattr(part_model, "GetPartBox"):
@@ -950,20 +950,22 @@ class SolidWorksConnector:
                                 x_dim = box[3] - box[0] if box else 0
                                 y_dim = box[4] - box[1] if box else 0
                                 z_dim = box[5] - box[2] if box else 0
-                        except Exception as _e_box:
-                            connector_logger.error(f"Fehler bei GetPartBox ({part_path}): {_e_box}", exc_info=True)
+                        except Exception:
+                            # Dimensionen nicht verfügbar (z.B. kein Material/Body) – kein Fehler loggen
+                            pass
 
                         # Lese Gewicht
                         # Gewicht (kg): SOLIDWORKS COM APIs unterscheiden sich je nach Version/Typelib.
-                        # Wir probieren mehrere Varianten und loggen minimal nach NDJSON für Laufzeit-Evidence.
+                        # Wir probieren mehrere Varianten still durch; nur am Ende ein Hinweis wenn nichts funktioniert.
                         weight = 0.0
+                        _mass_props_tried = []
 
                         # Versuch 1: IModelDoc2.GetMassProperties2(0)
                         try:
                             mass_props = part_model.GetMassProperties2(0)
                             weight = float(mass_props[0]) if mass_props and len(mass_props) > 0 else 0.0
                         except Exception as e1:
-                            connector_logger.error(f"Fehler bei GetMassProperties2: {e1}", exc_info=True)
+                            _mass_props_tried.append(f"GetMassProperties2(0): {type(e1).__name__}")
 
                         # Versuch 2: IModelDoc2.GetMassProperties2(VARIANT VT_I4=0)
                         if weight == 0.0:
@@ -972,7 +974,7 @@ class SolidWorksConnector:
                                 mass_props = part_model.GetMassProperties2(opt)
                                 weight = float(mass_props[0]) if mass_props and len(mass_props) > 0 else 0.0
                             except Exception as e2:
-                                connector_logger.error(f"Fehler bei GetMassProperties2(VARIANT): {e2}", exc_info=True)
+                                _mass_props_tried.append(f"GetMassProperties2(VARIANT): {type(e2).__name__}")
 
                         # Versuch 3: IModelDocExtension.GetMassProperties(1) (typischer VBA-Pfad)
                         if weight == 0.0:
@@ -989,7 +991,7 @@ class SolidWorksConnector:
                                         mp = ext.GetMassProperties(1, 0)
                                     weight = float(mp[0]) if mp and len(mp) > 0 else 0.0
                             except Exception as e3:
-                                connector_logger.error(f"Fehler bei Extension.GetMassProperties: {e3}", exc_info=True)
+                                _mass_props_tried.append(f"Extension.GetMassProperties: {type(e3).__name__}")
 
                         # Versuch 4: IModelDocExtension.GetMassProperties2(0)
                         if weight == 0.0:
@@ -1007,7 +1009,7 @@ class SolidWorksConnector:
                                             mp = ext.GetMassProperties2(0, 0, 0)
                                     weight = float(mp[0]) if mp and len(mp) > 0 else 0.0
                             except Exception as e4:
-                                connector_logger.error(f"Fehler bei Extension.GetMassProperties2: {e4}", exc_info=True)
+                                _mass_props_tried.append(f"Extension.GetMassProperties2: {type(e4).__name__}")
 
                         # Versuch 5: Extension.CreateMassProperty().Mass (wenn verfügbar)
                         if weight == 0.0:
@@ -1042,7 +1044,12 @@ class SolidWorksConnector:
                                 if mp_obj is not None:
                                     weight = float(getattr(mp_obj, "Mass", 0) or 0)
                             except Exception as e5:
-                                connector_logger.error(f"Fehler bei CreateMassProperty: {e5}", exc_info=True)
+                                _mass_props_tried.append(f"CreateMassProperty: {type(e5).__name__}")
+
+                        # Einmaliger Hinweis wenn Gewicht nicht ermittelt werden konnte
+                        if weight == 0.0 and _mass_props_tried:
+                            part_basename = os.path.basename(part_path) if part_path else "?"
+                            connector_logger.debug(f"Gewicht nicht verfügbar für {part_basename} (versucht: {', '.join(_mass_props_tried)})")
 
                         # Lese Custom Properties (global + config)
                         properties = _read_custom_properties(part_model, config_name)

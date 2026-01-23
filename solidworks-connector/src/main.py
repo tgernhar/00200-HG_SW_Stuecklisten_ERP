@@ -12,10 +12,36 @@ import logging
 import threading
 from logging.handlers import RotatingFileHandler
 from datetime import datetime
+import time
+import win32file
+import win32con
+import ctypes
+from ctypes import wintypes
+import json
 
-# NOTE: previously used for debug-mode ingest; kept as no-op to avoid churn.
-def _agent_log(*args, **kwargs):
-    return
+# region agent log
+# Debug-mode NDJSON logger (no secrets). Writes to repo-root/.cursor/debug.log
+def _agent_log(hypothesisId: str, location: str, message: str, data: dict | None = None, runId: str = "run1"):
+    try:
+        connector_dir2 = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # .../solidworks-connector
+        repo_root = os.path.dirname(connector_dir2)
+        log_path = os.path.join(repo_root, ".cursor", "debug.log")
+        payload = {
+            "sessionId": "debug-session",
+            "runId": runId,
+            "hypothesisId": hypothesisId,
+            "location": location,
+            "message": message,
+            "data": data or {},
+            "timestamp": int(time.time() * 1000),
+        }
+        os.makedirs(os.path.dirname(log_path), exist_ok=True)
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    except Exception:
+        # never crash runtime due to debug logging
+        pass
+# endregion
 
 # Konfiguriere Logging
 connector_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -59,6 +85,19 @@ connector_logger.info(f"SOLIDWORKS-Connector-Logging initialisiert. Log-Datei: {
 
 app = FastAPI(title="SOLIDWORKS Connector API", version="1.0.0")
 
+# region agent log
+@app.on_event("startup")
+async def _startup_agent_log():
+    try:
+        routes = []
+        for r in getattr(app, "routes", []) or []:
+            p = getattr(r, "path", None)
+            m = getattr(r, "methods", None)
+            routes.append({"path": p, "methods": sorted(list(m)) if m else None})
+        _agent_log("H2", "solidworks-connector/src/main.py:startup", "startup_routes", {"route_count": len(routes), "routes": routes[:50]})
+    except Exception:
+        pass
+# endregion
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
@@ -86,12 +125,101 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 # Therefore we keep ONE connector instance PER THREAD.
 _thread_local = threading.local()
 
+
 def get_connector():
     """Get or create the SolidWorks connector instance"""
     if not hasattr(_thread_local, "connector") or _thread_local.connector is None:
         _thread_local.connector = SolidWorksConnector()
     return _thread_local.connector
 
+
+
+
+def _check_file_lock(path: str) -> tuple[bool, str | None]:
+    """
+    Windows file-lock check: returns (locked, error_text).
+    """
+    if not path:
+        return False, None
+    try:
+        handle = win32file.CreateFile(
+            path,
+            win32con.GENERIC_READ,
+            0,  # no sharing -> fail if already open elsewhere
+            None,
+            win32con.OPEN_EXISTING,
+            win32con.FILE_ATTRIBUTE_NORMAL,
+            None,
+        )
+        win32file.CloseHandle(handle)
+        return False, None
+    except Exception as e:
+        return True, str(e)
+
+
+def _get_locking_processes(path: str) -> list[dict]:
+    """
+    Use Windows Restart Manager to find processes locking a file.
+    """
+    if not path:
+        return []
+    try:
+        rstrtmgr = ctypes.WinDLL("rstrtmgr")
+    except Exception:
+        return []
+
+    CCH_RM_MAX_APP_NAME = 255
+    CCH_RM_MAX_SVC_NAME = 63
+    ERROR_MORE_DATA = 234
+
+    class RM_UNIQUE_PROCESS(ctypes.Structure):
+        _fields_ = [("dwProcessId", wintypes.DWORD), ("ProcessStartTime", wintypes.FILETIME)]
+
+    class RM_PROCESS_INFO(ctypes.Structure):
+        _fields_ = [
+            ("Process", RM_UNIQUE_PROCESS),
+            ("strAppName", wintypes.WCHAR * (CCH_RM_MAX_APP_NAME + 1)),
+            ("strServiceShortName", wintypes.WCHAR * (CCH_RM_MAX_SVC_NAME + 1)),
+            ("ApplicationType", wintypes.DWORD),
+            ("AppStatus", wintypes.DWORD),
+            ("TSSessionId", wintypes.DWORD),
+            ("bRestartable", wintypes.BOOL),
+        ]
+
+    session = wintypes.DWORD(0)
+    key = ctypes.create_unicode_buffer(32)
+    res = rstrtmgr.RmStartSession(ctypes.byref(session), 0, key)
+    if res != 0:
+        return []
+    try:
+        resources = (wintypes.LPCWSTR * 1)(path)
+        res = rstrtmgr.RmRegisterResources(session, 1, resources, 0, None, 0, None)
+        if res != 0:
+            return []
+
+        needed = wintypes.DWORD(0)
+        count = wintypes.DWORD(0)
+        reason = wintypes.DWORD(0)
+        res = rstrtmgr.RmGetList(session, ctypes.byref(needed), ctypes.byref(count), None, ctypes.byref(reason))
+        if res == ERROR_MORE_DATA and needed.value > 0:
+            arr = (RM_PROCESS_INFO * needed.value)()
+            count = wintypes.DWORD(needed.value)
+            res = rstrtmgr.RmGetList(session, ctypes.byref(needed), ctypes.byref(count), arr, ctypes.byref(reason))
+            if res != 0:
+                return []
+            out = []
+            for i in range(count.value):
+                info = arr[i]
+                out.append({"pid": int(info.Process.dwProcessId), "name": info.strAppName})
+            return out
+        if res == 0:
+            return []
+    finally:
+        try:
+            rstrtmgr.RmEndSession(session)
+        except Exception:
+            pass
+    return []
 
 class AssemblyRequest(BaseModel):
     assembly_filepath: str
@@ -113,6 +241,10 @@ class Create2DDocumentsRequest(BaseModel):
 
 
 class PathsExistRequest(BaseModel):
+    paths: List[str]
+
+
+class PathsOpenCheckRequest(BaseModel):
     paths: List[str]
 
 class SetCustomPropertiesRequest(BaseModel):
@@ -144,39 +276,53 @@ def get_all_parts_from_assembly(request: AssemblyRequest):
     """
     Liest alle Teile und Properties aus Assembly
     """
+    connector = None
     try:
+        # region agent log
         connector_logger.info(f"get-all-parts-from-assembly aufgerufen mit filepath: {request.assembly_filepath}")
+        _agent_log("H1", "solidworks-connector/src/main.py:get_all_parts_from_assembly", "enter_v1", {"assembly_filepath": request.assembly_filepath})
         connector = get_connector()
         connector_logger.info(f"Connector-Instanz erhalten, rufe get_all_parts_and_properties_from_assembly auf...")
         results = connector.get_all_parts_and_properties_from_assembly(
             request.assembly_filepath
         )
-        try:
-            _write_debug(
-                {
-                    "sessionId": "debug-session",
-                    "runId": "sw-activity",
-                    "hypothesisId": "SW_LIFECYCLE",
-                    "location": "solidworks-connector/src/main.py:get_all_parts_from_assembly",
-                    "message": "post_import_state",
-                    "data": {
-                        "open_doc_count": connector.get_open_doc_count(),
-                        "results_count": len(results) if results else 0,
-                    },
-                    "timestamp": int(datetime.now().timestamp() * 1000),
-                }
-            )
-        except Exception:
-            pass
         connector_logger.info(f"Erfolgreich: {len(results) if results else 0} Ergebnisse erhalten")
+        _agent_log("H1", "solidworks-connector/src/main.py:get_all_parts_from_assembly", "exit_v1", {"results_len": len(results) if results else 0})
+        
+        # Session-Beendigung: Schließe SolidWorks Session nach erfolgreichem Import
+        # Nur wenn der Connector die Session gestartet hat
+        try:
+            if connector and connector.can_close_app():
+                connector.close_app(reason="import_completed")
+                connector_logger.info("SolidWorks Session nach erfolgreichem Import geschlossen")
+        except Exception as close_err:
+            connector_logger.warning(f"Fehler beim Schließen der Session nach Import: {close_err}")
+        
         return {
             "success": True,
             "results": results
         }
     except Exception as e:
         connector_logger.error(f"Fehler in get-all-parts-from-assembly: {e}", exc_info=True)
+        _agent_log("H1", "solidworks-connector/src/main.py:get_all_parts_from_assembly", "error_v1", {"error": str(e)})
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@app.post("/api/solidworks/get-all-parts-from-assembly-v2")
+def get_all_parts_from_assembly_v2(request: AssemblyRequest):
+    """
+    Backward-compatible alias for setups that use SOLIDWORKS_CONNECTOR_MODE=v2 in the backend.
+    Currently returns the same shape as v1.
+    """
+    try:
+        _agent_log("H2", "solidworks-connector/src/main.py:get_all_parts_from_assembly_v2", "enter_v2", {"assembly_filepath": request.assembly_filepath})
+        return get_all_parts_from_assembly(request)
+    except HTTPException:
+        raise
+    except Exception as e:
+        connector_logger.error(f"Fehler in get-all-parts-from-assembly-v2: {e}", exc_info=True)
+        _agent_log("H2", "solidworks-connector/src/main.py:get_all_parts_from_assembly_v2", "error_v2", {"error": str(e)})
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/solidworks/create-3d-documents")
 def create_3d_documents(request: Create3DDocumentsRequest):
@@ -332,6 +478,80 @@ def paths_exist(request: PathsExistRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/api/solidworks/check-open-docs")
+def check_open_docs(request: PathsOpenCheckRequest):
+    """
+    Prüft, ob Dateien durch andere Prozesse geöffnet/gesperrt sind (Windows).
+    """
+    try:
+        connector_logger.info(
+            f"check-open-docs aufgerufen: count={len(request.paths or [])}"
+        )
+        connector = None
+        try:
+            connector = get_connector()
+            if getattr(connector, "sw_app", None) is None and hasattr(connector, "connect"):
+                connector.connect()
+        except Exception:
+            connector = None
+        paths = request.paths or []
+        if len(paths) > 500:
+            raise HTTPException(status_code=400, detail="Zu viele Pfade (max 500)")
+        open_paths = []
+        lock_errors: dict[str, str] = {}
+        lock_processes: dict[str, list[dict]] = {}
+        missing_paths = []
+        open_in_sw: dict[str, bool] = {}
+        for p in paths:
+            sp = str(p or "")
+            if not sp:
+                continue
+            if not os.path.exists(sp):
+                missing_paths.append(sp)
+                continue
+            in_sw = False
+            if connector is not None and getattr(connector, "sw_app", None) is not None:
+                try:
+                    doc = connector.sw_app.GetOpenDocumentByName(sp)
+                    if not doc:
+                        base = os.path.basename(sp)
+                        if base:
+                            doc = connector.sw_app.GetOpenDocumentByName(base)
+                    in_sw = bool(doc)
+                except Exception:
+                    in_sw = False
+            if in_sw:
+                open_paths.append(sp)
+                open_in_sw[sp] = True
+                continue
+            locked, err = _check_file_lock(sp)
+            if locked:
+                open_paths.append(sp)
+                if err:
+                    lock_errors[sp] = err
+                procs = _get_locking_processes(sp)
+                if procs:
+                    lock_processes[sp] = procs
+                if not procs:
+                    connector_logger.warning(
+                        f"check-open-docs: locked without process info: {sp} err={err}"
+                    )
+        return {
+            "success": True,
+            "open_paths": open_paths,
+            "missing_paths": missing_paths,
+            "lock_errors": lock_errors,
+            "open_in_sw": open_in_sw,
+            "lock_processes": lock_processes,
+            "count": len(paths),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        connector_logger.error(f"Fehler in check-open-docs: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/solidworks/open-file")
 def open_file(path: str = Query(..., description="Absoluter Dateipfad auf dem Windows-Host (z.B. G:\\... oder C:\\...)")):
     """
@@ -359,6 +579,7 @@ def set_custom_properties(request: SetCustomPropertiesRequest):
     """
     Setzt Custom Properties in einer SOLIDWORKS Datei (SLDPRT/SLDASM).
     """
+    connector = None
     try:
         connector = get_connector()
         result = connector.set_custom_properties(
@@ -367,6 +588,16 @@ def set_custom_properties(request: SetCustomPropertiesRequest):
             properties=request.properties,
             scope=request.scope,
         )
+        
+        # Session-Beendigung: Schließe SolidWorks Session nach erfolgreichem Export
+        # Nur wenn der Connector die Session gestartet hat
+        try:
+            if connector and connector.can_close_app():
+                connector.close_app(reason="export_completed")
+                connector_logger.info("SolidWorks Session nach erfolgreichem Export geschlossen")
+        except Exception as close_err:
+            connector_logger.warning(f"Fehler beim Schließen der Session nach Export: {close_err}")
+        
         return {"success": True, "result": result}
     except Exception as e:
         connector_logger.error(f"Fehler in set-custom-properties: {e}", exc_info=True)
