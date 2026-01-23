@@ -149,3 +149,26 @@ export interface Order {
   hg_lt?: string
   bestaetigter_lt?: string
 }
+
+export interface DeliveryNoteArticle {
+  pos: number
+  article_number: string
+  article_description: string
+  amount: number
+  note?: string
+}
+
+export interface DeliveryNote {
+  delivery_note_id: number
+  number: string
+  delivery_date?: string
+  booked_at?: string
+  booked_by?: string
+  description?: string
+  articles: DeliveryNoteArticle[]
+}
+
+export interface DeliveryNotesResponse {
+  order_name: string
+  delivery_notes: DeliveryNote[]
+}

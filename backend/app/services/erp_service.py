@@ -94,6 +94,111 @@ def list_order_articles_by_au_name(au_nr: str, db_connection) -> list[dict]:
         cursor.close()
 
 
+def fetch_delivery_notes_for_order(order_name: str, db_connection) -> list[dict]:
+    """
+    Lädt Lieferschein-Informationen für einen Auftrag aus HUGWAWI.
+    
+    Args:
+        order_name: ordertable.name (z.B. "BN-12345")
+        db_connection: MySQL-Verbindung zu HUGWAWI
+    
+    Returns:
+        Liste von Lieferscheinen mit ihren Artikeln, gruppiert nach Lieferschein
+    """
+    cursor = db_connection.cursor(dictionary=True)
+    try:
+        # Erst die Order-ID finden
+        cursor.execute(
+            """
+            SELECT id FROM ordertable WHERE name = %s ORDER BY id DESC LIMIT 1
+            """,
+            (order_name,),
+        )
+        order_row = cursor.fetchone()
+        if not order_row:
+            return []
+        
+        order_id = order_row["id"]
+        
+        # Lieferscheine und ihre Artikel laden
+        cursor.execute(
+            """
+            SELECT 
+                dn.id AS delivery_note_id,
+                dn.number AS delivery_note_number,
+                dn.deliveryDate AS delivery_date,
+                dn.created AS booked_at,
+                dn.description AS delivery_note_description,
+                u.loginname AS booked_by,
+                dna.id AS delivery_article_id,
+                dna.amount AS amount,
+                dna.description AS article_note,
+                a.articlenumber AS article_number,
+                a.description AS article_description
+            FROM incomingDeliveryNote dn
+            LEFT JOIN userlogin u ON u.id = dn.orderer
+            LEFT JOIN incomingDeliveryNoteArticle dna ON dna.deliveryNoteId = dn.id
+            LEFT JOIN article a ON a.id = dna.articleId
+            WHERE dn.orderId = %s
+            ORDER BY dn.created DESC, dna.id ASC
+            """,
+            (order_id,),
+        )
+        rows = cursor.fetchall() or []
+        
+        # Gruppiere nach Lieferschein
+        delivery_notes_map = {}
+        for row in rows:
+            dn_id = row.get("delivery_note_id")
+            if dn_id is None:
+                continue
+            
+            if dn_id not in delivery_notes_map:
+                # Datum formatieren
+                delivery_date = row.get("delivery_date")
+                booked_at = row.get("booked_at")
+                
+                # Konvertiere datetime zu String
+                delivery_date_str = None
+                if delivery_date:
+                    try:
+                        delivery_date_str = delivery_date.strftime("%d.%m.%Y") if hasattr(delivery_date, 'strftime') else str(delivery_date)[:10]
+                    except Exception:
+                        delivery_date_str = str(delivery_date)[:10] if delivery_date else None
+                
+                booked_at_str = None
+                if booked_at:
+                    try:
+                        booked_at_str = booked_at.strftime("%d.%m.%Y %H:%M") if hasattr(booked_at, 'strftime') else str(booked_at)[:16]
+                    except Exception:
+                        booked_at_str = str(booked_at)[:16] if booked_at else None
+                
+                delivery_notes_map[dn_id] = {
+                    "delivery_note_id": dn_id,
+                    "number": row.get("delivery_note_number") or "",
+                    "delivery_date": delivery_date_str,
+                    "booked_at": booked_at_str,
+                    "booked_by": row.get("booked_by") or "",
+                    "description": row.get("delivery_note_description") or "",
+                    "articles": []
+                }
+            
+            # Artikel hinzufügen (falls vorhanden)
+            if row.get("delivery_article_id"):
+                pos = len(delivery_notes_map[dn_id]["articles"]) + 1
+                delivery_notes_map[dn_id]["articles"].append({
+                    "pos": pos,
+                    "article_number": row.get("article_number") or "",
+                    "article_description": row.get("article_description") or "",
+                    "amount": row.get("amount") or 0,
+                    "note": row.get("article_note") or ""
+                })
+        
+        return list(delivery_notes_map.values())
+    finally:
+        cursor.close()
+
+
 def list_bestellartikel_templates(db_connection) -> list[dict]:
     """
     Listet HUGWAWI Artikel, deren Artikelnummer mit '099900-' beginnt.

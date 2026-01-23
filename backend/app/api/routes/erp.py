@@ -74,6 +74,31 @@ async def get_article_orders(article_id: int, db: Session = Depends(get_db)):
     return orders
 
 
+@router.get("/orders/{order_name}/delivery-notes")
+async def get_delivery_notes(order_name: str):
+    """
+    Lädt Lieferscheine für einen Auftrag (ordertable.name) aus HUGWAWI.
+    
+    Args:
+        order_name: Name des Auftrags (z.B. "BN-12345")
+    
+    Returns:
+        Liste von Lieferscheinen mit Artikeln
+    """
+    from app.services.erp_service import fetch_delivery_notes_for_order
+    from app.core.database import get_erp_db_connection
+    
+    erp_connection = get_erp_db_connection()
+    try:
+        delivery_notes = fetch_delivery_notes_for_order(order_name, erp_connection)
+        return {
+            "order_name": order_name,
+            "delivery_notes": delivery_notes
+        }
+    finally:
+        erp_connection.close()
+
+
 @router.post("/projects/{project_id}/sync-orders")
 async def sync_orders(project_id: int, bom_id: int | None = None, db: Session = Depends(get_db)):
     """Bestellungen synchronisieren"""
