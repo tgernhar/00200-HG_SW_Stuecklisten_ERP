@@ -14,7 +14,6 @@ import ctypes
 import winerror
 import win32event
 import win32con
-import json
 # (duplicate typing import removed above)
 
 # Logger für SOLIDWORKS-Connector
@@ -104,11 +103,8 @@ class SolidWorksConnector:
                     pass
             if self._owns_app:
                 try:
-                    # PERFORMANCE: Run SOLIDWORKS im unsichtbaren Modus (3-4x schneller!)
-                    # Visible = False bedeutet keine UI-Updates, kein Grafik-Rendering
-                    # Nur API-Calls → deutlich schneller bei großen Assemblies
+                    # Run SOLIDWORKS headless when we started it.
                     self.sw_app.Visible = False
-                    connector_logger.info("SOLIDWORKS im unsichtbaren Modus gestartet (Performance-Optimierung)")
                 except Exception:
                     pass
 
@@ -500,6 +496,18 @@ class SolidWorksConnector:
 
                 def _collect_from_mgr(mgr_name: str):
                     mgr = model.Extension.CustomPropertyManager(mgr_name)
+                    getnames = getattr(mgr, "GetNames", None)
+                    try:
+                        names = getnames() if callable(getnames) else getnames
+                    except Exception as _e_getnames:
+                        connector_logger.error(f"Fehler bei GetNames ({mgr_name}): {_e_getnames}", exc_info=True)
+                        names = []
+                    if names is None:
+                        names = []
+                    try:
+                        names_list = list(names)
+                    except Exception:
+                        names_list = []
 
                     def _pick_str(x):
                         if x is None:
@@ -516,39 +524,6 @@ class SolidWorksConnector:
                                     return it
                             return ""
                         return str(x)
-
-                    # FAST PATH: GetAll3 liefert alle Properties in einem Call (wie VBA)
-                    try:
-                        raw_all = mgr.GetAll3()
-                        if isinstance(raw_all, (list, tuple)) and len(raw_all) >= 3:
-                            names_all = list(raw_all[0] or [])
-                            values_all = list(raw_all[2] or [])
-                            for idx, pn in enumerate(names_all):
-                                try:
-                                    val = values_all[idx] if idx < len(values_all) else ""
-                                except Exception:
-                                    val = ""
-                                name_str = str(pn)
-                                if name_str not in props_by_name:
-                                    order.append(name_str)
-                                props_by_name[name_str] = str(_pick_str(val))
-                            return
-                    except Exception:
-                        pass
-
-                    # SLOW PATH: Fallback über GetNames + Get2/Get4/Get5/Get6
-                    getnames = getattr(mgr, "GetNames", None)
-                    try:
-                        names = getnames() if callable(getnames) else getnames
-                    except Exception as _e_getnames:
-                        connector_logger.error(f"Fehler bei GetNames ({mgr_name}): {_e_getnames}", exc_info=True)
-                        names = []
-                    if names is None:
-                        names = []
-                    try:
-                        names_list = list(names)
-                    except Exception:
-                        names_list = []
 
                     for pn in names_list:
                         try:
@@ -951,42 +926,19 @@ class SolidWorksConnector:
                 properties = []
 
                 part_model = None
-                # Prüfe ob Dokument bereits geöffnet ist (Performance-Optimierung)
-                opened_here = False
+                part_errors = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
+                part_warnings = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
                 try:
-                    part_model = self.sw_app.GetOpenDocumentByName(part_path)
-                    if part_model is None:
-                        # Dokument nicht geöffnet, öffne es
-                        part_errors = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
-                        part_warnings = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
-                        try:
-                            part_model = self.sw_app.OpenDoc6(
-                                part_path,
-                                1 if part_path.endswith(".SLDPRT") else 2,
-                                0,
-                                "",
-                                part_errors,
-                                part_warnings,
-                            )
-                            opened_here = True
-                        except Exception:
-                            part_model = None
+                    part_model = self.sw_app.OpenDoc6(
+                        part_path,
+                        1 if part_path.endswith(".SLDPRT") else 2,
+                        0,
+                        "",
+                        part_errors,
+                        part_warnings,
+                    )
                 except Exception:
-                    # Fallback: Versuche zu öffnen
-                    part_errors = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
-                    part_warnings = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
-                    try:
-                        part_model = self.sw_app.OpenDoc6(
-                            part_path,
-                            1 if part_path.endswith(".SLDPRT") else 2,
-                            0,
-                            "",
-                            part_errors,
-                            part_warnings,
-                        )
-                        opened_here = True
-                    except Exception:
-                        part_model = None
+                    part_model = None
 
                 if part_model:
                     try:
@@ -1001,42 +953,108 @@ class SolidWorksConnector:
                         except Exception as _e_box:
                             connector_logger.error(f"Fehler bei GetPartBox ({part_path}): {_e_box}", exc_info=True)
 
-                        # Lese Gewicht (Performance-Optimierung: Nur eine zuverlässige Methode verwenden)
-                        # Gewicht (kg): Verwende GetMassProperties2(0) als primäre Methode
+                        # Lese Gewicht
+                        # Gewicht (kg): SOLIDWORKS COM APIs unterscheiden sich je nach Version/Typelib.
+                        # Wir probieren mehrere Varianten und loggen minimal nach NDJSON für Laufzeit-Evidence.
                         weight = 0.0
+
+                        # Versuch 1: IModelDoc2.GetMassProperties2(0)
                         try:
                             mass_props = part_model.GetMassProperties2(0)
                             weight = float(mass_props[0]) if mass_props and len(mass_props) > 0 else 0.0
-                        except Exception:
-                            # Fallback: Extension.GetMassProperties2(0)
+                        except Exception as e1:
+                            connector_logger.error(f"Fehler bei GetMassProperties2: {e1}", exc_info=True)
+
+                        # Versuch 2: IModelDoc2.GetMassProperties2(VARIANT VT_I4=0)
+                        if weight == 0.0:
+                            try:
+                                opt = win32com.client.VARIANT(pythoncom.VT_I4, 0)
+                                mass_props = part_model.GetMassProperties2(opt)
+                                weight = float(mass_props[0]) if mass_props and len(mass_props) > 0 else 0.0
+                            except Exception as e2:
+                                connector_logger.error(f"Fehler bei GetMassProperties2(VARIANT): {e2}", exc_info=True)
+
+                        # Versuch 3: IModelDocExtension.GetMassProperties(1) (typischer VBA-Pfad)
+                        if weight == 0.0:
+                            try:
+                                ext = part_model.Extension
+                                # Some typelibs require extra parameters (COM says: "Parameter nicht optional")
+                                if hasattr(ext, "GetMassProperties"):
+                                    mp = None
+                                    # First try: VBA-style (1 param)
+                                    try:
+                                        mp = ext.GetMassProperties(1)
+                                    except Exception as _e_one:
+                                        # Second try: 2 params (options, status/byref or config placeholder)
+                                        mp = ext.GetMassProperties(1, 0)
+                                    weight = float(mp[0]) if mp and len(mp) > 0 else 0.0
+                            except Exception as e3:
+                                connector_logger.error(f"Fehler bei Extension.GetMassProperties: {e3}", exc_info=True)
+
+                        # Versuch 4: IModelDocExtension.GetMassProperties2(0)
+                        if weight == 0.0:
                             try:
                                 ext = part_model.Extension
                                 if hasattr(ext, "GetMassProperties2"):
+                                    mp = None
+                                    # Try common signatures: (options) or (options, status) or (options, config, status)
                                     try:
                                         mp = ext.GetMassProperties2(0)
-                                        weight = float(mp[0]) if mp and len(mp) > 0 else 0.0
-                                    except Exception:
+                                    except Exception as _e_one:
                                         try:
                                             mp = ext.GetMassProperties2(0, 0)
-                                            weight = float(mp[0]) if mp and len(mp) > 0 else 0.0
-                                        except Exception:
-                                            pass
-                            except Exception:
-                                pass
+                                        except Exception as _e_two:
+                                            mp = ext.GetMassProperties2(0, 0, 0)
+                                    weight = float(mp[0]) if mp and len(mp) > 0 else 0.0
+                            except Exception as e4:
+                                connector_logger.error(f"Fehler bei Extension.GetMassProperties2: {e4}", exc_info=True)
+
+                        # Versuch 5: Extension.CreateMassProperty().Mass (wenn verfügbar)
+                        if weight == 0.0:
+                            try:
+                                ext = part_model.Extension
+                                mp_obj = None
+                                # Prefer CastTo for correct typelib binding if available
+                                try:
+                                    ext_typed = win32com.client.CastTo(ext, "IModelDocExtension")
+                                except Exception:
+                                    ext_typed = ext
+
+                                # Try: CreateMassProperty (call) -> CreateMassProperty2 (call) -> CreateMassProperty (property)
+                                try:
+                                    if hasattr(ext_typed, "CreateMassProperty"):
+                                        mp_obj = ext_typed.CreateMassProperty()
+                                except Exception:
+                                    pass
+                                if mp_obj is None:
+                                    try:
+                                        if hasattr(ext_typed, "CreateMassProperty2"):
+                                            mp_obj = ext_typed.CreateMassProperty2()
+                                    except Exception:
+                                        pass
+                                if mp_obj is None:
+                                    # some bindings expose it as a property
+                                    try:
+                                        mp_obj = getattr(ext_typed, "CreateMassProperty")
+                                    except Exception:
+                                        mp_obj = None
+
+                                if mp_obj is not None:
+                                    weight = float(getattr(mp_obj, "Mass", 0) or 0)
+                            except Exception as e5:
+                                connector_logger.error(f"Fehler bei CreateMassProperty: {e5}", exc_info=True)
 
                         # Lese Custom Properties (global + config)
                         properties = _read_custom_properties(part_model, config_name)
                     finally:
                         # Close by title/basename is more reliable than full path.
-                        # Nur schließen wenn wir das Dokument hier geöffnet haben (Performance-Optimierung)
-                        if opened_here:
+                        try:
+                            self._close_doc_best_effort(part_model, part_path)
+                        except Exception:
                             try:
-                                self._close_doc_best_effort(part_model, part_path)
+                                self.sw_app.CloseDoc(part_path)
                             except Exception:
-                                try:
-                                    self.sw_app.CloseDoc(part_path)
-                                except Exception:
-                                    pass
+                                pass
                 else:
                     if is_hidden:
                         hidden_count += 1
@@ -1134,7 +1152,6 @@ class SolidWorksConnector:
             pass
 
         ext = str(filepath).upper()
-        is_asm = ext.endswith(".SLDASM")
         if ext.endswith(".SLDPRT"):
             doc_type = 1
         elif ext.endswith(".SLDASM"):
