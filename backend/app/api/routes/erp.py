@@ -110,6 +110,8 @@ async def load_articles(
         check_all_articlenumbers,
         fetch_hugwawi_custom_properties,
         compute_article_diffs,
+        find_extended_articles,
+        create_extended_articles,
         HUGWAWI_FIELD_MAPPING,
     )
     from app.core.database import get_erp_db_connection
@@ -170,6 +172,69 @@ async def load_articles(
         
         db.commit()
 
+    # 6. Erweiterte Artikel finden und einfügen (für Artikel die mit "09" oder "9" beginnen)
+    new_extended_articles = 0
+    extended_details = {}
+    
+    # Hole die aktuelle BOM-ID (erste BOM des Projekts oder None)
+    from app.models.bom import Bom
+    default_bom = db.query(Bom).filter(Bom.project_id == project_id).first()
+    
+    if default_bom:
+        # Filter: Nur Artikelnummern die mit "09" oder "9" beginnen
+        base_09_articles = [
+            a for a in articles 
+            if (a.hg_artikelnummer or "").strip().startswith(("09", "9"))
+        ]
+        
+        if base_09_articles:
+            # Bereits vorhandene Artikelnummern im Projekt sammeln
+            existing_numbers = set(
+                (a.hg_artikelnummer or "").strip() 
+                for a in articles
+            )
+            
+            # Basis-Artikelnummern für die Suche
+            base_numbers = [
+                (a.hg_artikelnummer or "").strip() 
+                for a in base_09_articles 
+                if (a.hg_artikelnummer or "").strip()
+            ]
+            
+            # Erweiterte Artikel aus HUGWAWI laden
+            erp_connection2 = get_erp_db_connection()
+            try:
+                extended_data = find_extended_articles(base_numbers, erp_connection2)
+            finally:
+                erp_connection2.close()
+            
+            # Neue Artikel erstellen (nur wenn noch nicht vorhanden)
+            for parent in base_09_articles:
+                parent_nr = (parent.hg_artikelnummer or "").strip()
+                extensions = extended_data.get(parent_nr, [])
+                created_nrs = []
+                
+                for ext in extensions:
+                    ext_nr = ext.get("articlenumber", "")
+                    if ext_nr and ext_nr not in existing_numbers:
+                        # Erstelle neuen Artikel
+                        new_art = create_extended_articles(
+                            parent_article=parent,
+                            extension_data=ext,
+                            project_id=project_id,
+                            bom_id=parent.bom_id or default_bom.id,
+                            db=db
+                        )
+                        new_extended_articles += 1
+                        created_nrs.append(ext_nr)
+                        existing_numbers.add(ext_nr)  # Verhindere Duplikate
+                
+                if created_nrs:
+                    extended_details[parent_nr] = created_nrs
+            
+            if new_extended_articles > 0:
+                db.commit()
+
     return {
         "success": True,
         "sync_result": {
@@ -183,6 +248,8 @@ async def load_articles(
         "total_articles": len(articles),
         "hugwawi_found": len(hugwawi_by_id),
         "articles_with_diffs": len(diffs_by_id),
+        "new_extended_articles": new_extended_articles,
+        "extended_details": extended_details,
     }
 
 

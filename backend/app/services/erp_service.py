@@ -433,6 +433,164 @@ def compute_article_diffs(
     return hugwawi_by_id, diffs_by_id
 
 
+def find_extended_articles(
+    base_articlenumbers: list[str], 
+    db_connection
+) -> dict[str, list[dict]]:
+    """
+    Findet verlängerte Artikelnummern in HUGWAWI.
+    
+    Sucht nach Artikelnummern die mit dem Basis-Artikel beginnen und 
+    mit "_" und weiteren Zeichen erweitert sind.
+    
+    Beispiel: Basis "920894-0001000" findet "920894-0001000_001", "920894-0001000_002"
+    
+    Args:
+        base_articlenumbers: Liste von Basis-Artikelnummern (nur 09/9 beginnend)
+        db_connection: MySQL-Verbindung zu HUGWAWI
+    
+    Returns:
+        {base_articlenumber: [
+            {articlenumber: "..._001", benennung: "...", ...mapped_fields...},
+            {articlenumber: "..._002", benennung: "...", ...mapped_fields...},
+        ], ...}
+    """
+    if not base_articlenumbers:
+        return {}
+    
+    result = {}
+    cursor = db_connection.cursor(dictionary=True)
+    
+    try:
+        for base_nr in base_articlenumbers:
+            if not base_nr:
+                continue
+            
+            # Suche nach Artikelnummern die mit "base_" beginnen
+            # In MySQL ist _ ein Wildcard, daher escapen wir es nicht speziell,
+            # sondern filtern im Python-Code nach dem exakten Pattern
+            search_pattern = f"{base_nr}_%"
+            
+            query = """
+                SELECT 
+                    a.articlenumber,
+                    a.description,
+                    a.sparepart,
+                    d.name AS department,
+                    a.customtext1,
+                    a.customtext2,
+                    a.customtext3,
+                    a.customtext4,
+                    a.customtext5,
+                    a.customtext6,
+                    a.customtext7,
+                    a.customfloat1,
+                    a.customfloat2,
+                    a.customfloat3,
+                    a.weight
+                FROM article a
+                LEFT JOIN department d ON a.department = d.id
+                WHERE a.articlenumber LIKE %s
+                ORDER BY a.articlenumber
+            """
+            cursor.execute(query, (search_pattern,))
+            rows = cursor.fetchall() or []
+            
+            extensions = []
+            for row in rows:
+                articlenumber = row.get("articlenumber", "")
+                
+                # Prüfe ob es wirklich eine Erweiterung mit "_" ist
+                # (nicht einfach nur länger ohne "_")
+                if not articlenumber.startswith(f"{base_nr}_"):
+                    continue
+                
+                # Map HUGWAWI fields to App-DB fields
+                mapped_data = {"articlenumber": articlenumber}
+                for hugwawi_field, app_field in HUGWAWI_FIELD_MAPPING.items():
+                    value = row.get(hugwawi_field)
+                    # Normalize empty strings to None
+                    if value == "" or value == "":
+                        value = None
+                    # Convert floats to proper type
+                    if app_field in ("laenge", "breite", "hoehe", "gewicht") and value is not None:
+                        try:
+                            value = float(value)
+                        except (ValueError, TypeError):
+                            value = None
+                    mapped_data[app_field] = value
+                
+                extensions.append(mapped_data)
+            
+            if extensions:
+                result[base_nr] = extensions
+        
+        return result
+    finally:
+        cursor.close()
+
+
+def create_extended_articles(
+    parent_article,
+    extension_data: dict,
+    project_id: int,
+    bom_id: int,
+    db: Session
+) -> "Article":
+    """
+    Erstellt einen neuen Artikel als Unterartikel (pos_sub) des Eltern-Artikels.
+    
+    Args:
+        parent_article: Das Eltern-Article-Objekt
+        extension_data: Dict mit Artikeldaten aus HUGWAWI (gemappt auf App-DB-Felder)
+        project_id: Projekt-ID
+        bom_id: BOM-ID
+        db: Datenbank-Session
+    
+    Returns:
+        Das neu erstellte Article-Objekt
+    """
+    # Finde den höchsten pos_sub für diesen pos_nr
+    max_pos_sub = db.query(Article).filter(
+        Article.project_id == project_id,
+        Article.bom_id == bom_id,
+        Article.pos_nr == parent_article.pos_nr
+    ).with_entities(Article.pos_sub).order_by(Article.pos_sub.desc()).first()
+    
+    next_pos_sub = (max_pos_sub[0] if max_pos_sub and max_pos_sub[0] else 0) + 1
+    
+    # Erstelle neuen Artikel mit allen Custom Properties aus HUGWAWI
+    new_article = Article(
+        project_id=project_id,
+        bom_id=bom_id,
+        pos_nr=parent_article.pos_nr,
+        pos_sub=next_pos_sub,
+        hg_artikelnummer=extension_data.get("articlenumber"),
+        benennung=extension_data.get("benennung"),
+        teilenummer=extension_data.get("teilenummer"),
+        abteilung_lieferant=extension_data.get("abteilung_lieferant"),
+        werkstoff=extension_data.get("werkstoff"),
+        werkstoff_nr=extension_data.get("werkstoff_nr"),
+        oberflaeche=extension_data.get("oberflaeche"),
+        oberflaechenschutz=extension_data.get("oberflaechenschutz"),
+        farbe=extension_data.get("farbe"),
+        lieferzeit=extension_data.get("lieferzeit"),
+        pfad=extension_data.get("pfad"),
+        laenge=extension_data.get("laenge"),
+        breite=extension_data.get("breite"),
+        hoehe=extension_data.get("hoehe"),
+        gewicht=extension_data.get("gewicht"),
+        # Standard-Werte für neue Artikel
+        menge=1,
+        sw_origin=False,
+        in_stueckliste_anzeigen=True,
+        erp_exists=True,  # Kommt aus HUGWAWI, existiert also
+    )
+    
+    db.add(new_article)
+    return new_article
+
+
 async def check_all_articlenumbers(project_id: int, db: Session) -> dict:
     """
     Batch-Prüfung aller Artikelnummern im ERP

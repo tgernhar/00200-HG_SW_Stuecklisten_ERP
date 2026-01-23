@@ -386,6 +386,9 @@ function App() {
       await refetch()
 
       const diffCount = Object.keys(data.diffs || {}).length
+      const newExtendedCount = data.new_extended_articles || 0
+      const extendedDetails = data.extended_details || {}
+      
       let message = `Artikel geladen:\n` +
         `- ${syncResult.total_checked || 0} Artikelnummern geprüft\n` +
         `- ${syncResult.exists_count || 0} im ERP vorhanden\n` +
@@ -394,6 +397,14 @@ function App() {
 
       if (autoFilledCount > 0) {
         message += `- ${autoFilledCount} Artikel automatisch aus HUGWAWI befüllt\n`
+      }
+      if (newExtendedCount > 0) {
+        message += `- ${newExtendedCount} erweiterte Artikel aus HUGWAWI eingefügt\n`
+        // Optional: Details zu den erweiterten Artikeln
+        const parentCount = Object.keys(extendedDetails).length
+        if (parentCount > 0) {
+          message += `  (für ${parentCount} Basis-Artikel mit "_" Erweiterungen)\n`
+        }
       }
       if (diffCount > 0) {
         message += `- ${diffCount} Artikel mit Differenzen (gelb/rot markiert)`
