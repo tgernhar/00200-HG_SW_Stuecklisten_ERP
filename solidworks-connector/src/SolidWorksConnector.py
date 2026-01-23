@@ -141,20 +141,11 @@ class SolidWorksConnector:
     def _shutdown_if_owned(self, reason: str) -> None:
         if not self.sw_app or not self._owns_app:
             return
-        try:
-            import json, time
-            with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
-                _f.write(json.dumps({
-                    "sessionId": "debug-session",
-                    "runId": "sw-activity",
-                    "hypothesisId": "SW_LIFECYCLE",
-                    "location": "solidworks-connector/src/SolidWorksConnector.py:_shutdown_if_owned",
-                    "message": "pre_shutdown",
-                    "data": {"reason": reason, "open_doc_count": self.get_open_doc_count()},
-                    "timestamp": int(time.time() * 1000),
-                }) + "\n")
-        except Exception:
-            pass
+        import time as _time
+        import subprocess
+        
+        connector_logger.info(f"SOLIDWORKS wird beendet (Grund: {reason})...")
+        
         try:
             # Best effort: close all docs without save prompts.
             try:
@@ -164,27 +155,48 @@ class SolidWorksConnector:
                     self.sw_app.CloseAllDocuments()
                 except Exception:
                     pass
+            
+            # Warte, damit SOLIDWORKS Zeit hat, Dokumente zu schließen
+            _time.sleep(2.0)
+            
+            # Prüfe ob noch Dokumente offen sind – wenn ja, nochmal warten
+            open_count = self.get_open_doc_count()
+            if open_count and open_count > 0:
+                connector_logger.debug(f"Noch {open_count} Dokumente offen, warte weitere 3s...")
+                _time.sleep(3.0)
+            
+            # ExitApp aufrufen (graceful)
+            exit_ok = False
             try:
                 self.sw_app.ExitApp()
-            except Exception:
-                pass
+                exit_ok = True
+                connector_logger.info("SOLIDWORKS via ExitApp beendet")
+            except Exception as exit_err:
+                connector_logger.warning(f"ExitApp fehlgeschlagen: {exit_err}")
+            
+            # Fallback: taskkill wenn ExitApp nicht funktioniert hat
+            if not exit_ok:
+                _time.sleep(1.0)
+                try:
+                    # Versuche SLDWORKS.exe per taskkill zu beenden (nur unsere Instanz)
+                    subprocess.run(
+                        ["taskkill", "/IM", "SLDWORKS.exe", "/F"],
+                        capture_output=True,
+                        timeout=10
+                    )
+                    connector_logger.info("SOLIDWORKS via taskkill beendet (Fallback)")
+                except Exception as tk_err:
+                    connector_logger.warning(f"taskkill fehlgeschlagen: {tk_err}")
         finally:
             self.sw_app = None
             self._owns_app = False
-        try:
-            import json, time
-            with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
-                _f.write(json.dumps({
-                    "sessionId": "debug-session",
-                    "runId": "sw-activity",
-                    "hypothesisId": "SW_LIFECYCLE",
-                    "location": "solidworks-connector/src/SolidWorksConnector.py:_shutdown_if_owned",
-                    "message": "post_shutdown",
-                    "data": {"reason": reason},
-                    "timestamp": int(time.time() * 1000),
-                }) + "\n")
-        except Exception:
-            pass
+            try:
+                global _started_by_connector
+                _started_by_connector = False
+            except Exception:
+                pass
+        
+        connector_logger.info(f"SOLIDWORKS Shutdown abgeschlossen (Grund: {reason})")
 
     def can_close_app(self) -> bool:
         try:
@@ -942,114 +954,125 @@ class SolidWorksConnector:
 
                 if part_model:
                     try:
-                        # Lese Dimensionen (nur für Parts; bei Fehler still ignorieren)
+                        # Prüfe ob COM-Objekt "unknown" ist (pywin32 konnte Typelib nicht auflösen)
+                        # Bei <unknown> Objekten sind MassProperties/GetPartBox nicht zuverlässig → überspringen
+                        _model_repr = ""
                         try:
-                            # GetPartBox is only valid for PART documents in many SOLIDWORKS type libs.
-                            if str(part_path).upper().endswith(".SLDPRT") and hasattr(part_model, "GetPartBox"):
-                                box = part_model.GetPartBox(True)
-                                x_dim = box[3] - box[0] if box else 0
-                                y_dim = box[4] - box[1] if box else 0
-                                z_dim = box[5] - box[2] if box else 0
+                            _model_repr = repr(part_model)
                         except Exception:
-                            # Dimensionen nicht verfügbar (z.B. kein Material/Body) – kein Fehler loggen
                             pass
+                        _is_unknown_com = "<unknown>" in _model_repr.lower()
 
-                        # Lese Gewicht
+                        # Lese Dimensionen (nur für Parts; bei <unknown> oder Fehler still ignorieren)
+                        if not _is_unknown_com:
+                            try:
+                                # GetPartBox is only valid for PART documents in many SOLIDWORKS type libs.
+                                if str(part_path).upper().endswith(".SLDPRT") and hasattr(part_model, "GetPartBox"):
+                                    box = part_model.GetPartBox(True)
+                                    x_dim = box[3] - box[0] if box else 0
+                                    y_dim = box[4] - box[1] if box else 0
+                                    z_dim = box[5] - box[2] if box else 0
+                            except Exception:
+                                # Dimensionen nicht verfügbar – kein Fehler loggen
+                                pass
+
+                        # Lese Gewicht (nur wenn kein <unknown> COM-Objekt)
                         # Gewicht (kg): SOLIDWORKS COM APIs unterscheiden sich je nach Version/Typelib.
                         # Wir probieren mehrere Varianten still durch; nur am Ende ein Hinweis wenn nichts funktioniert.
                         weight = 0.0
                         _mass_props_tried = []
 
-                        # Versuch 1: IModelDoc2.GetMassProperties2(0)
-                        try:
-                            mass_props = part_model.GetMassProperties2(0)
-                            weight = float(mass_props[0]) if mass_props and len(mass_props) > 0 else 0.0
-                        except Exception as e1:
-                            _mass_props_tried.append(f"GetMassProperties2(0): {type(e1).__name__}")
-
-                        # Versuch 2: IModelDoc2.GetMassProperties2(VARIANT VT_I4=0)
-                        if weight == 0.0:
+                        if not _is_unknown_com:
+                            # Versuch 1: IModelDoc2.GetMassProperties2(0)
                             try:
-                                opt = win32com.client.VARIANT(pythoncom.VT_I4, 0)
-                                mass_props = part_model.GetMassProperties2(opt)
+                                mass_props = part_model.GetMassProperties2(0)
                                 weight = float(mass_props[0]) if mass_props and len(mass_props) > 0 else 0.0
-                            except Exception as e2:
-                                _mass_props_tried.append(f"GetMassProperties2(VARIANT): {type(e2).__name__}")
+                            except Exception as e1:
+                                _mass_props_tried.append(f"GetMassProperties2(0): {type(e1).__name__}")
 
-                        # Versuch 3: IModelDocExtension.GetMassProperties(1) (typischer VBA-Pfad)
-                        if weight == 0.0:
-                            try:
-                                ext = part_model.Extension
-                                # Some typelibs require extra parameters (COM says: "Parameter nicht optional")
-                                if hasattr(ext, "GetMassProperties"):
-                                    mp = None
-                                    # First try: VBA-style (1 param)
-                                    try:
-                                        mp = ext.GetMassProperties(1)
-                                    except Exception as _e_one:
-                                        # Second try: 2 params (options, status/byref or config placeholder)
-                                        mp = ext.GetMassProperties(1, 0)
-                                    weight = float(mp[0]) if mp and len(mp) > 0 else 0.0
-                            except Exception as e3:
-                                _mass_props_tried.append(f"Extension.GetMassProperties: {type(e3).__name__}")
+                            # Versuch 2: IModelDoc2.GetMassProperties2(VARIANT VT_I4=0)
+                            if weight == 0.0:
+                                try:
+                                    opt = win32com.client.VARIANT(pythoncom.VT_I4, 0)
+                                    mass_props = part_model.GetMassProperties2(opt)
+                                    weight = float(mass_props[0]) if mass_props and len(mass_props) > 0 else 0.0
+                                except Exception as e2:
+                                    _mass_props_tried.append(f"GetMassProperties2(VARIANT): {type(e2).__name__}")
 
-                        # Versuch 4: IModelDocExtension.GetMassProperties2(0)
-                        if weight == 0.0:
-                            try:
-                                ext = part_model.Extension
-                                if hasattr(ext, "GetMassProperties2"):
-                                    mp = None
-                                    # Try common signatures: (options) or (options, status) or (options, config, status)
-                                    try:
-                                        mp = ext.GetMassProperties2(0)
-                                    except Exception as _e_one:
+                            # Versuch 3: IModelDocExtension.GetMassProperties(1) (typischer VBA-Pfad)
+                            if weight == 0.0:
+                                try:
+                                    ext = part_model.Extension
+                                    # Some typelibs require extra parameters (COM says: "Parameter nicht optional")
+                                    if hasattr(ext, "GetMassProperties"):
+                                        mp = None
+                                        # First try: VBA-style (1 param)
                                         try:
-                                            mp = ext.GetMassProperties2(0, 0)
-                                        except Exception as _e_two:
-                                            mp = ext.GetMassProperties2(0, 0, 0)
-                                    weight = float(mp[0]) if mp and len(mp) > 0 else 0.0
-                            except Exception as e4:
-                                _mass_props_tried.append(f"Extension.GetMassProperties2: {type(e4).__name__}")
+                                            mp = ext.GetMassProperties(1)
+                                        except Exception as _e_one:
+                                            # Second try: 2 params (options, status/byref or config placeholder)
+                                            mp = ext.GetMassProperties(1, 0)
+                                        weight = float(mp[0]) if mp and len(mp) > 0 else 0.0
+                                except Exception as e3:
+                                    _mass_props_tried.append(f"Extension.GetMassProperties: {type(e3).__name__}")
 
-                        # Versuch 5: Extension.CreateMassProperty().Mass (wenn verfügbar)
-                        if weight == 0.0:
-                            try:
-                                ext = part_model.Extension
-                                mp_obj = None
-                                # Prefer CastTo for correct typelib binding if available
+                            # Versuch 4: IModelDocExtension.GetMassProperties2(0)
+                            if weight == 0.0:
                                 try:
-                                    ext_typed = win32com.client.CastTo(ext, "IModelDocExtension")
-                                except Exception:
-                                    ext_typed = ext
+                                    ext = part_model.Extension
+                                    if hasattr(ext, "GetMassProperties2"):
+                                        mp = None
+                                        # Try common signatures: (options) or (options, status) or (options, config, status)
+                                        try:
+                                            mp = ext.GetMassProperties2(0)
+                                        except Exception as _e_one:
+                                            try:
+                                                mp = ext.GetMassProperties2(0, 0)
+                                            except Exception as _e_two:
+                                                mp = ext.GetMassProperties2(0, 0, 0)
+                                        weight = float(mp[0]) if mp and len(mp) > 0 else 0.0
+                                except Exception as e4:
+                                    _mass_props_tried.append(f"Extension.GetMassProperties2: {type(e4).__name__}")
 
-                                # Try: CreateMassProperty (call) -> CreateMassProperty2 (call) -> CreateMassProperty (property)
+                            # Versuch 5: Extension.CreateMassProperty().Mass (wenn verfügbar)
+                            if weight == 0.0:
                                 try:
-                                    if hasattr(ext_typed, "CreateMassProperty"):
-                                        mp_obj = ext_typed.CreateMassProperty()
-                                except Exception:
-                                    pass
-                                if mp_obj is None:
+                                    ext = part_model.Extension
+                                    mp_obj = None
+                                    # Prefer CastTo for correct typelib binding if available
                                     try:
-                                        if hasattr(ext_typed, "CreateMassProperty2"):
-                                            mp_obj = ext_typed.CreateMassProperty2()
+                                        ext_typed = win32com.client.CastTo(ext, "IModelDocExtension")
+                                    except Exception:
+                                        ext_typed = ext
+
+                                    # Try: CreateMassProperty (call) -> CreateMassProperty2 (call) -> CreateMassProperty (property)
+                                    try:
+                                        if hasattr(ext_typed, "CreateMassProperty"):
+                                            mp_obj = ext_typed.CreateMassProperty()
                                     except Exception:
                                         pass
-                                if mp_obj is None:
-                                    # some bindings expose it as a property
-                                    try:
-                                        mp_obj = getattr(ext_typed, "CreateMassProperty")
-                                    except Exception:
-                                        mp_obj = None
+                                    if mp_obj is None:
+                                        try:
+                                            if hasattr(ext_typed, "CreateMassProperty2"):
+                                                mp_obj = ext_typed.CreateMassProperty2()
+                                        except Exception:
+                                            pass
+                                    if mp_obj is None:
+                                        # some bindings expose it as a property
+                                        try:
+                                            mp_obj = getattr(ext_typed, "CreateMassProperty")
+                                        except Exception:
+                                            mp_obj = None
 
-                                if mp_obj is not None:
-                                    weight = float(getattr(mp_obj, "Mass", 0) or 0)
-                            except Exception as e5:
-                                _mass_props_tried.append(f"CreateMassProperty: {type(e5).__name__}")
+                                    if mp_obj is not None:
+                                        weight = float(getattr(mp_obj, "Mass", 0) or 0)
+                                except Exception as e5:
+                                    _mass_props_tried.append(f"CreateMassProperty: {type(e5).__name__}")
 
-                        # Einmaliger Hinweis wenn Gewicht nicht ermittelt werden konnte
-                        if weight == 0.0 and _mass_props_tried:
-                            part_basename = os.path.basename(part_path) if part_path else "?"
-                            connector_logger.debug(f"Gewicht nicht verfügbar für {part_basename} (versucht: {', '.join(_mass_props_tried)})")
+                            # Einmaliger Hinweis wenn Gewicht nicht ermittelt werden konnte (nur DEBUG)
+                            if weight == 0.0 and _mass_props_tried:
+                                part_basename = os.path.basename(part_path) if part_path else "?"
+                                connector_logger.debug(f"Gewicht nicht verfügbar für {part_basename} (versucht: {', '.join(_mass_props_tried)})")
 
                         # Lese Custom Properties (global + config)
                         properties = _read_custom_properties(part_model, config_name)

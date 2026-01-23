@@ -289,14 +289,29 @@ def get_all_parts_from_assembly(request: AssemblyRequest):
         connector_logger.info(f"Erfolgreich: {len(results) if results else 0} Ergebnisse erhalten")
         _agent_log("H1", "solidworks-connector/src/main.py:get_all_parts_from_assembly", "exit_v1", {"results_len": len(results) if results else 0})
         
-        # Session-Beendigung: Schließe SolidWorks Session nach erfolgreichem Import
-        # Nur wenn der Connector die Session gestartet hat
+        # Session-Beendigung: Schließe SolidWorks Session VERZÖGERT (10s) nach Import
+        # Verzögerung gibt SOLIDWORKS Zeit zum Stabilisieren und vermeidet Crashes
+        def _delayed_close():
+            import time
+            delay_seconds = 10
+            connector_logger.info(f"SOLIDWORKS wird in {delay_seconds}s automatisch geschlossen...")
+            time.sleep(delay_seconds)
+            try:
+                # Hole frische Connector-Instanz für den Thread
+                c = get_connector()
+                if c and c.can_close_app():
+                    c.close_app(reason="import_completed_delayed")
+            except Exception as close_err:
+                connector_logger.warning(f"Verzögertes Schließen fehlgeschlagen: {close_err}")
+        
         try:
             if connector and connector.can_close_app():
-                connector.close_app(reason="import_completed")
-                connector_logger.info("SolidWorks Session nach erfolgreichem Import geschlossen")
-        except Exception as close_err:
-            connector_logger.warning(f"Fehler beim Schließen der Session nach Import: {close_err}")
+                import threading
+                t = threading.Thread(target=_delayed_close, daemon=True)
+                t.start()
+                connector_logger.info("Verzögerter SOLIDWORKS-Shutdown gestartet (10s)")
+        except Exception as thread_err:
+            connector_logger.warning(f"Konnte verzögerten Shutdown nicht starten: {thread_err}")
         
         return {
             "success": True,
@@ -589,14 +604,27 @@ def set_custom_properties(request: SetCustomPropertiesRequest):
             scope=request.scope,
         )
         
-        # Session-Beendigung: Schließe SolidWorks Session nach erfolgreichem Export
-        # Nur wenn der Connector die Session gestartet hat
+        # Session-Beendigung: Schließe SolidWorks Session VERZÖGERT (10s) nach Export
+        def _delayed_close_export():
+            import time
+            delay_seconds = 10
+            connector_logger.info(f"SOLIDWORKS wird in {delay_seconds}s automatisch geschlossen (nach Export)...")
+            time.sleep(delay_seconds)
+            try:
+                c = get_connector()
+                if c and c.can_close_app():
+                    c.close_app(reason="export_completed_delayed")
+            except Exception as close_err:
+                connector_logger.warning(f"Verzögertes Schließen nach Export fehlgeschlagen: {close_err}")
+        
         try:
             if connector and connector.can_close_app():
-                connector.close_app(reason="export_completed")
-                connector_logger.info("SolidWorks Session nach erfolgreichem Export geschlossen")
-        except Exception as close_err:
-            connector_logger.warning(f"Fehler beim Schließen der Session nach Export: {close_err}")
+                import threading
+                t = threading.Thread(target=_delayed_close_export, daemon=True)
+                t.start()
+                connector_logger.info("Verzögerter SOLIDWORKS-Shutdown gestartet (Export, 10s)")
+        except Exception as thread_err:
+            connector_logger.warning(f"Konnte verzögerten Shutdown nach Export nicht starten: {thread_err}")
         
         return {"success": True, "result": result}
     except Exception as e:

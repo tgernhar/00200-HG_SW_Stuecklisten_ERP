@@ -738,20 +738,7 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
         { field: 'laenge', headerName: 'Länge', width: 100, editable: true, valueParser: (p) => parseOptionalNumber(p.newValue) },
         { field: 'breite', headerName: 'Breite', width: 100, editable: true, valueParser: (p) => parseOptionalNumber(p.newValue) },
         { field: 'hoehe', headerName: 'Höhe', width: 100, editable: true, valueParser: (p) => parseOptionalNumber(p.newValue) },
-        { 
-          field: 'gewicht', 
-          headerName: 'Gewicht', 
-          width: 100, 
-          editable: true, 
-          valueParser: (p) => parseOptionalNumber(p.newValue),
-          valueFormatter: (p) => {
-            if (p.value == null || p.value === '') return ''
-            const num = Number(p.value)
-            if (!Number.isFinite(num)) return ''
-            // Runde auf 3 Nachkommastellen, deutsches Komma
-            return num.toFixed(3).replace('.', ',')
-          }
-        },
+        { field: 'gewicht', headerName: 'Gewicht', width: 100, editable: true, valueParser: (p) => parseOptionalNumber(p.newValue) },
         { field: 'pfad', headerName: 'Pfad', width: 300, editable: false },
         { field: 'sldasm_sldprt_pfad', headerName: 'SLDASM/SLDPRT Pfad', width: 300, editable: false },
         { field: 'slddrw_pfad', headerName: 'SLDDRW Pfad', width: 300, editable: false },
