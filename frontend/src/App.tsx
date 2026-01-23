@@ -55,6 +55,7 @@ function App() {
   const [hugwawiData, setHugwawiData] = useState<Record<number, Record<string, any>>>({})
   const [articleDiffs, setArticleDiffs] = useState<Record<number, Record<string, string>>>({})
   const [resolvedFromHugwawi, setResolvedFromHugwawi] = useState<Record<number, Record<string, boolean>>>({})
+  const [resolvedKeepFrontend, setResolvedKeepFrontend] = useState<Record<number, Record<string, boolean>>>({})
 
   // Optional debug logger (no-op). Keep signature flexible so callsites don't break typechecking.
   const _log = (..._args: any[]) => {}
@@ -373,6 +374,7 @@ function App() {
       setHugwawiData(data.hugwawi_data || {})
       setArticleDiffs(data.diffs || {})
       setResolvedFromHugwawi({}) // Reset resolved state for new load
+      setResolvedKeepFrontend({}) // Reset "kept frontend" state for new load
 
       const syncResult = data.sync_result || {}
       const autoFilled = data.auto_filled || {}
@@ -1570,6 +1572,7 @@ function App() {
                 hugwawiData={hugwawiData}
                 articleDiffs={articleDiffs}
                 resolvedFromHugwawi={resolvedFromHugwawi}
+                resolvedKeepFrontend={resolvedKeepFrontend}
                 onCellValueChanged={handleCellValueChanged}
                 onOpenOrders={handleOpenOrders}
                 onSelectionChanged={(sel) => setSelectedArticles(sel)}
@@ -1588,9 +1591,19 @@ function App() {
                     }
                     return updated
                   })
-                  // Track if HUGWAWI value was adopted (for blue highlighting)
+                  // Track resolution choice for highlighting
                   if (usedHugwawi) {
+                    // Blue: HUGWAWI value was adopted
                     setResolvedFromHugwawi(prev => ({
+                      ...prev,
+                      [articleId]: {
+                        ...(prev[articleId] || {}),
+                        [field]: true
+                      }
+                    }))
+                  } else {
+                    // Gray: Frontend value was kept
+                    setResolvedKeepFrontend(prev => ({
                       ...prev,
                       [articleId]: {
                         ...(prev[articleId] || {}),

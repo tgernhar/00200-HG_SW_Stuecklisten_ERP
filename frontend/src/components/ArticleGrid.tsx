@@ -31,13 +31,14 @@ interface ArticleGridProps {
   onAfterBulkUpdate?: () => void
   onDiffResolved?: (articleId: number, field: string, usedHugwawi: boolean) => void
   resolvedFromHugwawi?: Record<number, Record<string, boolean>>
+  resolvedKeepFrontend?: Record<number, Record<string, boolean>>
 }
 
 // Fields that can have HUGWAWI diff highlighting:
 // benennung, teilenummer, abteilung_lieferant, werkstoff, werkstoff_nr,
 // oberflaeche, oberflaechenschutz, farbe, lieferzeit, laenge, breite, hoehe, gewicht, pfad
 
-export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, selectedBomId, selectlists, hugwawiData, articleDiffs, resolvedFromHugwawi, onCellValueChanged, onOpenOrders, onSelectionChanged, onAfterBulkUpdate, onDiffResolved }) => {
+export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, selectedBomId, selectlists, hugwawiData, articleDiffs, resolvedFromHugwawi, resolvedKeepFrontend, onCellValueChanged, onOpenOrders, onSelectionChanged, onAfterBulkUpdate, onDiffResolved }) => {
   const apiBaseUrl = (api as any)?.defaults?.baseURL || ''
   const gridApiRef = useRef<any>(null)
   const gridColumnApiRef = useRef<any>(null)
@@ -87,6 +88,11 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
         return { backgroundColor: '#cce5ff' } // Light blue for "HUGWAWI übernommen"
       }
       
+      // Check if this field was resolved by keeping frontend value (gray)
+      if (resolvedKeepFrontend && resolvedKeepFrontend[articleId]?.[field]) {
+        return { backgroundColor: '#e0e0e0' } // Gray for "Frontend beibehalten"
+      }
+      
       if (!articleDiffs) return undefined
       
       const diffs = articleDiffs[articleId]
@@ -102,7 +108,7 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
       }
       return undefined
     }
-  }, [articleDiffs, resolvedFromHugwawi])
+  }, [articleDiffs, resolvedFromHugwawi, resolvedKeepFrontend])
 
   // Check if article has any "frontend_only" diffs (for article number highlighting)
   const hasAnyFrontendOnlyDiff = useCallback((articleId: number) => {
@@ -930,6 +936,84 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
     makeDiffCellRenderer
   ])
 
+  // German locale for AG Grid filters and UI
+  const localeTextDE = useMemo(() => ({
+    // Filter
+    filterOoo: 'Filtern...',
+    equals: 'Gleich',
+    notEqual: 'Ungleich',
+    lessThan: 'Kleiner als',
+    greaterThan: 'Größer als',
+    lessThanOrEqual: 'Kleiner oder gleich',
+    greaterThanOrEqual: 'Größer oder gleich',
+    inRange: 'Im Bereich',
+    inRangeStart: 'Von',
+    inRangeEnd: 'Bis',
+    contains: 'Enthält',
+    notContains: 'Enthält nicht',
+    startsWith: 'Beginnt mit',
+    endsWith: 'Endet mit',
+    blank: 'Leer',
+    notBlank: 'Nicht leer',
+    andCondition: 'UND',
+    orCondition: 'ODER',
+    applyFilter: 'Anwenden',
+    resetFilter: 'Zurücksetzen',
+    clearFilter: 'Filter löschen',
+    cancelFilter: 'Abbrechen',
+    // Text Filter
+    textFilter: 'Textfilter',
+    numberFilter: 'Zahlenfilter',
+    dateFilter: 'Datumsfilter',
+    // Column Menu
+    columns: 'Spalten',
+    pinColumn: 'Spalte anheften',
+    pinLeft: 'Links anheften',
+    pinRight: 'Rechts anheften',
+    noPin: 'Nicht anheften',
+    autosizeThiscolumn: 'Spaltenbreite anpassen',
+    autosizeAllColumns: 'Alle Spalten anpassen',
+    resetColumns: 'Spalten zurücksetzen',
+    // Selection
+    selectAll: 'Alle auswählen',
+    selectAllSearchResults: 'Alle Suchergebnisse auswählen',
+    // Row Grouping
+    group: 'Gruppieren',
+    rowGroupColumnsEmptyMessage: 'Spalten hierher ziehen um zu gruppieren',
+    // Pagination
+    page: 'Seite',
+    more: 'Mehr',
+    to: 'bis',
+    of: 'von',
+    next: 'Weiter',
+    last: 'Letzte',
+    first: 'Erste',
+    previous: 'Zurück',
+    // Pivoting
+    pivotMode: 'Pivot-Modus',
+    // Other
+    loadingOoo: 'Laden...',
+    noRowsToShow: 'Keine Daten vorhanden',
+    enabled: 'Aktiviert',
+    // Tool Panel
+    toolPanelButton: 'Werkzeugleiste',
+    // Enterprise Menu
+    copy: 'Kopieren',
+    copyWithHeaders: 'Mit Überschriften kopieren',
+    paste: 'Einfügen',
+    export: 'Exportieren',
+    csvExport: 'CSV Export',
+    excelExport: 'Excel Export',
+    // Row Sorting
+    sortAscending: 'Aufsteigend sortieren',
+    sortDescending: 'Absteigend sortieren',
+    // Side bar
+    filters: 'Filter',
+    // Boolean filter
+    true: 'Ja',
+    false: 'Nein',
+  }), [])
+
   const defaultColDef = useMemo<ColDef>(() => ({
     resizable: true,
     sortable: true,
@@ -1251,18 +1335,22 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
               {/* Legend */}
               <div style={{ padding: '8px 12px', borderBottom: '1px solid #eee', backgroundColor: '#fafafa', fontSize: 11 }}>
                 <div style={{ fontWeight: 600, marginBottom: 6 }}>Legende:</div>
-                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                     <span style={{ background: '#ffd700', padding: '1px 6px', borderRadius: 3, fontSize: 10 }}>Gelb</span>
-                    <span>= Konflikt (unterschiedliche Werte)</span>
+                    <span>= Konflikt</span>
                   </span>
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                     <span style={{ background: '#ffcccc', padding: '1px 6px', borderRadius: 3, fontSize: 10 }}>Rot</span>
-                    <span>= Nur im Frontend (fehlt in HUGWAWI)</span>
+                    <span>= Nur Frontend</span>
                   </span>
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                     <span style={{ background: '#cce5ff', padding: '1px 6px', borderRadius: 3, fontSize: 10 }}>Blau</span>
                     <span>= HUGWAWI übernommen</span>
+                  </span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    <span style={{ background: '#e0e0e0', padding: '1px 6px', borderRadius: 3, fontSize: 10 }}>Grau</span>
+                    <span>= Frontend beibehalten</span>
                   </span>
                 </div>
               </div>
@@ -1513,12 +1601,12 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
           <span style={{ background: '#90EE90', border: '1px solid #6fd66f', padding: '1px 6px', borderRadius: 3 }}>x</span>
           <span>Dokument vorhanden</span>
         </span>
-        {(Object.keys(articleDiffs || {}).length > 0 || Object.keys(resolvedFromHugwawi || {}).length > 0) && (
+        {(Object.keys(articleDiffs || {}).length > 0 || Object.keys(resolvedFromHugwawi || {}).length > 0 || Object.keys(resolvedKeepFrontend || {}).length > 0) && (
           <>
             <span style={{ marginLeft: 12, fontWeight: 700 }}>Legende HUGWAWI:</span>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               <span style={{ background: '#ffd700', border: '1px solid #d1b400', padding: '1px 6px', borderRadius: 3 }}>⚡</span>
-              <span>Konflikt (klicken)</span>
+              <span>Konflikt</span>
             </span>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               <span style={{ background: '#ffcccc', border: '1px solid #e59aa6', padding: '1px 6px', borderRadius: 3 }}>&nbsp;</span>
@@ -1527,6 +1615,10 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               <span style={{ background: '#cce5ff', border: '1px solid #99c2e6', padding: '1px 6px', borderRadius: 3 }}>&nbsp;</span>
               <span>HUGWAWI übernommen</span>
+            </span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ background: '#e0e0e0', border: '1px solid #b0b0b0', padding: '1px 6px', borderRadius: 3 }}>&nbsp;</span>
+              <span>Frontend beibehalten</span>
             </span>
           </>
         )}
@@ -1537,6 +1629,7 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
           columnDefs={columnDefs}
           defaultColDef={defaultColDef}
           gridOptions={gridOptions}
+          localeText={localeTextDE}
           onSelectionChanged={handleSelectionChanged}
           onFirstDataRendered={() => {
             try {
