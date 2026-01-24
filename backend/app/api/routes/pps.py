@@ -8,7 +8,7 @@ API endpoints for production planning:
 - Conflicts
 - Todo generation from ERP
 """
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Header
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import and_, or_, func
 from typing import List, Optional
@@ -28,6 +28,10 @@ from app.schemas.pps import (
     GenerateTodosRequest, GenerateTodosResponse, AvailableOrder,
     ResourceSyncRequest, ResourceSyncResponse,
     TodoType, TodoStatus, ResourceType,
+)
+from app.services.pps_sync_service import (
+    get_subordinate_ids, 
+    get_employee_resource_ids_for_erp_ids
 )
 
 router = APIRouter(prefix="/pps", tags=["PPS"])
@@ -141,10 +145,37 @@ async def get_todos(
     has_conflicts: Optional[bool] = None,
     parent_todo_id: Optional[int] = None,
     search: Optional[str] = None,
+    current_employee_erp_id: Optional[int] = Header(None, alias="X-Employee-ERP-ID"),
     db: Session = Depends(get_db),
 ):
-    """Get todos with filters and pagination"""
+    """Get todos with filters and pagination
+    
+    For "eigene" (personal) todos:
+    - If current_employee_erp_id is provided, "eigene" todos are filtered
+    - User sees their own "eigene" todos + those from their subordinates
+    - Without this header, "eigene" todos are excluded
+    """
     query = db.query(PPSTodo).options(joinedload(PPSTodo.conflicts))
+    
+    # Filter "eigene" todos by visibility
+    if current_employee_erp_id:
+        # Get subordinate ERP IDs
+        subordinate_erp_ids = get_subordinate_ids(current_employee_erp_id)
+        all_visible_erp_ids = [current_employee_erp_id] + subordinate_erp_ids
+        
+        # Get resource cache IDs for these employees
+        visible_resource_ids = get_employee_resource_ids_for_erp_ids(db, all_visible_erp_ids)
+        
+        # Filter: non-eigene OR (eigene AND creator visible)
+        query = query.filter(
+            or_(
+                PPSTodo.todo_type != 'eigene',
+                PPSTodo.creator_employee_id.in_(visible_resource_ids) if visible_resource_ids else False,
+            )
+        )
+    else:
+        # Without employee header, exclude all "eigene" todos
+        query = query.filter(PPSTodo.todo_type != 'eigene')
     
     # Apply filters
     if erp_order_id is not None:
@@ -383,15 +414,36 @@ async def get_gantt_data(
     date_to: Optional[datetime] = None,
     erp_order_id: Optional[int] = None,
     resource_ids: Optional[str] = None,  # comma-separated
+    current_employee_erp_id: Optional[int] = Header(None, alias="X-Employee-ERP-ID"),
     db: Session = Depends(get_db),
 ):
-    """Get complete Gantt data (tasks + links) in DHTMLX format"""
+    """Get complete Gantt data (tasks + links) in DHTMLX format
+    
+    For "eigene" (personal) todos:
+    - If current_employee_erp_id is provided, "eigene" todos are filtered by visibility
+    - Without this header, "eigene" todos are excluded from Gantt view
+    """
     query = db.query(PPSTodo).options(
         joinedload(PPSTodo.conflicts),
         joinedload(PPSTodo.assigned_machine),
         joinedload(PPSTodo.assigned_employee),
         joinedload(PPSTodo.assigned_department),
     )
+    
+    # Filter "eigene" todos by visibility
+    if current_employee_erp_id:
+        subordinate_erp_ids = get_subordinate_ids(current_employee_erp_id)
+        all_visible_erp_ids = [current_employee_erp_id] + subordinate_erp_ids
+        visible_resource_ids = get_employee_resource_ids_for_erp_ids(db, all_visible_erp_ids)
+        
+        query = query.filter(
+            or_(
+                PPSTodo.todo_type != 'eigene',
+                PPSTodo.creator_employee_id.in_(visible_resource_ids) if visible_resource_ids else False,
+            )
+        )
+    else:
+        query = query.filter(PPSTodo.todo_type != 'eigene')
     
     # Apply filters
     if date_from:
@@ -433,8 +485,12 @@ async def get_gantt_data(
         
         query = query.filter(PPSTodo.id.in_(all_ids))
     
+    # Sort by priority (1=highest first), then by planned_start
     # Note: MySQL doesn't support NULLS LAST, so we use COALESCE to put NULLs at end
-    todos = query.order_by(func.coalesce(PPSTodo.planned_start, '9999-12-31').asc()).all()
+    todos = query.order_by(
+        PPSTodo.priority.asc(),  # Priority 1 first
+        func.coalesce(PPSTodo.planned_start, '9999-12-31').asc()
+    ).all()
     
     # Convert to Gantt tasks
     tasks = [_todo_to_gantt_task(t) for t in todos]
@@ -496,8 +552,10 @@ async def sync_gantt_data(payload: GanttSyncRequest, db: Session = Depends(get_d
             if "duration" in task_data:
                 todo.total_duration_minutes = int(task_data["duration"])
                 todo.is_duration_manual = True
-                if todo.planned_start:
-                    todo.planned_end = todo.planned_start + timedelta(minutes=todo.total_duration_minutes)
+            
+            # Always recalculate planned_end if we have start and duration
+            if todo.planned_start and todo.total_duration_minutes:
+                todo.planned_end = todo.planned_start + timedelta(minutes=todo.total_duration_minutes)
             
             # Parent
             if "parent" in task_data:
@@ -516,6 +574,20 @@ async def sync_gantt_data(payload: GanttSyncRequest, db: Session = Depends(get_d
                             todo.assigned_employee_id = res_id
                         elif resource.resource_type == "department":
                             todo.assigned_department_id = res_id
+            
+            # Text/Title
+            if "text" in task_data and task_data["text"]:
+                todo.title = task_data["text"]
+            
+            # Priority
+            if "priority" in task_data:
+                try:
+                    prio_val = task_data["priority"]
+                    if prio_val is not None and prio_val != "":
+                        todo.priority = int(prio_val)
+                    # Empty string or None keeps existing value
+                except (ValueError, TypeError):
+                    pass  # Keep existing value on parse error
             
             todo.version += 1
             todo.updated_at = datetime.utcnow()

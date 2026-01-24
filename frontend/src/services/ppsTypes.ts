@@ -4,7 +4,7 @@
 
 // ============== Enums ==============
 
-export type TodoType = 'container_order' | 'container_article' | 'operation'
+export type TodoType = 'container_order' | 'container_article' | 'operation' | 'eigene'
 export type TodoStatus = 'new' | 'planned' | 'in_progress' | 'completed' | 'blocked'
 export type DependencyType = 'finish_to_start' | 'start_to_start' | 'finish_to_finish'
 export type ConflictType = 'resource_overlap' | 'calendar' | 'dependency' | 'delivery_date' | 'qualification'
@@ -53,6 +53,7 @@ export interface PPSTodo {
   assigned_department_id?: number
   assigned_machine_id?: number
   assigned_employee_id?: number
+  creator_employee_id?: number  // For "eigene" todos
   version: number
   created_at?: string
   updated_at?: string
@@ -82,6 +83,7 @@ export interface PPSTodoCreate {
   assigned_department_id?: number
   assigned_machine_id?: number
   assigned_employee_id?: number
+  creator_employee_id?: number  // For "eigene" todos
 }
 
 export interface PPSTodoUpdate {

@@ -15,6 +15,7 @@ class TodoType(str, Enum):
     CONTAINER_ORDER = "container_order"
     CONTAINER_ARTICLE = "container_article"
     OPERATION = "operation"
+    EIGENE = "eigene"  # Employee-specific personal todos
 
 
 class TodoStatus(str, Enum):
@@ -109,6 +110,7 @@ class TodoCreate(TodoBase):
     assigned_department_id: Optional[int] = None
     assigned_machine_id: Optional[int] = None
     assigned_employee_id: Optional[int] = None
+    creator_employee_id: Optional[int] = None  # For "eigene" todos
 
 
 class TodoUpdate(BaseModel):
@@ -144,6 +146,7 @@ class Todo(TodoBase):
     assigned_department_id: Optional[int] = None
     assigned_machine_id: Optional[int] = None
     assigned_employee_id: Optional[int] = None
+    creator_employee_id: Optional[int] = None  # For "eigene" todos
     version: int = 1
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None

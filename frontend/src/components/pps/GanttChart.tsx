@@ -21,6 +21,7 @@ interface GanttChartProps {
   onLinkCreate?: (link: Partial<GanttLink>) => void
   onLinkDelete?: (linkId: number) => void
   onSelectionChange?: (selectedIds: number[]) => void
+  onDateSelect?: (date: Date) => void
   readOnly?: boolean
   height?: string
 }
@@ -45,11 +46,18 @@ export default function GanttChart({
   onLinkCreate,
   onLinkDelete,
   onSelectionChange,
+  onDateSelect,
   readOnly = false,
   height = '100%',
 }: GanttChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const initialized = useRef(false)
+  const onTaskUpdateRef = useRef(onTaskUpdate)
+
+  // Update ref when callback changes
+  useEffect(() => {
+    onTaskUpdateRef.current = onTaskUpdate
+  }, [onTaskUpdate])
 
   // Configure Gantt
   const configureGantt = useCallback(() => {
@@ -63,6 +71,7 @@ export default function GanttChart({
     gantt.config.time_step = 15
     gantt.config.min_duration = 15 * 60 * 1000 // 15 minutes in ms
     gantt.config.duration_unit = 'minute'
+    gantt.config.duration_step = 15 // Duration changes in 15-min steps
     
     // Scale configuration
     gantt.config.scale_unit = 'day'
@@ -71,6 +80,22 @@ export default function GanttChart({
       { unit: 'hour', step: 1, date: '%H:%i' }
     ]
     gantt.config.min_column_width = 40
+    
+    // Layout with explicit scrollbars
+    gantt.config.layout = {
+      css: "gantt_container",
+      rows: [
+        {
+          cols: [
+            { view: "grid", scrollX: "scrollHor", scrollY: "scrollVer" },
+            { resizer: true, width: 1 },
+            { view: "timeline", scrollX: "scrollHor", scrollY: "scrollVer" },
+            { view: "scrollbar", id: "scrollVer" }
+          ]
+        },
+        { view: "scrollbar", id: "scrollHor" }
+      ]
+    }
     
     // Readonly mode
     gantt.config.readonly = readOnly
@@ -83,9 +108,10 @@ export default function GanttChart({
     gantt.config.row_height = 35
     gantt.config.task_height = 24
     
-    // Grid columns
+    // Grid columns with priority
     gantt.config.columns = [
       { name: 'text', label: 'Aufgabe', tree: true, width: 200, resize: true },
+      { name: 'priority', label: 'Prio', align: 'center', width: 50 },
       { name: 'start_date', label: 'Start', align: 'center', width: 90 },
       { name: 'duration', label: 'Dauer (Min)', align: 'center', width: 70 },
       { name: 'resource_name', label: 'Ressource', width: 100, resize: true },
@@ -142,11 +168,26 @@ export default function GanttChart({
     gantt.locale.labels.gantt_cancel_btn = 'Abbrechen'
     gantt.locale.labels.gantt_delete_btn = 'Löschen'
     
-    // Lightbox sections
-    gantt.config.lightbox.sections = [
-      { name: 'description', height: 40, map_to: 'text', type: 'textarea', focus: true },
+    // Unified Lightbox sections for ALL task types (task, project, milestone)
+    const lightboxSections = [
+      { name: 'priority', height: 22, map_to: 'priority', type: 'textarea', single_line: true },
+      { name: 'type', height: 22, map_to: 'type', type: 'select', options: [
+        { key: 'task', label: 'Aufgabe' },
+        { key: 'project', label: 'Projekt/Container' },
+        { key: 'milestone', label: 'Meilenstein' }
+      ]},
+      { name: 'description', height: 160, map_to: 'text', type: 'textarea', focus: true },
       { name: 'time', type: 'duration', map_to: 'auto' }
     ]
+    
+    // Apply same lightbox config to all task types
+    gantt.config.lightbox.sections = lightboxSections
+    gantt.config.lightbox.project_sections = lightboxSections
+    gantt.config.lightbox.milestone_sections = lightboxSections
+    
+    // German labels for lightbox sections
+    gantt.locale.labels.section_priority = 'Priorität'
+    gantt.locale.labels.section_type = 'Typ'
     
   }, [readOnly])
 
@@ -186,6 +227,64 @@ export default function GanttChart({
     }
   }, [configureGantt])
 
+  // Keyboard event handler for arrow keys
+  useEffect(() => {
+    if (!initialized.current || readOnly) return
+    
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const selectedId = gantt.getSelectedId?.()
+      if (!selectedId) return
+      
+      const task = gantt.getTask(selectedId)
+      if (!task || task.type === 'project') return // Don't move project/container tasks
+      
+      const step = 15 // 15 minutes
+      let changed = false
+      
+      switch(e.key) {
+        case 'ArrowLeft':
+          e.preventDefault()
+          task.start_date = gantt.date.add(task.start_date, -step, 'minute')
+          changed = true
+          break
+        case 'ArrowRight':
+          e.preventDefault()
+          task.start_date = gantt.date.add(task.start_date, step, 'minute')
+          changed = true
+          break
+        case 'ArrowUp':
+          if (e.ctrlKey && task.priority > 1) {
+            e.preventDefault()
+            task.priority = (task.priority || 50) - 1
+            changed = true
+          }
+          break
+        case 'ArrowDown':
+          if (e.ctrlKey && task.priority < 100) {
+            e.preventDefault()
+            task.priority = (task.priority || 50) + 1
+            changed = true
+          }
+          break
+      }
+      
+      if (changed) {
+        gantt.updateTask(selectedId)
+        // Trigger update callback
+        if (onTaskUpdateRef.current) {
+          onTaskUpdateRef.current(selectedId as number, {
+            start_date: gantt.templates.format_date(task.start_date),
+            duration: task.duration,
+            priority: task.priority,
+          })
+        }
+      }
+    }
+    
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [readOnly])
+
   // Event handlers
   useEffect(() => {
     if (!initialized.current) return
@@ -193,11 +292,15 @@ export default function GanttChart({
     // Task updated (drag/resize)
     const onAfterTaskUpdate = gantt.attachEvent('onAfterTaskUpdate', (id: number, task: GanttTask) => {
       if (onTaskUpdate && !readOnly) {
-        onTaskUpdate(id, {
+        const updateData = {
+          text: task.text,
           start_date: gantt.templates.format_date(task.start_date),
           duration: task.duration,
           parent: task.parent,
-        })
+          priority: typeof task.priority === 'string' ? parseInt(task.priority) || 50 : task.priority,
+          type: task.type,
+        };
+        onTaskUpdate(id, updateData);
       }
     })
     
@@ -248,6 +351,14 @@ export default function GanttChart({
       }
     })
     
+    // Date click on scale
+    const onScaleClick = gantt.attachEvent('onScaleClick', (e: Event, date: Date) => {
+      if (onDateSelect) {
+        onDateSelect(date)
+      }
+      return true
+    })
+    
     return () => {
       gantt.detachEvent(onAfterTaskUpdate)
       gantt.detachEvent(onAfterTaskAdd)
@@ -255,8 +366,9 @@ export default function GanttChart({
       gantt.detachEvent(onAfterLinkAdd)
       gantt.detachEvent(onAfterLinkDelete)
       gantt.detachEvent(onTaskSelected)
+      gantt.detachEvent(onScaleClick)
     }
-  }, [onTaskUpdate, onTaskCreate, onTaskDelete, onLinkCreate, onLinkDelete, onSelectionChange, readOnly])
+  }, [onTaskUpdate, onTaskCreate, onTaskDelete, onLinkCreate, onLinkDelete, onSelectionChange, onDateSelect, readOnly])
 
   // Load data
   useEffect(() => {
@@ -317,13 +429,47 @@ export function collapseAll() {
 }
 
 export function zoomIn() {
-  const currentStep = gantt.config.scale_unit === 'day' ? 'hour' : 'day'
-  gantt.config.scale_unit = currentStep
-  gantt.render()
+  const levels = ['month', 'week', 'day', 'hour']
+  const currentIndex = levels.indexOf(gantt.config.scale_unit as string)
+  if (currentIndex < levels.length - 1) {
+    setZoom(levels[currentIndex + 1])
+  }
 }
 
 export function zoomOut() {
-  const currentStep = gantt.config.scale_unit === 'hour' ? 'day' : 'week'
-  gantt.config.scale_unit = currentStep
+  const levels = ['month', 'week', 'day', 'hour']
+  const currentIndex = levels.indexOf(gantt.config.scale_unit as string)
+  if (currentIndex > 0) {
+    setZoom(levels[currentIndex - 1])
+  }
+}
+
+export function setZoom(level: string) {
+  gantt.config.scale_unit = level
+  
+  // Adjust subscales based on zoom level
+  switch(level) {
+    case 'hour':
+      gantt.config.date_scale = '%H:%i'
+      gantt.config.subscales = [{ unit: 'minute', step: 15, date: '%H:%i' }]
+      gantt.config.min_column_width = 60
+      break
+    case 'day':
+      gantt.config.date_scale = '%d.%m.%Y'
+      gantt.config.subscales = [{ unit: 'hour', step: 1, date: '%H:%i' }]
+      gantt.config.min_column_width = 40
+      break
+    case 'week':
+      gantt.config.date_scale = 'KW %W'
+      gantt.config.subscales = [{ unit: 'day', step: 1, date: '%d.%m' }]
+      gantt.config.min_column_width = 30
+      break
+    case 'month':
+      gantt.config.date_scale = '%F %Y'
+      gantt.config.subscales = [{ unit: 'week', step: 1, date: 'KW %W' }]
+      gantt.config.min_column_width = 50
+      break
+  }
+  
   gantt.render()
 }

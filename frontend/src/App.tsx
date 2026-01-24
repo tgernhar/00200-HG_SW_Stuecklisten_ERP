@@ -13,6 +13,7 @@ import './App.css'
 // Lazy load pages
 const OrdersOverviewPage = React.lazy(() => import('./pages/OrdersOverviewPage'))
 const ProductionPlanningPage = React.lazy(() => import('./pages/ProductionPlanningPage'))
+const TodoListPage = React.lazy(() => import('./pages/TodoListPage'))
 
 function App() {
   const { isAuthenticated, isLoading } = useAuth()
@@ -72,6 +73,14 @@ function App() {
             element={
               <React.Suspense fallback={<div style={{ padding: 20 }}>Lade Planboard...</div>}>
                 <ProductionPlanningPage />
+              </React.Suspense>
+            } 
+          />
+          <Route 
+            path="produktionsplanung/todos" 
+            element={
+              <React.Suspense fallback={<div style={{ padding: 20 }}>Lade ToDo-Liste...</div>}>
+                <TodoListPage />
               </React.Suspense>
             } 
           />

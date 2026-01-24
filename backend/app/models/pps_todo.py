@@ -83,13 +83,16 @@ class PPSTodo(Base):
     # Status
     status = Column(String(20), nullable=False, default='new', index=True)  # 'new', 'planned', 'in_progress', 'completed', 'blocked'
     block_reason = Column(String(500), nullable=True)
-    priority = Column(Integer, nullable=False, default=0)
+    priority = Column(Integer, nullable=False, default=50)  # 1=highest, 100=lowest
     delivery_date = Column(Date, nullable=True, index=True)  # From order
     
     # Resource assignment (FK to pps_resource_cache)
     assigned_department_id = Column(Integer, ForeignKey("pps_resource_cache.id", ondelete="SET NULL"), nullable=True)
     assigned_machine_id = Column(Integer, ForeignKey("pps_resource_cache.id", ondelete="SET NULL"), nullable=True)
     assigned_employee_id = Column(Integer, ForeignKey("pps_resource_cache.id", ondelete="SET NULL"), nullable=True)
+    
+    # Creator for "eigene" todos (employee's personal tasks)
+    creator_employee_id = Column(Integer, ForeignKey("pps_resource_cache.id", ondelete="SET NULL"), nullable=True)
     
     # Optimistic locking
     version = Column(Integer, nullable=False, default=1)

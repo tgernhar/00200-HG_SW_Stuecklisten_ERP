@@ -49,6 +49,11 @@ const menuItems: MenuItem[] = [
         id: 'planboard',
         label: 'Planboard',
         path: '/menu/produktionsplanung/planboard'
+      },
+      {
+        id: 'todo-liste',
+        label: 'Auftrags-ToDos',
+        path: '/menu/produktionsplanung/todos'
       }
     ]
   }

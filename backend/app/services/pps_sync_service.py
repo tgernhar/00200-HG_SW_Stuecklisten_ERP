@@ -285,6 +285,93 @@ def _sync_employees(db: Session, cursor) -> dict:
     return {'added': added, 'updated': updated, 'deactivated': deactivated, 'synced': len(erp_ids)}
 
 
+def get_employee_supervisor(employee_erp_id: int) -> Optional[int]:
+    """
+    Get supervisor ERP ID for an employee from HUGWAWI.
+    
+    Returns the supervisor's ERP ID or None if not found.
+    """
+    erp_conn = None
+    
+    try:
+        erp_conn = get_erp_db_connection()
+        cursor = erp_conn.cursor(dictionary=True)
+        
+        # Query supervisor from userlogin table
+        # Note: The exact column name for supervisor may vary (supervisor_id, vorgesetzter_id, etc.)
+        cursor.execute("""
+            SELECT supervisor_id 
+            FROM userlogin 
+            WHERE id = %s
+        """, (employee_erp_id,))
+        
+        row = cursor.fetchone()
+        cursor.close()
+        
+        if row and row.get('supervisor_id'):
+            return row['supervisor_id']
+        
+        return None
+        
+    except Exception as e:
+        # Log error but don't fail - supervisor field may not exist
+        print(f"Warning: Could not fetch supervisor for employee {employee_erp_id}: {e}")
+        return None
+    finally:
+        if erp_conn:
+            erp_conn.close()
+
+
+def get_subordinate_ids(supervisor_erp_id: int) -> List[int]:
+    """
+    Get all employee ERP IDs that report to a supervisor.
+    
+    Returns list of subordinate ERP IDs.
+    """
+    erp_conn = None
+    
+    try:
+        erp_conn = get_erp_db_connection()
+        cursor = erp_conn.cursor(dictionary=True)
+        
+        # Query all employees that have this supervisor
+        cursor.execute("""
+            SELECT id 
+            FROM userlogin 
+            WHERE supervisor_id = %s
+              AND (blocked = 0 OR blocked IS NULL)
+        """, (supervisor_erp_id,))
+        
+        rows = cursor.fetchall()
+        cursor.close()
+        
+        return [row['id'] for row in rows]
+        
+    except Exception as e:
+        # Log error but don't fail - supervisor field may not exist
+        print(f"Warning: Could not fetch subordinates for supervisor {supervisor_erp_id}: {e}")
+        return []
+    finally:
+        if erp_conn:
+            erp_conn.close()
+
+
+def get_employee_resource_ids_for_erp_ids(db: Session, erp_ids: List[int]) -> List[int]:
+    """
+    Convert employee ERP IDs to resource cache IDs.
+    """
+    if not erp_ids:
+        return []
+    
+    resources = db.query(PPSResourceCache).filter(
+        PPSResourceCache.resource_type == 'employee',
+        PPSResourceCache.erp_id.in_(erp_ids),
+        PPSResourceCache.is_active == True,
+    ).all()
+    
+    return [r.id for r in resources]
+
+
 def sync_time_tracking(db: Session) -> dict:
     """
     Sync time tracking data from HUGWAWI to update todo status.

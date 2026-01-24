@@ -7,8 +7,8 @@
  * - Main area with DHTMLX Gantt
  * - Bottom panel with conflicts
  */
-import React, { useState, useEffect, useCallback } from 'react'
-import GanttChart from '../components/pps/GanttChart'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
+import GanttChart, { zoomIn, zoomOut, setZoom } from '../components/pps/GanttChart'
 import ResourcePanel from '../components/pps/ResourcePanel'
 import ConflictPanel from '../components/pps/ConflictPanel'
 import TodoGeneratorModal from '../components/pps/TodoGeneratorModal'
@@ -149,6 +149,10 @@ export default function ProductionPlanningPage() {
   const [error, setError] = useState<string | null>(null)
   const [showGeneratorModal, setShowGeneratorModal] = useState(false)
   const [isSyncing, setIsSyncing] = useState(false)
+  const [zoomLevel, setZoomLevel] = useState<'hour' | 'day' | 'week'>('day')
+  
+  // Track pending changes for sync before filter change
+  const pendingChangesRef = useRef<GanttSyncRequest | null>(null)
 
   // Load initial data
   const loadData = useCallback(async () => {
@@ -186,12 +190,21 @@ export default function ProductionPlanningPage() {
     loadData()
   }, [loadData])
 
-  // Handle resource filter change
-  const handleResourceFilterChange = useCallback((resourceIds: number[]) => {
+  // Handle resource filter change - sync pending changes before switching
+  const handleResourceFilterChange = useCallback(async (resourceIds: number[]) => {
+    // Sync any pending changes before filter switch
+    if (pendingChangesRef.current) {
+      try {
+        await syncGanttData(pendingChangesRef.current)
+        pendingChangesRef.current = null
+      } catch (err) {
+        console.error('Error syncing before filter change:', err)
+      }
+    }
     setSelectedResourceIds(resourceIds)
   }, [])
 
-  // Handle task update from Gantt
+  // Handle task update from Gantt - immediately sync to server
   const handleTaskUpdate = useCallback(async (taskId: number, task: Partial<GanttTask>) => {
     try {
       const syncRequest: GanttSyncRequest = {
@@ -203,7 +216,10 @@ export default function ProductionPlanningPage() {
         deleted_link_ids: [],
       }
       
+      // Store as pending and sync immediately
+      pendingChangesRef.current = syncRequest
       await syncGanttData(syncRequest)
+      pendingChangesRef.current = null
       
       // Reload conflicts
       const conflictsResponse = await getConflicts({ resolved: false })
@@ -356,6 +372,33 @@ export default function ProductionPlanningPage() {
         >
           Konflikte prüfen
         </button>
+        
+        <div style={styles.toolbarSeparator} />
+        
+        {/* Zoom controls */}
+        <button
+          style={styles.toolbarButton}
+          onClick={() => {
+            zoomIn()
+            setZoomLevel(prev => prev === 'week' ? 'day' : prev === 'day' ? 'hour' : 'hour')
+          }}
+          title="Zoom vergrößern"
+        >
+          Zoom +
+        </button>
+        <button
+          style={styles.toolbarButton}
+          onClick={() => {
+            zoomOut()
+            setZoomLevel(prev => prev === 'hour' ? 'day' : prev === 'day' ? 'week' : 'week')
+          }}
+          title="Zoom verkleinern"
+        >
+          Zoom -
+        </button>
+        <span style={{ fontSize: '11px', color: '#666' }}>
+          {zoomLevel === 'hour' ? 'Stunde' : zoomLevel === 'day' ? 'Tag' : 'Woche'}
+        </span>
         
         <div style={styles.toolbarSeparator} />
         
