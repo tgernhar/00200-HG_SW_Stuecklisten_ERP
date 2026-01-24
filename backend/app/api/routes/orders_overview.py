@@ -26,6 +26,58 @@ class OrderOverviewItem(BaseModel):
     technischer_kontakt: Optional[str] = None
     order_id: Optional[int] = None
     status_name: Optional[str] = None
+    reference: Optional[str] = None
+
+
+class OrderArticleItem(BaseModel):
+    """Single order article item"""
+    pos: Optional[int] = None
+    articlenumber: Optional[str] = None
+    description: Optional[str] = None
+    sparepart: Optional[str] = None
+    batchsize: Optional[int] = None
+    status_name: Optional[str] = None
+    order_article_id: Optional[int] = None
+    packingnoteid: Optional[int] = None
+
+
+class OrderArticlesResponse(BaseModel):
+    """Response for order articles"""
+    items: List[OrderArticleItem]
+    total: int
+
+
+class BomItem(BaseModel):
+    """Single BOM (Stückliste) item"""
+    pos: Optional[str] = None
+    articlenumber: Optional[str] = None
+    description: Optional[str] = None
+    cascaded_quantity: Optional[float] = None
+    mass1: Optional[float] = None
+    mass2: Optional[float] = None
+    lft: Optional[int] = None
+    rgt: Optional[int] = None
+    detail_id: Optional[int] = None
+    packingnote_id: Optional[int] = None
+
+
+class BomResponse(BaseModel):
+    """Response for BOM items"""
+    items: List[BomItem]
+    total: int
+
+
+class WorkplanItem(BaseModel):
+    """Single workplan item"""
+    pos: Optional[str] = None
+    workstep_name: Optional[str] = None
+    machine_name: Optional[str] = None
+
+
+class WorkplanResponse(BaseModel):
+    """Response for workplan items"""
+    items: List[WorkplanItem]
+    total: int
 
 
 # Valid status IDs for orders to be displayed
@@ -46,6 +98,9 @@ async def get_orders_overview(
     date_to: Optional[date] = Query(None, description="Filter: Liefertermin bis"),
     responsible: Optional[str] = Query(None, description="Filter: AU-Verantwortlicher (loginname)"),
     customer: Optional[str] = Query(None, description="Filter: Kunde (Suchname)"),
+    order_name: Optional[str] = Query(None, description="Filter: Auftragsnummer"),
+    text: Optional[str] = Query(None, description="Filter: Auftragstext"),
+    reference: Optional[str] = Query(None, description="Filter: Referenz"),
     skip: int = Query(0, ge=0),
     limit: int = Query(500, ge=1, le=1000)
 ):
@@ -74,6 +129,7 @@ async def get_orders_overview(
         # Build the query
         # Note: MySQL 5.5 doesn't support ROW_NUMBER(), so we'll enumerate in Python
         # Filter: order_type.name = 'ORDER' AND status IN (1,3,4,14,15,16,33,37)
+        # AND created > '2024-01-01' (only recent orders)
         status_placeholders = ','.join(['%s'] * len(VALID_ORDER_STATUS_IDS))
         query = f"""
             SELECT 
@@ -86,7 +142,8 @@ async def get_orders_overview(
                 ordertable.productionText as produktionsinfo,
                 ordertable.date1 as lt_kundenwunsch,
                 adrcont.suchname as technischer_kontakt,
-                order_status.name as status_name
+                order_status.name as status_name,
+                ordertable.reference as reference
             FROM ordertable
             LEFT JOIN adrbase ON adrbase.id = ordertable.kid
             LEFT JOIN userlogin ON userlogin.id = ordertable.infoSales
@@ -95,6 +152,7 @@ async def get_orders_overview(
             LEFT JOIN order_status ON order_status.id = ordertable.status
             WHERE order_type.name = 'ORDER'
               AND ordertable.status IN ({status_placeholders})
+              AND ordertable.created > '2024-01-01'
         """
         
         params = list(VALID_ORDER_STATUS_IDS)
@@ -116,6 +174,18 @@ async def get_orders_overview(
             query += " AND adrbase.suchname LIKE %s"
             params.append(f"%{customer}%")
         
+        if order_name:
+            query += " AND ordertable.name LIKE %s"
+            params.append(f"%{order_name}%")
+        
+        if text:
+            query += " AND ordertable.text LIKE %s"
+            params.append(f"%{text}%")
+        
+        if reference:
+            query += " AND ordertable.reference LIKE %s"
+            params.append(f"%{reference}%")
+        
         # Order by confirmed delivery date
         query += " ORDER BY ordertable.date2 ASC"
         
@@ -135,6 +205,7 @@ async def get_orders_overview(
             LEFT JOIN order_type ON order_type.id = ordertable.orderType
             WHERE order_type.name = 'ORDER'
               AND ordertable.status IN ({status_placeholders})
+              AND ordertable.created > '2024-01-01'
         """
         count_params = list(VALID_ORDER_STATUS_IDS)
         
@@ -153,6 +224,18 @@ async def get_orders_overview(
         if customer:
             count_query += " AND adrbase.suchname LIKE %s"
             count_params.append(f"%{customer}%")
+        
+        if order_name:
+            count_query += " AND ordertable.name LIKE %s"
+            count_params.append(f"%{order_name}%")
+        
+        if text:
+            count_query += " AND ordertable.text LIKE %s"
+            count_params.append(f"%{text}%")
+        
+        if reference:
+            count_query += " AND ordertable.reference LIKE %s"
+            count_params.append(f"%{reference}%")
         
         cursor.execute(count_query, count_params)
         total_result = cursor.fetchone()
@@ -174,7 +257,8 @@ async def get_orders_overview(
                 lt_kundenwunsch=row.get('lt_kundenwunsch'),
                 technischer_kontakt=row.get('technischer_kontakt'),
                 order_id=row.get('order_id'),
-                status_name=row.get('status_name')
+                status_name=row.get('status_name'),
+                reference=row.get('reference')
             ))
         
         return OrderOverviewResponse(items=items, total=total)
@@ -232,6 +316,185 @@ async def update_production_info(
         raise HTTPException(
             status_code=500,
             detail=f"Fehler beim Aktualisieren der Produktionsinfo: {str(e)}"
+        )
+    finally:
+        if connection:
+            connection.close()
+
+
+@router.get("/orders/{order_id}/articles", response_model=OrderArticlesResponse)
+async def get_order_articles(order_id: int):
+    """
+    Get order articles for a specific order.
+    
+    Returns the Auftragsartikel for the hierarchical view.
+    """
+    connection = None
+    try:
+        connection = get_erp_db_connection()
+        cursor = connection.cursor(dictionary=True)
+        
+        query = """
+            SELECT 
+                order_article.position as pos,
+                article.articlenumber,
+                article.description,
+                article.sparepart,
+                order_article_ref.batchsize,
+                article_status.name as status_name,
+                order_article.id as order_article_id,
+                order_article.packingnoteid
+            FROM order_article_ref
+            JOIN order_article ON order_article_ref.orderArticleId = order_article.id
+            JOIN article ON order_article.articleid = article.id
+            LEFT JOIN article_status ON order_article.articlestatus = article_status.id
+            WHERE order_article_ref.orderid = %s
+            ORDER BY order_article.position
+        """
+        
+        cursor.execute(query, (order_id,))
+        rows = cursor.fetchall()
+        cursor.close()
+        
+        items = [
+            OrderArticleItem(
+                pos=row.get('pos'),
+                articlenumber=row.get('articlenumber'),
+                description=row.get('description'),
+                sparepart=row.get('sparepart'),
+                batchsize=row.get('batchsize'),
+                status_name=row.get('status_name'),
+                order_article_id=row.get('order_article_id'),
+                packingnoteid=row.get('packingnoteid')
+            )
+            for row in rows
+        ]
+        
+        return OrderArticlesResponse(items=items, total=len(items))
+        
+    except Exception as e:
+        print(f"Error fetching order articles: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Fehler beim Laden der Auftragsartikel: {str(e)}"
+        )
+    finally:
+        if connection:
+            connection.close()
+
+
+@router.get("/order-articles/{order_article_id}/bom", response_model=BomResponse)
+async def get_order_article_bom(order_article_id: int):
+    """
+    Get BOM (Stückliste) for a specific order article.
+    
+    Returns the packingnote details with nested set structure (lft/rgt).
+    """
+    connection = None
+    try:
+        connection = get_erp_db_connection()
+        cursor = connection.cursor(dictionary=True)
+        
+        query = """
+            SELECT 
+                packingnote_details.pos,
+                article.articlenumber,
+                article.description,
+                packingnote_details.cascadedQuantity as cascaded_quantity,
+                packingnote_details.mass1,
+                packingnote_details.mass2,
+                packingnote_relation.lft,
+                packingnote_relation.rgt,
+                packingnote_details.id as detail_id,
+                order_article.packingnoteid as packingnote_id
+            FROM order_article
+            JOIN packingnote_relation ON packingnote_relation.packingNoteId = order_article.packingnoteid
+            JOIN packingnote_details ON packingnote_details.id = packingnote_relation.detail
+            LEFT JOIN article ON article.id = packingnote_details.article
+            WHERE order_article.id = %s
+            ORDER BY packingnote_relation.lft
+        """
+        
+        cursor.execute(query, (order_article_id,))
+        rows = cursor.fetchall()
+        cursor.close()
+        
+        items = [
+            BomItem(
+                pos=row.get('pos'),
+                articlenumber=row.get('articlenumber'),
+                description=row.get('description'),
+                cascaded_quantity=row.get('cascaded_quantity'),
+                mass1=row.get('mass1'),
+                mass2=row.get('mass2'),
+                lft=row.get('lft'),
+                rgt=row.get('rgt'),
+                detail_id=row.get('detail_id'),
+                packingnote_id=row.get('packingnote_id')
+            )
+            for row in rows
+        ]
+        
+        return BomResponse(items=items, total=len(items))
+        
+    except Exception as e:
+        print(f"Error fetching BOM: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Fehler beim Laden der Stückliste: {str(e)}"
+        )
+    finally:
+        if connection:
+            connection.close()
+
+
+@router.get("/packingnotes/{packingnote_id}/workplan", response_model=WorkplanResponse)
+async def get_workplan(packingnote_id: int):
+    """
+    Get workplan (Arbeitsplan) for a specific packingnote.
+    
+    Returns the workplan details with worksteps and machines.
+    """
+    connection = None
+    try:
+        connection = get_erp_db_connection()
+        cursor = connection.cursor(dictionary=True)
+        
+        query = """
+            SELECT 
+                workplan_details.pos,
+                workstep.name as workstep_name,
+                qualificationitem.name as machine_name
+            FROM workplan
+            JOIN workplan_relation ON workplan_relation.workplanId = workplan.packingote
+            JOIN workplan_details ON workplan_details.id = workplan_relation.detail
+            LEFT JOIN qualificationitem ON qualificationitem.id = workplan_details.qualificationitem
+            LEFT JOIN qualificationitem_worksep ON qualificationitem_worksep.item = qualificationitem.id
+            LEFT JOIN workstep ON workstep.id = qualificationitem_worksep.workstep
+            WHERE workplan.packingote = %s
+            ORDER BY workplan_details.pos
+        """
+        
+        cursor.execute(query, (packingnote_id,))
+        rows = cursor.fetchall()
+        cursor.close()
+        
+        items = [
+            WorkplanItem(
+                pos=row.get('pos'),
+                workstep_name=row.get('workstep_name'),
+                machine_name=row.get('machine_name')
+            )
+            for row in rows
+        ]
+        
+        return WorkplanResponse(items=items, total=len(items))
+        
+    except Exception as e:
+        print(f"Error fetching workplan: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Fehler beim Laden des Arbeitsplans: {str(e)}"
         )
     finally:
         if connection:

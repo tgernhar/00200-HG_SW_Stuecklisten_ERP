@@ -174,3 +174,70 @@ export interface DeliveryNotesResponse {
   order_name: string
   delivery_notes: DeliveryNote[]
 }
+
+// Fertigungsplanung Types
+
+export interface OrderOverviewItem {
+  pos: number
+  au_verantwortlich: string | null
+  lt_hg_bestaetigt: string | null
+  auftrag: string | null
+  kunde: string | null
+  au_text: string | null
+  produktionsinfo: string | null
+  lt_kundenwunsch: string | null
+  technischer_kontakt: string | null
+  order_id: number | null
+  status_name: string | null
+  reference: string | null
+}
+
+export interface OrderOverviewResponse {
+  items: OrderOverviewItem[]
+  total: number
+}
+
+export interface OrderArticleItem {
+  pos: number | null
+  articlenumber: string | null
+  description: string | null
+  sparepart: string | null
+  batchsize: number | null
+  status_name: string | null
+  order_article_id: number | null
+  packingnoteid: number | null
+}
+
+export interface OrderArticlesResponse {
+  items: OrderArticleItem[]
+  total: number
+}
+
+export interface BomItem {
+  pos: string | null
+  articlenumber: string | null
+  description: string | null
+  cascaded_quantity: number | null
+  mass1: number | null
+  mass2: number | null
+  lft: number | null
+  rgt: number | null
+  detail_id: number | null
+  packingnote_id: number | null
+}
+
+export interface BomResponse {
+  items: BomItem[]
+  total: number
+}
+
+export interface WorkplanItem {
+  pos: string | null
+  workstep_name: string | null
+  machine_name: string | null
+}
+
+export interface WorkplanResponse {
+  items: WorkplanItem[]
+  total: number
+}
