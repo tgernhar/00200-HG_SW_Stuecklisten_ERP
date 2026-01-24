@@ -214,7 +214,7 @@ export interface OrderArticlesResponse {
 }
 
 export interface BomItem {
-  pos: string | null
+  pos: number | null
   articlenumber: string | null
   description: string | null
   cascaded_quantity: number | null
@@ -232,7 +232,7 @@ export interface BomResponse {
 }
 
 export interface WorkplanItem {
-  pos: string | null
+  pos: number | null
   workstep_name: string | null
   machine_name: string | null
 }

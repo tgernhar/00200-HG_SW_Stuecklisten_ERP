@@ -67,7 +67,10 @@ const styles = {
   headerExpand: {
     width: '30px',
     backgroundColor: '#e8e8e8',
-    borderRight: '1px solid #dddddd'
+    borderRight: '1px solid #dddddd',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center'
   },
   headerPos: {
     width: '45px',
@@ -247,7 +250,7 @@ export default function OrdersOverviewPage() {
 
       {/* Table Header */}
       <div style={styles.tableHeader}>
-        <div style={{ ...styles.headerCell, ...styles.headerExpand }}></div>
+        <div style={styles.headerExpand}></div>
         <div style={{ ...styles.headerCell, ...styles.headerPos }}>Pos.</div>
         <div style={{ ...styles.headerCell, ...styles.headerAuftrag }}>Auftrag</div>
         <div style={{ ...styles.headerCell, ...styles.headerKunde }}>Kunde</div>

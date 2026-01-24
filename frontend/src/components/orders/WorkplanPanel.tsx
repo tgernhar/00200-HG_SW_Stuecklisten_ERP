@@ -1,13 +1,14 @@
 /**
  * Workplan Panel Component
- * Displays workplan (Arbeitsplan) for a packingnote - Level 4
+ * Displays workplan (Arbeitsplan) for a packingnote detail - Level 4
+ * The workplan is connected via: packingnote_relation.detail = workplan.packingnoteid
  */
 import React, { useState, useEffect } from 'react'
 import api from '../../services/api'
 import { WorkplanItem } from '../../services/types'
 
 interface WorkplanPanelProps {
-  packingNoteId: number
+  detailId: number
 }
 
 const styles = {
@@ -66,7 +67,7 @@ const styles = {
   }
 }
 
-export default function WorkplanPanel({ packingNoteId }: WorkplanPanelProps) {
+export default function WorkplanPanel({ detailId }: WorkplanPanelProps) {
   const [items, setItems] = useState<WorkplanItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -76,7 +77,7 @@ export default function WorkplanPanel({ packingNoteId }: WorkplanPanelProps) {
       try {
         setLoading(true)
         setError(null)
-        const response = await api.get(`/packingnotes/${packingNoteId}/workplan`)
+        const response = await api.get(`/packingnote-details/${detailId}/workplan`)
         setItems(response.data.items || [])
       } catch (err: any) {
         setError(err.response?.data?.detail || 'Fehler beim Laden')
@@ -87,7 +88,7 @@ export default function WorkplanPanel({ packingNoteId }: WorkplanPanelProps) {
     }
 
     loadWorkplan()
-  }, [packingNoteId])
+  }, [detailId])
 
   if (loading) {
     return (

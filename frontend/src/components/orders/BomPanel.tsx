@@ -105,13 +105,13 @@ export default function BomPanel({ orderArticleId }: BomPanelProps) {
     loadBom()
   }, [orderArticleId])
 
-  const toggleExpand = (packingNoteId: number) => {
+  const toggleExpand = (detailId: number) => {
     setExpandedItems(prev => {
       const next = new Set(prev)
-      if (next.has(packingNoteId)) {
-        next.delete(packingNoteId)
+      if (next.has(detailId)) {
+        next.delete(detailId)
       } else {
-        next.add(packingNoteId)
+        next.add(detailId)
       }
       return next
     })
@@ -171,17 +171,17 @@ export default function BomPanel({ orderArticleId }: BomPanelProps) {
         <tbody>
           {items.map((item, index) => {
             const level = calculateLevel(item, items)
-            const hasWorkplan = item.packingnote_id !== null
-            const isExpanded = item.packingnote_id ? expandedItems.has(item.packingnote_id) : false
+            const hasDetailId = item.detail_id !== null
+            const isExpanded = item.detail_id ? expandedItems.has(item.detail_id) : false
             
             return (
               <React.Fragment key={item.detail_id || index}>
                 <tr>
                   <td style={styles.td}>
-                    {hasWorkplan && (
+                    {hasDetailId && (
                       <button
                         style={styles.expandButton}
-                        onClick={() => item.packingnote_id && toggleExpand(item.packingnote_id)}
+                        onClick={() => item.detail_id && toggleExpand(item.detail_id)}
                         title={isExpanded ? 'Arbeitsplan ausblenden' : 'Arbeitsplan anzeigen'}
                       >
                         {isExpanded ? '▼' : '▶'}
@@ -203,10 +203,10 @@ export default function BomPanel({ orderArticleId }: BomPanelProps) {
                     {item.mass2 !== null ? item.mass2.toFixed(1) : '-'}
                   </td>
                 </tr>
-                {isExpanded && item.packingnote_id && (
+                {isExpanded && item.detail_id && (
                   <tr>
                     <td colSpan={7} style={{ padding: 0, backgroundColor: '#f5faff' }}>
-                      <WorkplanPanel packingNoteId={item.packingnote_id} />
+                      <WorkplanPanel detailId={item.detail_id} />
                     </td>
                   </tr>
                 )}

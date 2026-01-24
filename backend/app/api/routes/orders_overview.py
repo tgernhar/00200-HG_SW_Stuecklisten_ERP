@@ -49,7 +49,7 @@ class OrderArticlesResponse(BaseModel):
 
 class BomItem(BaseModel):
     """Single BOM (Stückliste) item"""
-    pos: Optional[str] = None
+    pos: Optional[int] = None
     articlenumber: Optional[str] = None
     description: Optional[str] = None
     cascaded_quantity: Optional[float] = None
@@ -69,7 +69,7 @@ class BomResponse(BaseModel):
 
 class WorkplanItem(BaseModel):
     """Single workplan item"""
-    pos: Optional[str] = None
+    pos: Optional[int] = None
     workstep_name: Optional[str] = None
     machine_name: Optional[str] = None
 
@@ -448,10 +448,13 @@ async def get_order_article_bom(order_article_id: int):
             connection.close()
 
 
-@router.get("/packingnotes/{packingnote_id}/workplan", response_model=WorkplanResponse)
-async def get_workplan(packingnote_id: int):
+@router.get("/packingnote-details/{detail_id}/workplan", response_model=WorkplanResponse)
+async def get_workplan(detail_id: int):
     """
-    Get workplan (Arbeitsplan) for a specific packingnote.
+    Get workplan (Arbeitsplan) for a specific packingnote detail (Stücklistenposition).
+    
+    The workplan is connected via: packingnote_relation.detail = workplan.packingnoteid
+    Each BOM position can have its own workplan.
     
     Returns the workplan details with worksteps and machines.
     """
@@ -466,16 +469,16 @@ async def get_workplan(packingnote_id: int):
                 workstep.name as workstep_name,
                 qualificationitem.name as machine_name
             FROM workplan
-            JOIN workplan_relation ON workplan_relation.workplanId = workplan.packingote
+            JOIN workplan_relation ON workplan_relation.workplanId = workplan.id
             JOIN workplan_details ON workplan_details.id = workplan_relation.detail
             LEFT JOIN qualificationitem ON qualificationitem.id = workplan_details.qualificationitem
-            LEFT JOIN qualificationitem_worksep ON qualificationitem_worksep.item = qualificationitem.id
-            LEFT JOIN workstep ON workstep.id = qualificationitem_worksep.workstep
-            WHERE workplan.packingote = %s
+            LEFT JOIN qualificationitem_workstep ON qualificationitem_workstep.item = qualificationitem.id
+            LEFT JOIN workstep ON workstep.id = qualificationitem_workstep.workstep
+            WHERE workplan.packingnoteid = %s
             ORDER BY workplan_details.pos
         """
         
-        cursor.execute(query, (packingnote_id,))
+        cursor.execute(query, (detail_id,))
         rows = cursor.fetchall()
         cursor.close()
         
