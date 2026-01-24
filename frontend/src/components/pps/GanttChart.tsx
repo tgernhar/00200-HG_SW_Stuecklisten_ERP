@@ -12,6 +12,7 @@ import React, { useEffect, useRef, useCallback } from 'react'
 import { gantt } from 'dhtmlx-gantt'
 import 'dhtmlx-gantt/codebase/dhtmlxgantt.css'
 import { GanttTask, GanttLink, GanttData } from '../../services/ppsTypes'
+import { WorkingHours } from '../../services/ppsApi'
 
 interface GanttChartProps {
   data: GanttData
@@ -24,6 +25,7 @@ interface GanttChartProps {
   onDateSelect?: (date: Date) => void
   readOnly?: boolean
   height?: string
+  workingHours?: WorkingHours[]
 }
 
 const styles = {
@@ -49,10 +51,17 @@ export default function GanttChart({
   onDateSelect,
   readOnly = false,
   height = '100%',
+  workingHours,
 }: GanttChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const initialized = useRef(false)
   const onTaskUpdateRef = useRef(onTaskUpdate)
+  const workingHoursRef = useRef(workingHours)
+  
+  // Update workingHours ref when it changes
+  useEffect(() => {
+    workingHoursRef.current = workingHours
+  }, [workingHours])
 
   // Update ref when callback changes
   useEffect(() => {
@@ -159,6 +168,29 @@ export default function GanttChart({
     gantt.locale.labels.confirm_deleting = 'Der Vorgang wird gelöscht. Fortfahren?'
     gantt.locale.labels.confirm_link_deleting = 'Die Verknüpfung wird gelöscht. Fortfahren?'
     
+    // German labels for grid columns and filter (if using Pro version)
+    gantt.locale.labels.column_text = 'Aufgabe'
+    gantt.locale.labels.column_start_date = 'Start'
+    gantt.locale.labels.column_duration = 'Dauer'
+    gantt.locale.labels.column_add = ''
+    gantt.locale.labels.column_priority = 'Prio'
+    
+    // German date format labels
+    gantt.locale.labels.new_task = 'Neue Aufgabe'
+    gantt.locale.labels.icon_save = 'Speichern'
+    gantt.locale.labels.icon_cancel = 'Abbrechen'
+    gantt.locale.labels.icon_details = 'Details'
+    gantt.locale.labels.icon_edit = 'Bearbeiten'
+    gantt.locale.labels.icon_delete = 'Löschen'
+    
+    // German day/month names for scale headers
+    gantt.locale.date = {
+      month_full: ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'],
+      month_short: ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'],
+      day_full: ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'],
+      day_short: ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa']
+    }
+    
     // Lightbox configuration with delete button
     gantt.config.buttons_left = ['gantt_save_btn', 'gantt_cancel_btn']
     gantt.config.buttons_right = ['gantt_delete_btn']
@@ -189,6 +221,38 @@ export default function GanttChart({
     gantt.locale.labels.section_priority = 'Priorität'
     gantt.locale.labels.section_type = 'Typ'
     
+    // Timeline cell class for working hours highlighting
+    gantt.templates.timeline_cell_class = (task: GanttTask, date: Date) => {
+      const hours = workingHoursRef.current
+      if (!hours || hours.length === 0) return ''
+      
+      // JavaScript: 0=Sunday, 1=Monday, etc.
+      // Our data: 0=Monday, 6=Sunday
+      const jsDay = date.getDay()
+      const dayOfWeek = jsDay === 0 ? 6 : jsDay - 1  // Convert to 0=Monday
+      
+      const dayConfig = hours.find(h => h.day_of_week === dayOfWeek)
+      if (!dayConfig || !dayConfig.is_working_day) {
+        return 'non-working-time'
+      }
+      
+      // Check if within working hours
+      const hour = date.getHours()
+      const minute = date.getMinutes()
+      const currentMinutes = hour * 60 + minute
+      
+      const startParts = dayConfig.start_time?.split(':') || ['0', '0']
+      const endParts = dayConfig.end_time?.split(':') || ['24', '0']
+      const startMinutes = parseInt(startParts[0]) * 60 + parseInt(startParts[1])
+      const endMinutes = parseInt(endParts[0]) * 60 + parseInt(endParts[1])
+      
+      if (currentMinutes < startMinutes || currentMinutes >= endMinutes) {
+        return 'non-working-time'
+      }
+      
+      return ''
+    }
+    
   }, [readOnly])
 
   // Initialize Gantt
@@ -197,7 +261,7 @@ export default function GanttChart({
 
     configureGantt()
     
-    // Add custom CSS for conflicts
+    // Add custom CSS for conflicts and working hours
     const style = document.createElement('style')
     style.textContent = `
       .conflict-task .gantt_task_content {
@@ -215,11 +279,35 @@ export default function GanttChart({
       .gantt_task_line.gantt_selected {
         box-shadow: 0 0 5px #4a90d9;
       }
+      /* Non-working time styling (outside core hours) */
+      .non-working-time {
+        background-color: #f0f0f0 !important;
+      }
+      /* Ensure scrollbars are visible */
+      .gantt_ver_scroll, .gantt_hor_scroll {
+        display: block !important;
+        visibility: visible !important;
+      }
+      .gantt_container {
+        overflow: visible !important;
+      }
+      /* Scrollbar styling */
+      .gantt_ver_scroll {
+        width: 17px !important;
+      }
+      .gantt_hor_scroll {
+        height: 17px !important;
+      }
     `
     document.head.appendChild(style)
     
     gantt.init(containerRef.current)
     initialized.current = true
+    
+    // #region agent log
+    // Debug: Check Gantt layout and scrollbar config after init
+    fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'GanttChart.tsx:init',message:'Gantt initialized',data:{layout: gantt.config.layout, containerWidth: containerRef.current?.offsetWidth, containerHeight: containerRef.current?.offsetHeight, scrollX: gantt.config.scroll_size, scrollY: gantt.config.scroll_size},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3'})}).catch(()=>{});
+    // #endregion
     
     return () => {
       gantt.clearAll()
@@ -390,6 +478,13 @@ export default function GanttChart({
     // Fit to screen
     setTimeout(() => {
       gantt.render()
+      // #region agent log
+      // Debug: Check container and scrollbar visibility after render
+      const container = containerRef.current;
+      const scrollVerEl = document.querySelector('.gantt_ver_scroll');
+      const scrollHorEl = document.querySelector('.gantt_hor_scroll');
+      fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'GanttChart.tsx:afterRender',message:'After render check',data:{containerWidth: container?.offsetWidth, containerHeight: container?.offsetHeight, scrollVerFound: !!scrollVerEl, scrollHorFound: !!scrollHorEl, scrollVerDisplay: scrollVerEl ? getComputedStyle(scrollVerEl).display : 'n/a', scrollHorDisplay: scrollHorEl ? getComputedStyle(scrollHorEl).display : 'n/a', taskCount: data?.data?.length},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3-H4'})}).catch(()=>{});
+      // #endregion
     }, 100)
     
   }, [data])

@@ -14,6 +14,7 @@ import './App.css'
 const OrdersOverviewPage = React.lazy(() => import('./pages/OrdersOverviewPage'))
 const ProductionPlanningPage = React.lazy(() => import('./pages/ProductionPlanningPage'))
 const TodoListPage = React.lazy(() => import('./pages/TodoListPage'))
+const PPSConfigPage = React.lazy(() => import('./pages/PPSConfigPage'))
 
 function App() {
   const { isAuthenticated, isLoading } = useAuth()
@@ -81,6 +82,14 @@ function App() {
             element={
               <React.Suspense fallback={<div style={{ padding: 20 }}>Lade ToDo-Liste...</div>}>
                 <TodoListPage />
+              </React.Suspense>
+            } 
+          />
+          <Route 
+            path="administration/pps-config" 
+            element={
+              <React.Suspense fallback={<div style={{ padding: 20 }}>Lade Konfiguration...</div>}>
+                <PPSConfigPage />
               </React.Suspense>
             } 
           />

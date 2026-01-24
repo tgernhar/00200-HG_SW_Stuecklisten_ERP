@@ -2,11 +2,13 @@
  * Menu Page - Main layout with sidebar and content area
  * Based on HUGWAWI menu structure
  */
-import React from 'react'
+import React, { useState, useEffect } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 import Header from '../components/Header'
 import Sidebar from '../components/Sidebar'
 import { useAuth } from '../contexts/AuthContext'
+
+const SIDEBAR_COLLAPSED_KEY = 'sidebar_collapsed'
 
 const styles = {
   container: {
@@ -18,12 +20,34 @@ const styles = {
   main: {
     display: 'flex',
     flex: 1,
-    overflow: 'hidden'
+    overflow: 'hidden',
+    position: 'relative' as const,
   },
   content: {
     flex: 1,
     overflow: 'auto',
     backgroundColor: '#ffffff'
+  },
+  sidebarWrapper: {
+    display: 'flex',
+    flexShrink: 0,
+  },
+  sidebarToggle: {
+    width: '16px',
+    height: '40px',
+    backgroundColor: '#e8e8e8',
+    border: '1px solid #cccccc',
+    borderLeft: 'none',
+    borderRadius: '0 4px 4px 0',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: '10px',
+    color: '#666666',
+    alignSelf: 'center',
+    marginTop: 'auto',
+    marginBottom: 'auto',
   },
   welcomeContent: {
     padding: '20px',
@@ -104,12 +128,37 @@ function WelcomeContent() {
 export default function MenuPage() {
   const location = useLocation()
   const isWelcomePage = location.pathname === '/menu' || location.pathname === '/menu/'
+  
+  // Sidebar collapse state with localStorage persistence
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    const saved = localStorage.getItem(SIDEBAR_COLLAPSED_KEY)
+    return saved === 'true'
+  })
+  
+  // Persist sidebar state
+  useEffect(() => {
+    localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(sidebarCollapsed))
+  }, [sidebarCollapsed])
+  
+  const toggleSidebar = () => {
+    setSidebarCollapsed(prev => !prev)
+  }
 
   return (
     <div style={styles.container}>
       <Header />
       <div style={styles.main}>
-        <Sidebar />
+        {/* Sidebar with toggle button attached */}
+        <div style={styles.sidebarWrapper}>
+          {!sidebarCollapsed && <Sidebar />}
+          <button
+            style={styles.sidebarToggle}
+            onClick={toggleSidebar}
+            title={sidebarCollapsed ? 'Menü einblenden' : 'Menü ausblenden'}
+          >
+            {sidebarCollapsed ? '►' : '◄'}
+          </button>
+        </div>
         <div style={styles.content}>
           {isWelcomePage ? <WelcomeContent /> : <Outlet />}
         </div>

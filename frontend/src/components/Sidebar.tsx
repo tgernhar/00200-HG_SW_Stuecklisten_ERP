@@ -56,6 +56,17 @@ const menuItems: MenuItem[] = [
         path: '/menu/produktionsplanung/todos'
       }
     ]
+  },
+  {
+    id: 'administration',
+    label: 'Administration',
+    children: [
+      {
+        id: 'pps-config',
+        label: 'Produktionsplanung_Config',
+        path: '/menu/administration/pps-config'
+      }
+    ]
   }
 ]
 

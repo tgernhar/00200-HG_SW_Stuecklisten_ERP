@@ -19,6 +19,8 @@ import {
   syncResources,
   getConflicts,
   checkConflicts,
+  getWorkingHours,
+  WorkingHours,
 } from '../services/ppsApi'
 import {
   GanttData,
@@ -95,15 +97,34 @@ const styles = {
     flex: 1,
     overflow: 'hidden',
   },
+  sidebarWrapper: {
+    display: 'flex',
+    flexShrink: 0,
+  },
   sidebar: {
     width: '220px',
     borderRight: '1px solid #dddddd',
     backgroundColor: '#fafafa',
     overflow: 'auto',
   },
+  sidebarToggle: {
+    width: '16px',
+    backgroundColor: '#e8e8e8',
+    border: '1px solid #dddddd',
+    borderLeft: 'none',
+    borderRadius: '0 4px 4px 0',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: '10px',
+    color: '#666666',
+    flexShrink: 0,
+  },
   ganttContainer: {
     flex: 1,
     overflow: 'hidden',
+    position: 'relative' as const,
   },
   conflictContainer: {
     height: '150px',
@@ -144,12 +165,14 @@ export default function ProductionPlanningPage() {
   const [unresolvedCount, setUnresolvedCount] = useState(0)
   const [selectedResourceIds, setSelectedResourceIds] = useState<number[]>([])
   const [selectedTaskIds, setSelectedTaskIds] = useState<number[]>([])
+  const [workingHours, setWorkingHours] = useState<WorkingHours[]>([])
   
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showGeneratorModal, setShowGeneratorModal] = useState(false)
   const [isSyncing, setIsSyncing] = useState(false)
   const [zoomLevel, setZoomLevel] = useState<'hour' | 'day' | 'week'>('day')
+  const [showResourcePanel, setShowResourcePanel] = useState(true)
   
   // Track pending changes for sync before filter change
   const pendingChangesRef = useRef<GanttSyncRequest | null>(null)
@@ -165,16 +188,22 @@ export default function ProductionPlanningPage() {
         ? selectedResourceIds.join(',') 
         : undefined
       
-      const [ganttResponse, resourcesResponse, conflictsResponse] = await Promise.all([
+      const [ganttResponse, resourcesResponse, conflictsResponse, workingHoursResponse] = await Promise.all([
         getGanttData({ resource_ids: resourceFilter }),
         getResources({ is_active: true }),
         getConflicts({ resolved: false }),
+        getWorkingHours(),
       ])
       
       setGanttData(ganttResponse)
       setResources(resourcesResponse)
       setConflicts(conflictsResponse.items)
       setUnresolvedCount(conflictsResponse.unresolved_count)
+      setWorkingHours(workingHoursResponse)
+      
+      // #region agent log
+      fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ProductionPlanningPage.tsx:loadData',message:'Data loaded',data:{taskCount: ganttResponse?.data?.length, resourceCount: resourcesResponse?.length, workingHoursCount: workingHoursResponse?.length},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3-H4'})}).catch(()=>{});
+      // #endregion
       
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Fehler beim Laden'
@@ -450,13 +479,24 @@ export default function ProductionPlanningPage() {
 
       {/* Main area */}
       <div style={styles.mainArea}>
-        {/* Resource sidebar */}
-        <div style={styles.sidebar}>
-          <ResourcePanel
-            resources={resources}
-            selectedIds={selectedResourceIds}
-            onSelectionChange={handleResourceFilterChange}
-          />
+        {/* Resource sidebar with toggle - collapsible */}
+        <div style={styles.sidebarWrapper}>
+          {showResourcePanel && (
+            <div style={styles.sidebar}>
+              <ResourcePanel
+                resources={resources}
+                selectedIds={selectedResourceIds}
+                onSelectionChange={handleResourceFilterChange}
+              />
+            </div>
+          )}
+          <button
+            style={styles.sidebarToggle}
+            onClick={() => setShowResourcePanel(prev => !prev)}
+            title={showResourcePanel ? 'Filter ausblenden' : 'Filter einblenden'}
+          >
+            {showResourcePanel ? '◄' : '►'}
+          </button>
         </div>
 
         {/* Gantt chart */}
@@ -469,6 +509,7 @@ export default function ProductionPlanningPage() {
               onLinkCreate={handleLinkCreate}
               onLinkDelete={handleLinkDelete}
               onSelectionChange={setSelectedTaskIds}
+              workingHours={workingHours}
               height="100%"
             />
           ) : (

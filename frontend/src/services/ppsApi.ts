@@ -182,6 +182,34 @@ export async function getAuditLog(params?: {
   return response.data
 }
 
+// ============== Working Hours Configuration ==============
+
+export interface WorkingHours {
+  id: number
+  day_of_week: number  // 0=Monday, 6=Sunday
+  day_name: string
+  start_time: string | null  // "HH:MM" format
+  end_time: string | null
+  is_working_day: boolean
+}
+
+export interface WorkingHoursUpdate {
+  day_of_week: number
+  start_time: string | null
+  end_time: string | null
+  is_working_day: boolean
+}
+
+export async function getWorkingHours(): Promise<WorkingHours[]> {
+  const response = await api.get(`${BASE_URL}/config/working-hours`)
+  return response.data.items
+}
+
+export async function updateWorkingHours(data: WorkingHoursUpdate[]): Promise<WorkingHours[]> {
+  const response = await api.put(`${BASE_URL}/config/working-hours`, data)
+  return response.data.items
+}
+
 // Export all functions as a single object for convenience
 export const ppsApi = {
   getTodos,
@@ -204,6 +232,8 @@ export const ppsApi = {
   getAvailableOrders,
   generateTodos,
   getAuditLog,
+  getWorkingHours,
+  updateWorkingHours,
 }
 
 export default ppsApi

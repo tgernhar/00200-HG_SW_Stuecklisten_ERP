@@ -8,11 +8,25 @@ Contains all models for production planning:
 - PPSResourceCache: Cached resources from HUGWAWI
 - PPSConflict: Detected conflicts
 - PPSAuditLog: Change tracking
+- PPSWorkingHours: Core working hours configuration
 """
-from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey, Text, DateTime, Date, JSON
+from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey, Text, DateTime, Date, JSON, Time
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from app.core.database import Base
+
+
+class PPSWorkingHours(Base):
+    """Weekly core working hours configuration for production planning"""
+    __tablename__ = "pps_working_hours"
+    
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    day_of_week = Column(Integer, nullable=False, unique=True)  # 0=Monday, 6=Sunday
+    start_time = Column(Time, nullable=True)  # NULL = no work on this day
+    end_time = Column(Time, nullable=True)
+    is_working_day = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class PPSResourceCache(Base):

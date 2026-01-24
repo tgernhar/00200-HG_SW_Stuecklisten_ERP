@@ -399,5 +399,36 @@ class ResourceSyncResponse(BaseModel):
     errors: List[str] = []
 
 
+# ============== Working Hours Schemas ==============
+
+class WorkingHoursBase(BaseModel):
+    """Base schema for working hours"""
+    day_of_week: int  # 0=Monday, 6=Sunday
+    start_time: Optional[str] = None  # "HH:MM" format
+    end_time: Optional[str] = None  # "HH:MM" format
+    is_working_day: bool = True
+
+
+class WorkingHoursUpdate(WorkingHoursBase):
+    """Schema for updating working hours"""
+    pass
+
+
+class WorkingHours(WorkingHoursBase):
+    """Schema for working hours response"""
+    id: int
+    day_name: str = ""  # Computed field
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class WorkingHoursListResponse(BaseModel):
+    """Response containing all 7 days"""
+    items: List[WorkingHours]
+
+
 # Forward references for self-referencing models
 TodoWithDetails.model_rebuild()
