@@ -1336,6 +1336,37 @@ const handlePrintPDF = () => {
 - **Deployment**: Docker, Docker Compose
 - **Windows Service**: python-service (oder NSSM)
 
+## Authentifizierung
+
+### HUGWAWI-Login
+
+Die Authentifizierung erfolgt gegen die HUGWAWI-Datenbank (`userlogin`-Tabelle).
+
+**Wichtig**: HUGWAWI speichert Passwörter als **MD5-Hash** (32 Zeichen hexadezimal), nicht im Klartext!
+
+```python
+# Passwort-Validierung in auth_service.py
+import hashlib
+
+def validate_credentials(loginname: str, password: str):
+    # Passwort zu MD5-Hash konvertieren
+    password_hash = hashlib.md5(password.encode('utf-8')).hexdigest()
+    
+    # Vergleich mit gespeichertem Hash in der Datenbank
+    if user['password'] != password_hash:
+        return None  # Login fehlgeschlagen
+```
+
+### Session-Management
+
+- JWT-Token mit 45 Minuten Gültigkeit
+- Inaktivitäts-Timeout: Nach 45 Minuten ohne Aktivität wird der Benutzer automatisch abgemeldet
+- Login-Logging: Alle Anmeldungen werden in der lokalen `userlogin_log`-Tabelle dokumentiert
+
+### Rollen
+
+Benutzerrollen werden aus HUGWAWI geladen (`userroles` + `userlogin_userrole`-Tabellen), sind aber aktuell noch nicht für Zugriffssteuerung aktiviert.
+
 ## Konfiguration
 
 ### Environment Variables
@@ -1349,7 +1380,8 @@ const handlePrintPDF = () => {
 - `SOLIDWORKS_CONNECTOR_URL`: URL des Windows-Services
 - `SOLIDWORKS_VERSION`: 2025
 - `UPLOAD_PATH`: Pfad für Dokumente
-- `SECRET_KEY`: JWT Secret
+- `SECRET_KEY`: JWT Secret für Token-Generierung
+- `ALGORITHM`: JWT-Algorithmus (Standard: HS256)
 
 ## Dokumentation
 

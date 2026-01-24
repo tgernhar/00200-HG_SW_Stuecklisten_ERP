@@ -121,7 +121,7 @@ export default function LoginPage() {
     <div style={styles.container}>
       {/* Logo */}
       <div style={styles.logo}>
-        <Logo height={60} showText={true} />
+        <Logo height={60} />
       </div>
 
       {/* Login Form */}
