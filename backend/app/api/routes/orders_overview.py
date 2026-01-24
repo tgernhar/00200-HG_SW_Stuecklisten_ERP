@@ -124,8 +124,9 @@ class BomItem(BaseModel):
     articlenumber: Optional[str] = None
     description: Optional[str] = None
     cascaded_quantity: Optional[float] = None
-    mass1: Optional[float] = None
-    mass2: Optional[float] = None
+    einzelmass: Optional[float] = None
+    gesamtmenge: Optional[float] = None
+    einheit: Optional[str] = None
     lft: Optional[int] = None
     rgt: Optional[int] = None
     detail_id: Optional[int] = None
@@ -831,8 +832,9 @@ async def get_order_article_bom(order_article_id: int):
                 article.articlenumber,
                 article.description,
                 packingnote_details.cascadedQuantity as cascaded_quantity,
-                packingnote_details.mass1,
-                packingnote_details.mass2,
+                packingnote_details.einzelmass,
+                (packingnote_details.einzelmass * packingnote_details.cascadedQuantity) as gesamtmenge,
+                calculation.name as einheit,
                 packingnote_relation.lft,
                 packingnote_relation.rgt,
                 packingnote_details.id as detail_id,
@@ -842,6 +844,7 @@ async def get_order_article_bom(order_article_id: int):
             JOIN packingnote_relation ON packingnote_relation.packingNoteId = order_article.packingnoteid
             JOIN packingnote_details ON packingnote_details.id = packingnote_relation.detail
             LEFT JOIN article ON article.id = packingnote_details.article
+            LEFT JOIN calculation ON calculation.id = packingnote_details.calculation
             WHERE order_article.id = %s
             ORDER BY packingnote_relation.lft
         """
@@ -856,8 +859,9 @@ async def get_order_article_bom(order_article_id: int):
                 articlenumber=row.get('articlenumber'),
                 description=row.get('description'),
                 cascaded_quantity=row.get('cascaded_quantity'),
-                mass1=row.get('mass1'),
-                mass2=row.get('mass2'),
+                einzelmass=row.get('einzelmass'),
+                gesamtmenge=row.get('gesamtmenge'),
+                einheit=row.get('einheit'),
                 lft=row.get('lft'),
                 rgt=row.get('rgt'),
                 detail_id=row.get('detail_id'),

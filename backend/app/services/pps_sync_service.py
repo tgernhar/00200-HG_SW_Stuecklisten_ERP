@@ -96,11 +96,10 @@ def _sync_departments(db: Session, cursor) -> dict:
     updated = 0
     deactivated = 0
     
-    # Query departments
+    # Query departments (simple query - HUGWAWI department table has no deleted column)
     cursor.execute("""
         SELECT id, name 
         FROM department 
-        WHERE deleted = 0 OR deleted IS NULL
         ORDER BY name
     """)
     

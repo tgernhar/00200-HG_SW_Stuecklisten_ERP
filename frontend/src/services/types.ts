@@ -223,8 +223,9 @@ export interface BomItem {
   articlenumber: string | null
   description: string | null
   cascaded_quantity: number | null
-  mass1: number | null
-  mass2: number | null
+  einzelmass: number | null
+  gesamtmenge: number | null
+  einheit: string | null
   lft: number | null
   rgt: number | null
   detail_id: number | null

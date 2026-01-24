@@ -178,7 +178,7 @@ def generate_todos_from_order(
             order_container_id = order_container.id
             created_todos += 1
         
-        # 2. Get order articles
+        # 2. Get order articles (including department from article)
         article_query = """
             SELECT 
                 oa.id as order_article_id,
@@ -186,6 +186,7 @@ def generate_todos_from_order(
                 oa.packingnoteid,
                 art.articlenumber,
                 art.description,
+                art.department as department_id,
                 oar.batchsize as quantity
             FROM order_article_ref oar
             JOIN order_article oa ON oar.orderArticleId = oa.id
@@ -207,6 +208,17 @@ def generate_todos_from_order(
         for article_row in article_rows:
             order_article_id = article_row['order_article_id']
             
+            # Get department resource from cache (based on article.department)
+            department_resource_id = None
+            department_id = article_row.get('department_id')
+            if department_id:
+                dep_resource = db.query(PPSResourceCache).filter(
+                    PPSResourceCache.resource_type == 'department',
+                    PPSResourceCache.erp_id == department_id,
+                ).first()
+                if dep_resource:
+                    department_resource_id = dep_resource.id
+            
             # Check if article container already exists
             existing_article = db.query(PPSTodo).filter(
                 PPSTodo.erp_order_article_id == order_article_id,
@@ -215,6 +227,10 @@ def generate_todos_from_order(
             
             if existing_article:
                 article_container_id = existing_article.id
+                # Update department if not set
+                if not existing_article.assigned_department_id and department_resource_id:
+                    existing_article.assigned_department_id = department_resource_id
+                    existing_article.updated_at = datetime.utcnow()
             else:
                 # Create article container todo
                 article_title = f"Pos {article_row['position']}: {article_row['articlenumber']} - {article_row['description']}"
@@ -227,6 +243,7 @@ def generate_todos_from_order(
                     quantity=article_row['quantity'] or 1,
                     status='new',
                     delivery_date=delivery_date,
+                    assigned_department_id=department_resource_id,
                     version=1,
                     created_at=datetime.utcnow(),
                     updated_at=datetime.utcnow(),
@@ -241,21 +258,22 @@ def generate_todos_from_order(
                 packingnoteid = article_row['packingnoteid']
                 
                 # Get workplan details
+                # Note: HUGWAWI workplan_details may not have setupTime/executionTime columns
+                # We use the existing working query pattern from orders_overview.py
                 cursor.execute("""
                     SELECT 
                         wpd.id as detail_id,
                         wpd.pos,
-                        wpd.workstep as workstep_id,
+                        ws.id as workstep_id,
                         ws.name as workstep_name,
                         qi.id as machine_id,
-                        qi.name as machine_name,
-                        wpd.setupTime,
-                        wpd.executionTime
+                        qi.name as machine_name
                     FROM workplan wp
                     JOIN workplan_relation wpr ON wpr.workplanId = wp.id
                     JOIN workplan_details wpd ON wpd.id = wpr.detail
-                    LEFT JOIN workstep ws ON ws.id = wpd.workstep
                     LEFT JOIN qualificationitem qi ON qi.id = wpd.qualificationitem
+                    LEFT JOIN qualificationitem_workstep qiws ON qiws.item = qi.id
+                    LEFT JOIN workstep ws ON ws.id = qiws.workstep
                     WHERE wp.packingnoteid = %s
                     ORDER BY wpd.pos
                 """, (packingnoteid,))
@@ -274,15 +292,20 @@ def generate_todos_from_order(
                     
                     if existing_op:
                         operation_id = existing_op.id
+                        # Update department if not set
+                        if not existing_op.assigned_department_id and department_resource_id:
+                            existing_op.assigned_department_id = department_resource_id
+                            existing_op.updated_at = datetime.utcnow()
                     else:
                         # Create operation todo
                         op_title = f"AG {wp_row['pos']}: {wp_row['workstep_name'] or 'Arbeitsgang'}"
                         if wp_row['machine_name']:
                             op_title += f" ({wp_row['machine_name']})"
                         
-                        # Calculate duration
-                        setup_time = int(wp_row['setupTime'] or 0)
-                        exec_time = int(wp_row['executionTime'] or 0)
+                        # Default duration values (can be edited later in the UI)
+                        # HUGWAWI workplan_details doesn't have time columns in this installation
+                        setup_time = 0
+                        exec_time = 60  # Default: 60 minutes per operation
                         quantity = article_row['quantity'] or 1
                         total_duration = setup_time + (exec_time * quantity)
                         
@@ -309,6 +332,7 @@ def generate_todos_from_order(
                             total_duration_minutes=total_duration,
                             status='new',
                             delivery_date=delivery_date,
+                            assigned_department_id=department_resource_id,
                             assigned_machine_id=machine_resource_id,
                             version=1,
                             created_at=datetime.utcnow(),

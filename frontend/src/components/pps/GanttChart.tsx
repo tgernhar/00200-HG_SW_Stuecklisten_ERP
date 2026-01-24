@@ -133,6 +133,21 @@ export default function GanttChart({
     gantt.locale.labels.confirm_deleting = 'Der Vorgang wird gelöscht. Fortfahren?'
     gantt.locale.labels.confirm_link_deleting = 'Die Verknüpfung wird gelöscht. Fortfahren?'
     
+    // Lightbox configuration with delete button
+    gantt.config.buttons_left = ['gantt_save_btn', 'gantt_cancel_btn']
+    gantt.config.buttons_right = ['gantt_delete_btn']
+    
+    // German labels for lightbox buttons
+    gantt.locale.labels.gantt_save_btn = 'Speichern'
+    gantt.locale.labels.gantt_cancel_btn = 'Abbrechen'
+    gantt.locale.labels.gantt_delete_btn = 'Löschen'
+    
+    // Lightbox sections
+    gantt.config.lightbox.sections = [
+      { name: 'description', height: 40, map_to: 'text', type: 'textarea', focus: true },
+      { name: 'time', type: 'duration', map_to: 'auto' }
+    ]
+    
   }, [readOnly])
 
   // Initialize Gantt

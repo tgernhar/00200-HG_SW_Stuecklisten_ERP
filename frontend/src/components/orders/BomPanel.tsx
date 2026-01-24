@@ -280,8 +280,9 @@ export default function BomPanel({ orderArticleId }: BomPanelProps) {
             <th style={{ ...styles.th, width: '110px' }}>Artikelnummer</th>
             <th style={styles.th}>Artikelbezeichnung</th>
             <th style={{ ...styles.th, width: '70px', textAlign: 'right' as const }}>AU-Menge</th>
-            <th style={{ ...styles.th, width: '60px', textAlign: 'right' as const }}>Länge</th>
-            <th style={{ ...styles.th, width: '60px', textAlign: 'right' as const }}>Breite</th>
+            <th style={{ ...styles.th, width: '80px', textAlign: 'right' as const }}>Einzelmass</th>
+            <th style={{ ...styles.th, width: '90px', textAlign: 'right' as const }}>Gesamtmenge</th>
+            <th style={{ ...styles.th, width: '80px' }}>Einheit</th>
             <th style={{ ...styles.th, width: '150px' }}>Bemerkung</th>
           </tr>
         </thead>
@@ -328,10 +329,13 @@ export default function BomPanel({ orderArticleId }: BomPanelProps) {
                     {item.cascaded_quantity !== null ? item.cascaded_quantity.toFixed(2) : '-'}
                   </td>
                   <td style={{ ...styles.td, textAlign: 'right' }}>
-                    {item.mass1 !== null ? item.mass1.toFixed(1) : '-'}
+                    {item.einzelmass !== null ? item.einzelmass.toFixed(2) : '-'}
                   </td>
                   <td style={{ ...styles.td, textAlign: 'right' }}>
-                    {item.mass2 !== null ? item.mass2.toFixed(1) : '-'}
+                    {item.gesamtmenge !== null ? item.gesamtmenge.toFixed(2) : '-'}
+                  </td>
+                  <td style={styles.td}>
+                    {item.einheit || '-'}
                   </td>
                   {/* Remark Cell */}
                   <td style={styles.td}>
@@ -370,7 +374,7 @@ export default function BomPanel({ orderArticleId }: BomPanelProps) {
                 </tr>
                 {isExpanded && item.detail_id && (
                   <tr>
-                    <td colSpan={9} style={{ padding: 0, backgroundColor: '#f5faff' }}>
+                    <td colSpan={10} style={{ padding: 0, backgroundColor: '#f5faff' }}>
                       <WorkplanPanel detailId={item.detail_id} />
                     </td>
                   </tr>

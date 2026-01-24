@@ -357,6 +357,24 @@ export default function ProductionPlanningPage() {
           Konflikte prüfen
         </button>
         
+        <div style={styles.toolbarSeparator} />
+        
+        <button
+          style={{
+            ...styles.toolbarButton,
+            ...(selectedTaskIds.length === 0 ? { opacity: 0.5, cursor: 'not-allowed' } : {}),
+            color: selectedTaskIds.length > 0 ? '#cc0000' : undefined,
+          }}
+          onClick={() => {
+            if (selectedTaskIds.length > 0 && window.confirm('Ausgewählte ToDos wirklich löschen?')) {
+              selectedTaskIds.forEach(id => handleTaskDelete(id))
+            }
+          }}
+          disabled={selectedTaskIds.length === 0 || isSyncing}
+        >
+          ToDo löschen
+        </button>
+        
         <div style={styles.toolbarRight}>
           {unresolvedCount > 0 && (
             <span style={styles.conflictBadge}>
