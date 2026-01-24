@@ -27,6 +27,7 @@ class OrderOverviewItem(BaseModel):
     order_id: Optional[int] = None
     status_name: Optional[str] = None
     reference: Optional[str] = None
+    has_articles: bool = False  # True if order has articles (for expand arrow)
 
 
 class OrderArticleItem(BaseModel):
@@ -39,6 +40,7 @@ class OrderArticleItem(BaseModel):
     status_name: Optional[str] = None
     order_article_id: Optional[int] = None
     packingnoteid: Optional[int] = None
+    has_bom: bool = False  # True if article has BOM (packingnoteid is not null)
 
 
 class OrderArticlesResponse(BaseModel):
@@ -59,6 +61,7 @@ class BomItem(BaseModel):
     rgt: Optional[int] = None
     detail_id: Optional[int] = None
     packingnote_id: Optional[int] = None
+    has_workplan: bool = False  # True if BOM item has workplan
 
 
 class BomResponse(BaseModel):
@@ -69,6 +72,7 @@ class BomResponse(BaseModel):
 
 class WorkplanItem(BaseModel):
     """Single workplan item"""
+    workplan_detail_id: Optional[int] = None
     pos: Optional[int] = None
     workstep_name: Optional[str] = None
     machine_name: Optional[str] = None
@@ -143,7 +147,8 @@ async def get_orders_overview(
                 ordertable.date1 as lt_kundenwunsch,
                 adrcont.suchname as technischer_kontakt,
                 order_status.name as status_name,
-                ordertable.reference as reference
+                ordertable.reference as reference,
+                (SELECT COUNT(*) > 0 FROM order_article_ref WHERE order_article_ref.orderid = ordertable.id) as has_articles
             FROM ordertable
             LEFT JOIN adrbase ON adrbase.id = ordertable.kid
             LEFT JOIN userlogin ON userlogin.id = ordertable.infoSales
@@ -258,7 +263,8 @@ async def get_orders_overview(
                 technischer_kontakt=row.get('technischer_kontakt'),
                 order_id=row.get('order_id'),
                 status_name=row.get('status_name'),
-                reference=row.get('reference')
+                reference=row.get('reference'),
+                has_articles=bool(row.get('has_articles', 0))
             ))
         
         return OrderOverviewResponse(items=items, total=total)
@@ -365,7 +371,8 @@ async def get_order_articles(order_id: int):
                 batchsize=row.get('batchsize'),
                 status_name=row.get('status_name'),
                 order_article_id=row.get('order_article_id'),
-                packingnoteid=row.get('packingnoteid')
+                packingnoteid=row.get('packingnoteid'),
+                has_bom=row.get('packingnoteid') is not None
             )
             for row in rows
         ]
@@ -406,7 +413,8 @@ async def get_order_article_bom(order_article_id: int):
                 packingnote_relation.lft,
                 packingnote_relation.rgt,
                 packingnote_details.id as detail_id,
-                order_article.packingnoteid as packingnote_id
+                order_article.packingnoteid as packingnote_id,
+                (SELECT COUNT(*) > 0 FROM workplan WHERE workplan.packingnoteid = packingnote_details.id) as has_workplan
             FROM order_article
             JOIN packingnote_relation ON packingnote_relation.packingNoteId = order_article.packingnoteid
             JOIN packingnote_details ON packingnote_details.id = packingnote_relation.detail
@@ -430,7 +438,8 @@ async def get_order_article_bom(order_article_id: int):
                 lft=row.get('lft'),
                 rgt=row.get('rgt'),
                 detail_id=row.get('detail_id'),
-                packingnote_id=row.get('packingnote_id')
+                packingnote_id=row.get('packingnote_id'),
+                has_workplan=bool(row.get('has_workplan', 0))
             )
             for row in rows
         ]
@@ -465,6 +474,7 @@ async def get_workplan(detail_id: int):
         
         query = """
             SELECT 
+                workplan_details.id as workplan_detail_id,
                 workplan_details.pos,
                 workstep.name as workstep_name,
                 qualificationitem.name as machine_name
@@ -484,6 +494,7 @@ async def get_workplan(detail_id: int):
         
         items = [
             WorkplanItem(
+                workplan_detail_id=row.get('workplan_detail_id'),
                 pos=row.get('pos'),
                 workstep_name=row.get('workstep_name'),
                 machine_name=row.get('machine_name')

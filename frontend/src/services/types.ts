@@ -190,6 +190,7 @@ export interface OrderOverviewItem {
   order_id: number | null
   status_name: string | null
   reference: string | null
+  has_articles: boolean
 }
 
 export interface OrderOverviewResponse {
@@ -206,6 +207,7 @@ export interface OrderArticleItem {
   status_name: string | null
   order_article_id: number | null
   packingnoteid: number | null
+  has_bom: boolean
 }
 
 export interface OrderArticlesResponse {
@@ -224,6 +226,7 @@ export interface BomItem {
   rgt: number | null
   detail_id: number | null
   packingnote_id: number | null
+  has_workplan: boolean
 }
 
 export interface BomResponse {
@@ -232,6 +235,7 @@ export interface BomResponse {
 }
 
 export interface WorkplanItem {
+  workplan_detail_id: number | null
   pos: number | null
   workstep_name: string | null
   machine_name: string | null
@@ -239,5 +243,43 @@ export interface WorkplanItem {
 
 export interface WorkplanResponse {
   items: WorkplanItem[]
+  total: number
+}
+
+// Hierarchy Remarks Types
+
+export type LevelType = 'order' | 'order_article' | 'bom_detail' | 'workplan_detail'
+
+export interface HierarchyRemark {
+  id: number
+  level_type: LevelType
+  hugwawi_id: number
+  remark: string
+  created_by: string | null
+  created_at: string | null
+  updated_at: string | null
+}
+
+export interface RemarkCreate {
+  level_type: LevelType
+  hugwawi_id: number
+  remark: string
+  created_by?: string
+}
+
+export interface RemarkListResponse {
+  items: HierarchyRemark[]
+  total: number
+}
+
+export interface ChildRemarkInfo {
+  level_type: LevelType
+  hugwawi_id: number
+  remark: string
+  truncated_remark: string
+}
+
+export interface ChildRemarksResponse {
+  items: ChildRemarkInfo[]
   total: number
 }

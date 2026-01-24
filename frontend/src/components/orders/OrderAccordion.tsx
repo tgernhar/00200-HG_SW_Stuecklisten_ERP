@@ -2,14 +2,17 @@
  * Order Accordion Component
  * Single order row with expand/collapse functionality - Level 1
  */
-import React from 'react'
-import { OrderOverviewItem } from '../../services/types'
+import React, { useState, useEffect } from 'react'
+import { OrderOverviewItem, HierarchyRemark} from '../../services/types'
 import OrderArticlesPanel from './OrderArticlesPanel'
+import remarksApi from '../../services/remarksApi'
 
 interface OrderAccordionProps {
   order: OrderOverviewItem
   isExpanded: boolean
+  isSelected: boolean
   onToggle: () => void
+  onSelect: (selected: boolean) => void
 }
 
 const styles = {
@@ -33,6 +36,14 @@ const styles = {
     borderRadius: '3px 3px 0 0',
     cursor: 'pointer'
   },
+  checkboxCell: {
+    width: '30px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fafafa',
+    borderRight: '1px solid #e0e0e0'
+  },
   expandCell: {
     width: '30px',
     display: 'flex',
@@ -42,6 +53,11 @@ const styles = {
     borderRight: '1px solid #e0e0e0',
     fontSize: '12px',
     color: '#666666'
+  },
+  expandCellEmpty: {
+    width: '30px',
+    backgroundColor: '#f5f5f5',
+    borderRight: '1px solid #e0e0e0'
   },
   cell: {
     padding: '8px 10px',
@@ -68,7 +84,7 @@ const styles = {
   },
   cellText: {
     flex: 1,
-    minWidth: '200px',
+    minWidth: '150px',
     whiteSpace: 'nowrap' as const,
     overflow: 'hidden',
     textOverflow: 'ellipsis'
@@ -83,6 +99,26 @@ const styles = {
   },
   cellStatus: {
     width: '100px'
+  },
+  cellRemark: {
+    width: '200px',
+    fontSize: '11px'
+  },
+  remarkText: {
+    fontWeight: 'bold' as const,
+    color: '#666666',
+    whiteSpace: 'nowrap' as const,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    maxWidth: '180px',
+    display: 'inline-block'
+  },
+  remarkInput: {
+    width: '100%',
+    border: '1px solid #ccc',
+    borderRadius: '3px',
+    padding: '4px 6px',
+    fontSize: '11px'
   },
   detailPanel: {
     backgroundColor: '#fafafa',
@@ -138,7 +174,48 @@ const getDateStyle = (dateStr: string | null) => {
   }
 }
 
-export default function OrderAccordion({ order, isExpanded, onToggle }: OrderAccordionProps) {
+const truncateText = (text: string, maxLength: number = 50): string => {
+  if (text.length <= maxLength) return text
+  return text.substring(0, maxLength - 3) + '...'
+}
+
+export default function OrderAccordion({ order, isExpanded, isSelected, onToggle, onSelect }: OrderAccordionProps) {
+  const [remark, setRemark] = useState<HierarchyRemark | null>(null)
+  const [editingRemark, setEditingRemark] = useState(false)
+  const [remarkText, setRemarkText] = useState('')
+
+  useEffect(() => {
+    if (order.order_id) {
+      remarksApi.getRemark('order', order.order_id).then(setRemark).catch(() => {})
+    }
+  }, [order.order_id])
+
+  const handleRemarkSave = async () => {
+    if (!order.order_id) return
+    if (remarkText.trim()) {
+      const saved = await remarksApi.saveRemark({
+        level_type: 'order',
+        hugwawi_id: order.order_id,
+        remark: remarkText.trim()
+      })
+      setRemark(saved)
+    } else if (remark) {
+      await remarksApi.deleteRemark(remark.id)
+      setRemark(null)
+    }
+    setEditingRemark(false)
+  }
+
+  const handleRemarkClick = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    setRemarkText(remark?.remark || '')
+    setEditingRemark(true)
+  }
+
+  const handleCheckboxClick = (e: React.MouseEvent) => {
+    e.stopPropagation()
+  }
+
   return (
     <div style={styles.container}>
       <div
@@ -155,9 +232,23 @@ export default function OrderAccordion({ order, isExpanded, onToggle }: OrderAcc
           }
         }}
       >
-        <div style={styles.expandCell}>
-          {isExpanded ? '▼' : '▶'}
+        {/* Checkbox */}
+        <div style={styles.checkboxCell} onClick={handleCheckboxClick}>
+          <input
+            type="checkbox"
+            checked={isSelected}
+            onChange={(e) => onSelect(e.target.checked)}
+          />
         </div>
+
+        {/* Expand Arrow - only show if has_articles */}
+        {order.has_articles ? (
+          <div style={styles.expandCell}>
+            {isExpanded ? '▼' : '▶'}
+          </div>
+        ) : (
+          <div style={styles.expandCellEmpty} />
+        )}
         
         <div style={{ ...styles.cell, ...styles.cellPos }}>
           {order.pos}
@@ -189,12 +280,38 @@ export default function OrderAccordion({ order, isExpanded, onToggle }: OrderAcc
           {order.au_verantwortlich || '-'}
         </div>
         
-        <div style={{ ...styles.cell, ...styles.cellStatus, borderRight: 'none' }}>
+        <div style={{ ...styles.cell, ...styles.cellStatus }}>
           {order.status_name || '-'}
+        </div>
+
+        {/* Remark Cell */}
+        <div style={{ ...styles.cell, ...styles.cellRemark, borderRight: 'none' }} onClick={handleRemarkClick}>
+          {editingRemark ? (
+            <input
+              type="text"
+              style={styles.remarkInput}
+              value={remarkText}
+              onChange={(e) => setRemarkText(e.target.value)}
+              onBlur={handleRemarkSave}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleRemarkSave()
+                if (e.key === 'Escape') setEditingRemark(false)
+              }}
+              onClick={(e) => e.stopPropagation()}
+              autoFocus
+              placeholder="Bemerkung eingeben..."
+            />
+          ) : remark ? (
+            <span style={styles.remarkText} title={remark.remark}>
+              **{truncateText(remark.remark)}**
+            </span>
+          ) : (
+            <span style={{ color: '#ccc', fontSize: '11px' }}>+ Bemerkung</span>
+          )}
         </div>
       </div>
       
-      {isExpanded && order.order_id && (
+      {isExpanded && order.order_id && order.has_articles && (
         <div style={styles.detailPanel}>
           <OrderArticlesPanel orderId={order.order_id} />
         </div>

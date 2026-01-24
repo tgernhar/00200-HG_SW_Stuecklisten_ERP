@@ -5,7 +5,8 @@
  */
 import React, { useState, useEffect } from 'react'
 import api from '../../services/api'
-import { WorkplanItem } from '../../services/types'
+import { WorkplanItem, HierarchyRemark } from '../../services/types'
+import remarksApi from '../../services/remarksApi'
 
 interface WorkplanPanelProps {
   detailId: number
@@ -27,7 +28,10 @@ const styles = {
     fontSize: '11px',
     fontWeight: 'bold' as const,
     color: '#666666',
-    borderBottom: '1px solid #e6d9b3'
+    borderBottom: '1px solid #e6d9b3',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px'
   },
   table: {
     width: '100%',
@@ -45,7 +49,8 @@ const styles = {
   td: {
     padding: '5px 8px',
     borderBottom: '1px solid #f0e9d6',
-    color: '#333333'
+    color: '#333333',
+    verticalAlign: 'middle' as const
   },
   loading: {
     padding: '10px',
@@ -64,13 +69,39 @@ const styles = {
     padding: '10px',
     color: '#cc0000',
     fontSize: '11px'
+  },
+  remarkText: {
+    fontWeight: 'bold' as const,
+    color: '#666666',
+    whiteSpace: 'nowrap' as const,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    maxWidth: '120px',
+    display: 'inline-block',
+    fontSize: '10px'
+  },
+  remarkInput: {
+    width: '100%',
+    border: '1px solid #ccc',
+    borderRadius: '3px',
+    padding: '2px 4px',
+    fontSize: '10px'
   }
+}
+
+const truncateText = (text: string, maxLength: number = 30): string => {
+  if (text.length <= maxLength) return text
+  return text.substring(0, maxLength - 3) + '...'
 }
 
 export default function WorkplanPanel({ detailId }: WorkplanPanelProps) {
   const [items, setItems] = useState<WorkplanItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [selectedItems, setSelectedItems] = useState<Set<number>>(new Set())
+  const [remarks, setRemarks] = useState<Map<number, HierarchyRemark>>(new Map())
+  const [editingRemark, setEditingRemark] = useState<number | null>(null)
+  const [remarkText, setRemarkText] = useState('')
 
   useEffect(() => {
     const loadWorkplan = async () => {
@@ -78,7 +109,19 @@ export default function WorkplanPanel({ detailId }: WorkplanPanelProps) {
         setLoading(true)
         setError(null)
         const response = await api.get(`/packingnote-details/${detailId}/workplan`)
-        setItems(response.data.items || [])
+        const loadedItems = response.data.items || []
+        setItems(loadedItems)
+
+        // Load remarks for all items
+        const ids = loadedItems
+          .map((i: WorkplanItem) => i.workplan_detail_id)
+          .filter((id: number | null): id is number => id !== null)
+        if (ids.length > 0) {
+          const remarksResponse = await remarksApi.getRemarksByLevel('workplan_detail', ids)
+          const remarksMap = new Map<number, HierarchyRemark>()
+          remarksResponse.items.forEach(r => remarksMap.set(r.hugwawi_id, r))
+          setRemarks(remarksMap)
+        }
       } catch (err: any) {
         setError(err.response?.data?.detail || 'Fehler beim Laden')
         console.error('Error loading workplan:', err)
@@ -89,6 +132,51 @@ export default function WorkplanPanel({ detailId }: WorkplanPanelProps) {
 
     loadWorkplan()
   }, [detailId])
+
+  const toggleSelect = (workplanDetailId: number) => {
+    setSelectedItems(prev => {
+      const next = new Set(prev)
+      if (next.has(workplanDetailId)) {
+        next.delete(workplanDetailId)
+      } else {
+        next.add(workplanDetailId)
+      }
+      return next
+    })
+  }
+
+  const toggleSelectAll = () => {
+    if (selectedItems.size === items.length) {
+      setSelectedItems(new Set())
+    } else {
+      const allIds = items
+        .map(i => i.workplan_detail_id)
+        .filter((id): id is number => id !== null)
+      setSelectedItems(new Set(allIds))
+    }
+  }
+
+  const handleRemarkSave = async (workplanDetailId: number) => {
+    if (remarkText.trim()) {
+      const saved = await remarksApi.saveRemark({
+        level_type: 'workplan_detail',
+        hugwawi_id: workplanDetailId,
+        remark: remarkText.trim()
+      })
+      setRemarks(prev => new Map(prev).set(workplanDetailId, saved))
+    } else {
+      const existing = remarks.get(workplanDetailId)
+      if (existing) {
+        await remarksApi.deleteRemark(existing.id)
+        setRemarks(prev => {
+          const next = new Map(prev)
+          next.delete(workplanDetailId)
+          return next
+        })
+      }
+    }
+    setEditingRemark(null)
+  }
 
   if (loading) {
     return (
@@ -116,23 +204,83 @@ export default function WorkplanPanel({ detailId }: WorkplanPanelProps) {
 
   return (
     <div style={styles.container}>
-      <div style={styles.header}>Arbeitsplan</div>
+      <div style={styles.header}>
+        <input
+          type="checkbox"
+          checked={selectedItems.size === items.length && items.length > 0}
+          onChange={toggleSelectAll}
+          title="Alle auswählen"
+        />
+        <span>Arbeitsplan ({items.length} Positionen)</span>
+      </div>
       <table style={styles.table}>
         <thead>
           <tr>
-            <th style={{ ...styles.th, width: '60px' }}>Pos</th>
+            <th style={{ ...styles.th, width: '25px' }}></th>
+            <th style={{ ...styles.th, width: '50px' }}>Pos</th>
             <th style={styles.th}>Arbeitsgang</th>
             <th style={styles.th}>Maschine</th>
+            <th style={{ ...styles.th, width: '140px' }}>Bemerkung</th>
           </tr>
         </thead>
         <tbody>
-          {items.map((item, index) => (
-            <tr key={index}>
-              <td style={styles.td}>{item.pos || '-'}</td>
-              <td style={styles.td}>{item.workstep_name || '-'}</td>
-              <td style={styles.td}>{item.machine_name || '-'}</td>
-            </tr>
-          ))}
+          {items.map((item, index) => {
+            const isSelected = item.workplan_detail_id ? selectedItems.has(item.workplan_detail_id) : false
+            const remark = item.workplan_detail_id ? remarks.get(item.workplan_detail_id) : null
+            const isEditingThis = editingRemark === item.workplan_detail_id
+            
+            return (
+              <tr key={item.workplan_detail_id || index}>
+                {/* Checkbox */}
+                <td style={styles.td}>
+                  {item.workplan_detail_id && (
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => toggleSelect(item.workplan_detail_id!)}
+                    />
+                  )}
+                </td>
+                <td style={styles.td}>{item.pos || '-'}</td>
+                <td style={styles.td}>{item.workstep_name || '-'}</td>
+                <td style={styles.td}>{item.machine_name || '-'}</td>
+                {/* Remark Cell */}
+                <td style={styles.td}>
+                  {isEditingThis ? (
+                    <input
+                      type="text"
+                      style={styles.remarkInput}
+                      value={remarkText}
+                      onChange={(e) => setRemarkText(e.target.value)}
+                      onBlur={() => item.workplan_detail_id && handleRemarkSave(item.workplan_detail_id)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && item.workplan_detail_id) handleRemarkSave(item.workplan_detail_id)
+                        if (e.key === 'Escape') setEditingRemark(null)
+                      }}
+                      autoFocus
+                      placeholder="Bemerkung..."
+                    />
+                  ) : (
+                    <span
+                      style={{ cursor: 'pointer' }}
+                      onClick={() => {
+                        setRemarkText(remark?.remark || '')
+                        setEditingRemark(item.workplan_detail_id)
+                      }}
+                    >
+                      {remark ? (
+                        <span style={styles.remarkText} title={remark.remark}>
+                          **{truncateText(remark.remark)}**
+                        </span>
+                      ) : (
+                        <span style={{ color: '#ccc', fontSize: '10px' }}>+ Bem.</span>
+                      )}
+                    </span>
+                  )}
+                </td>
+              </tr>
+            )
+          })}
         </tbody>
       </table>
     </div>

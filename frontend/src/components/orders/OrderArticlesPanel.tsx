@@ -4,8 +4,9 @@
  */
 import React, { useState, useEffect } from 'react'
 import api from '../../services/api'
-import { OrderArticleItem } from '../../services/types'
+import { OrderArticleItem, HierarchyRemark } from '../../services/types'
 import BomPanel from './BomPanel'
+import remarksApi from '../../services/remarksApi'
 
 interface OrderArticlesPanelProps {
   orderId: number
@@ -27,7 +28,10 @@ const styles = {
     fontSize: '12px',
     fontWeight: 'bold' as const,
     color: '#555555',
-    borderBottom: '1px solid #dddddd'
+    borderBottom: '1px solid #dddddd',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px'
   },
   table: {
     width: '100%',
@@ -46,7 +50,7 @@ const styles = {
     padding: '6px 10px',
     borderBottom: '1px solid #eeeeee',
     color: '#333333',
-    verticalAlign: 'top' as const
+    verticalAlign: 'middle' as const
   },
   expandButton: {
     background: 'none',
@@ -79,6 +83,23 @@ const styles = {
     borderRadius: '3px',
     fontSize: '10px',
     fontWeight: 'bold' as const
+  },
+  remarkText: {
+    fontWeight: 'bold' as const,
+    color: '#666666',
+    whiteSpace: 'nowrap' as const,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    maxWidth: '150px',
+    display: 'inline-block',
+    fontSize: '11px'
+  },
+  remarkInput: {
+    width: '100%',
+    border: '1px solid #ccc',
+    borderRadius: '3px',
+    padding: '3px 5px',
+    fontSize: '11px'
   }
 }
 
@@ -97,11 +118,20 @@ const getStatusStyle = (status: string | null) => {
   return { backgroundColor: '#e0e0e0', color: '#666666' }
 }
 
+const truncateText = (text: string, maxLength: number = 40): string => {
+  if (text.length <= maxLength) return text
+  return text.substring(0, maxLength - 3) + '...'
+}
+
 export default function OrderArticlesPanel({ orderId }: OrderArticlesPanelProps) {
   const [items, setItems] = useState<OrderArticleItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [expandedItems, setExpandedItems] = useState<Set<number>>(new Set())
+  const [selectedItems, setSelectedItems] = useState<Set<number>>(new Set())
+  const [remarks, setRemarks] = useState<Map<number, HierarchyRemark>>(new Map())
+  const [editingRemark, setEditingRemark] = useState<number | null>(null)
+  const [remarkText, setRemarkText] = useState('')
 
   useEffect(() => {
     const loadArticles = async () => {
@@ -109,7 +139,19 @@ export default function OrderArticlesPanel({ orderId }: OrderArticlesPanelProps)
         setLoading(true)
         setError(null)
         const response = await api.get(`/orders/${orderId}/articles`)
-        setItems(response.data.items || [])
+        const loadedItems = response.data.items || []
+        setItems(loadedItems)
+
+        // Load remarks for all items
+        const ids = loadedItems
+          .map((i: OrderArticleItem) => i.order_article_id)
+          .filter((id: number | null): id is number => id !== null)
+        if (ids.length > 0) {
+          const remarksResponse = await remarksApi.getRemarksByLevel('order_article', ids)
+          const remarksMap = new Map<number, HierarchyRemark>()
+          remarksResponse.items.forEach(r => remarksMap.set(r.hugwawi_id, r))
+          setRemarks(remarksMap)
+        }
       } catch (err: any) {
         setError(err.response?.data?.detail || 'Fehler beim Laden')
         console.error('Error loading order articles:', err)
@@ -131,6 +173,51 @@ export default function OrderArticlesPanel({ orderId }: OrderArticlesPanelProps)
       }
       return next
     })
+  }
+
+  const toggleSelect = (orderArticleId: number) => {
+    setSelectedItems(prev => {
+      const next = new Set(prev)
+      if (next.has(orderArticleId)) {
+        next.delete(orderArticleId)
+      } else {
+        next.add(orderArticleId)
+      }
+      return next
+    })
+  }
+
+  const toggleSelectAll = () => {
+    if (selectedItems.size === items.length) {
+      setSelectedItems(new Set())
+    } else {
+      const allIds = items
+        .map(i => i.order_article_id)
+        .filter((id): id is number => id !== null)
+      setSelectedItems(new Set(allIds))
+    }
+  }
+
+  const handleRemarkSave = async (orderArticleId: number) => {
+    if (remarkText.trim()) {
+      const saved = await remarksApi.saveRemark({
+        level_type: 'order_article',
+        hugwawi_id: orderArticleId,
+        remark: remarkText.trim()
+      })
+      setRemarks(prev => new Map(prev).set(orderArticleId, saved))
+    } else {
+      const existing = remarks.get(orderArticleId)
+      if (existing) {
+        await remarksApi.deleteRemark(existing.id)
+        setRemarks(prev => {
+          const next = new Map(prev)
+          next.delete(orderArticleId)
+          return next
+        })
+      }
+    }
+    setEditingRemark(null)
   }
 
   if (loading) {
@@ -159,29 +246,53 @@ export default function OrderArticlesPanel({ orderId }: OrderArticlesPanelProps)
 
   return (
     <div style={styles.container}>
-      <div style={styles.header}>Auftragsartikel ({items.length} Positionen)</div>
+      <div style={styles.header}>
+        <input
+          type="checkbox"
+          checked={selectedItems.size === items.length && items.length > 0}
+          onChange={toggleSelectAll}
+          title="Alle auswählen"
+        />
+        <span>Auftragsartikel ({items.length} Positionen)</span>
+      </div>
       <table style={styles.table}>
         <thead>
           <tr>
+            <th style={{ ...styles.th, width: '30px' }}></th>
             <th style={{ ...styles.th, width: '30px' }}></th>
             <th style={{ ...styles.th, width: '60px' }}>Pos.</th>
             <th style={{ ...styles.th, width: '130px' }}>Artikelnummer</th>
             <th style={styles.th}>Bezeichnung</th>
             <th style={{ ...styles.th, width: '120px' }}>Teilenummer</th>
             <th style={{ ...styles.th, width: '70px', textAlign: 'right' as const }}>Los</th>
-            <th style={{ ...styles.th, width: '110px' }}>Status</th>
+            <th style={{ ...styles.th, width: '100px' }}>Status</th>
+            <th style={{ ...styles.th, width: '170px' }}>Bemerkung</th>
           </tr>
         </thead>
         <tbody>
           {items.map((item, index) => {
-            const hasPackingNote = item.packingnoteid !== null
+            const hasBom = item.has_bom
             const isExpanded = item.order_article_id ? expandedItems.has(item.order_article_id) : false
+            const isSelected = item.order_article_id ? selectedItems.has(item.order_article_id) : false
+            const remark = item.order_article_id ? remarks.get(item.order_article_id) : null
+            const isEditingThis = editingRemark === item.order_article_id
             
             return (
               <React.Fragment key={item.order_article_id || index}>
                 <tr style={{ backgroundColor: isExpanded ? '#f0f0f0' : 'transparent' }}>
+                  {/* Checkbox */}
                   <td style={styles.td}>
-                    {hasPackingNote && item.order_article_id && (
+                    {item.order_article_id && (
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleSelect(item.order_article_id!)}
+                      />
+                    )}
+                  </td>
+                  {/* Expand Button - only if has_bom */}
+                  <td style={styles.td}>
+                    {hasBom && item.order_article_id && (
                       <button
                         style={styles.expandButton}
                         onClick={() => toggleExpand(item.order_article_id!)}
@@ -205,10 +316,44 @@ export default function OrderArticlesPanel({ orderId }: OrderArticlesPanelProps)
                       </span>
                     )}
                   </td>
+                  {/* Remark Cell */}
+                  <td style={styles.td}>
+                    {isEditingThis ? (
+                      <input
+                        type="text"
+                        style={styles.remarkInput}
+                        value={remarkText}
+                        onChange={(e) => setRemarkText(e.target.value)}
+                        onBlur={() => item.order_article_id && handleRemarkSave(item.order_article_id)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && item.order_article_id) handleRemarkSave(item.order_article_id)
+                          if (e.key === 'Escape') setEditingRemark(null)
+                        }}
+                        autoFocus
+                        placeholder="Bemerkung..."
+                      />
+                    ) : (
+                      <span
+                        style={{ cursor: 'pointer' }}
+                        onClick={() => {
+                          setRemarkText(remark?.remark || '')
+                          setEditingRemark(item.order_article_id)
+                        }}
+                      >
+                        {remark ? (
+                          <span style={styles.remarkText} title={remark.remark}>
+                            **{truncateText(remark.remark)}**
+                          </span>
+                        ) : (
+                          <span style={{ color: '#ccc', fontSize: '11px' }}>+ Bem.</span>
+                        )}
+                      </span>
+                    )}
+                  </td>
                 </tr>
                 {isExpanded && item.order_article_id && (
                   <tr>
-                    <td colSpan={7} style={{ padding: 0, backgroundColor: '#fafafa' }}>
+                    <td colSpan={9} style={{ padding: 0, backgroundColor: '#fafafa' }}>
                       <BomPanel orderArticleId={item.order_article_id} />
                     </td>
                   </tr>

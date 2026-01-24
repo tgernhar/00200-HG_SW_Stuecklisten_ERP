@@ -64,6 +64,14 @@ const styles = {
     display: 'flex',
     alignItems: 'center'
   },
+  headerCheckbox: {
+    width: '30px',
+    backgroundColor: '#e8e8e8',
+    borderRight: '1px solid #dddddd',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
   headerExpand: {
     width: '30px',
     backgroundColor: '#e8e8e8',
@@ -84,7 +92,7 @@ const styles = {
   },
   headerText: {
     flex: 1,
-    minWidth: '200px'
+    minWidth: '150px'
   },
   headerDate: {
     width: '95px',
@@ -95,7 +103,10 @@ const styles = {
     textAlign: 'center' as const
   },
   headerStatus: {
-    width: '100px',
+    width: '100px'
+  },
+  headerRemark: {
+    width: '200px',
     borderRight: 'none'
   },
   listContainer: {
@@ -158,6 +169,7 @@ export default function OrdersOverviewPage() {
   const [total, setTotal] = useState(0)
   const [filters, setFilters] = useState<FilterValues>(initialFilters)
   const [expandedOrders, setExpandedOrders] = useState<Set<number>>(new Set())
+  const [selectedOrders, setSelectedOrders] = useState<Set<number>>(new Set())
 
   // Load orders from API
   const loadOrders = useCallback(async () => {
@@ -179,8 +191,9 @@ export default function OrdersOverviewPage() {
 
       setOrders(data.items || [])
       setTotal(data.total || 0)
-      // Reset expanded state when loading new data
+      // Reset expanded and selected state when loading new data
       setExpandedOrders(new Set())
+      setSelectedOrders(new Set())
     } catch (err: any) {
       const message = err.response?.data?.detail || err.message || 'Fehler beim Laden'
       setError(message)
@@ -208,6 +221,31 @@ export default function OrdersOverviewPage() {
     })
   }, [])
 
+  // Toggle order selection
+  const toggleSelectOrder = useCallback((orderId: number, selected: boolean) => {
+    setSelectedOrders(prev => {
+      const next = new Set(prev)
+      if (selected) {
+        next.add(orderId)
+      } else {
+        next.delete(orderId)
+      }
+      return next
+    })
+  }, [])
+
+  // Select all orders
+  const toggleSelectAll = useCallback(() => {
+    if (selectedOrders.size === orders.length) {
+      setSelectedOrders(new Set())
+    } else {
+      const allIds = orders
+        .map(o => o.order_id)
+        .filter((id): id is number => id !== null)
+      setSelectedOrders(new Set(allIds))
+    }
+  }, [orders, selectedOrders])
+
   // Handle filter submit
   const handleFilter = useCallback(() => {
     loadOrders()
@@ -223,6 +261,7 @@ export default function OrdersOverviewPage() {
   // Expand/Collapse all
   const expandAll = useCallback(() => {
     const allIds = orders
+      .filter(o => o.has_articles)
       .map(o => o.order_id)
       .filter((id): id is number => id !== null)
     setExpandedOrders(new Set(allIds))
@@ -250,6 +289,14 @@ export default function OrdersOverviewPage() {
 
       {/* Table Header */}
       <div style={styles.tableHeader}>
+        <div style={styles.headerCheckbox}>
+          <input
+            type="checkbox"
+            checked={selectedOrders.size === orders.length && orders.length > 0}
+            onChange={toggleSelectAll}
+            title="Alle auswählen"
+          />
+        </div>
         <div style={styles.headerExpand}></div>
         <div style={{ ...styles.headerCell, ...styles.headerPos }}>Pos.</div>
         <div style={{ ...styles.headerCell, ...styles.headerAuftrag }}>Auftrag</div>
@@ -259,6 +306,7 @@ export default function OrdersOverviewPage() {
         <div style={{ ...styles.headerCell, ...styles.headerDate }}>LT-Kunde</div>
         <div style={{ ...styles.headerCell, ...styles.headerResponsible }}>Verantw.</div>
         <div style={{ ...styles.headerCell, ...styles.headerStatus }}>Status</div>
+        <div style={{ ...styles.headerCell, ...styles.headerRemark }}>Bemerkung</div>
       </div>
 
       {/* Orders List */}
@@ -273,7 +321,9 @@ export default function OrdersOverviewPage() {
               key={order.order_id || order.pos}
               order={order}
               isExpanded={order.order_id ? expandedOrders.has(order.order_id) : false}
-              onToggle={() => order.order_id && toggleOrder(order.order_id)}
+              isSelected={order.order_id ? selectedOrders.has(order.order_id) : false}
+              onToggle={() => order.order_id && order.has_articles && toggleOrder(order.order_id)}
+              onSelect={(selected) => order.order_id && toggleSelectOrder(order.order_id, selected)}
             />
           ))
         )}
@@ -284,7 +334,7 @@ export default function OrdersOverviewPage() {
         <span>
           {loading
             ? 'Lade Daten...'
-            : `${orders.length} von ${total} Aufträgen angezeigt`}
+            : `${orders.length} von ${total} Aufträgen angezeigt${selectedOrders.size > 0 ? ` (${selectedOrders.size} ausgewählt)` : ''}`}
         </span>
         <div style={{ display: 'flex', gap: '8px' }}>
           <button
