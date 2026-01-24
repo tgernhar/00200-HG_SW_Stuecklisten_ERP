@@ -10,49 +10,25 @@ API endpoints for production planning:
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import and_, or_
+from sqlalchemy import and_, or_, func
 from typing import List, Optional
 from datetime import datetime, date, timedelta
-import json, traceback
 from app.core.database import get_db
-
-# #region agent log - Debug logging helper
-_DEBUG_LOG_PATH = r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log"
-def _dbg(loc, msg, data=None, hyp="?"):
-    try:
-        import time; entry = {"timestamp": int(time.time()*1000), "location": loc, "message": msg, "data": data or {}, "hypothesisId": hyp, "sessionId": "debug-pps"}
-        with open(_DEBUG_LOG_PATH, "a", encoding="utf-8") as f: f.write(json.dumps(entry) + "\n")
-    except: pass
-# #endregion
-
-# #region agent log - H2: Test imports
-try:
-    from app.models.pps_todo import (
-        PPSTodo, PPSTodoSegment, PPSTodoDependency,
-        PPSResourceCache, PPSConflict, PPSAuditLog
-    )
-    _dbg("pps.py:imports", "Models imported OK", {}, "H2")
-except Exception as e:
-    _dbg("pps.py:imports", "Models import FAILED", {"error": str(e), "tb": traceback.format_exc()[-500:]}, "H2")
-    raise
-
-try:
-    from app.schemas.pps import (
-        Todo, TodoCreate, TodoUpdate, TodoWithDetails, TodoFilter, TodoListResponse,
-        TodoSegment, TodoSegmentCreate, TodoSplitRequest,
-        Dependency, DependencyCreate,
-        Resource, ResourceCreate, ResourceUpdate,
-        Conflict, ConflictCreate, ConflictWithTodos, ConflictListResponse,
-        GanttTask, GanttLink, GanttData, GanttSyncRequest, GanttSyncResponse,
-        GenerateTodosRequest, GenerateTodosResponse, AvailableOrder,
-        ResourceSyncRequest, ResourceSyncResponse,
-        TodoType, TodoStatus, ResourceType,
-    )
-    _dbg("pps.py:imports", "Schemas imported OK", {}, "H2")
-except Exception as e:
-    _dbg("pps.py:imports", "Schemas import FAILED", {"error": str(e), "tb": traceback.format_exc()[-500:]}, "H2")
-    raise
-# #endregion
+from app.models.pps_todo import (
+    PPSTodo, PPSTodoSegment, PPSTodoDependency,
+    PPSResourceCache, PPSConflict, PPSAuditLog
+)
+from app.schemas.pps import (
+    Todo, TodoCreate, TodoUpdate, TodoWithDetails, TodoFilter, TodoListResponse,
+    TodoSegment, TodoSegmentCreate, TodoSplitRequest,
+    Dependency, DependencyCreate,
+    Resource, ResourceCreate, ResourceUpdate,
+    Conflict, ConflictCreate, ConflictWithTodos, ConflictListResponse,
+    GanttTask, GanttLink, GanttData, GanttSyncRequest, GanttSyncResponse,
+    GenerateTodosRequest, GenerateTodosResponse, AvailableOrder,
+    ResourceSyncRequest, ResourceSyncResponse,
+    TodoType, TodoStatus, ResourceType,
+)
 
 router = APIRouter(prefix="/pps", tags=["PPS"])
 
@@ -210,7 +186,6 @@ async def get_todos(
     
     # Apply pagination and ordering
     # Note: MySQL doesn't support NULLS LAST, so we use COALESCE to put NULLs at end
-    from sqlalchemy import func
     todos = query.order_by(
         func.coalesce(PPSTodo.planned_start, '9999-12-31').asc(),
         PPSTodo.priority.desc(),
@@ -411,20 +386,12 @@ async def get_gantt_data(
     db: Session = Depends(get_db),
 ):
     """Get complete Gantt data (tasks + links) in DHTMLX format"""
-    # #region agent log - H1,H4: Test Gantt query
-    _dbg("pps.py:get_gantt_data", "ENTRY", {"date_from": str(date_from), "resource_ids": resource_ids}, "H1")
-    try:
-        query = db.query(PPSTodo).options(
-            joinedload(PPSTodo.conflicts),
-            joinedload(PPSTodo.assigned_machine),
-            joinedload(PPSTodo.assigned_employee),
-            joinedload(PPSTodo.assigned_department),
-        )
-        _dbg("pps.py:get_gantt_data", "Query built OK", {}, "H1")
-    except Exception as e:
-        _dbg("pps.py:get_gantt_data", "Query build FAILED", {"error": str(e), "tb": traceback.format_exc()[-500:]}, "H1")
-        raise
-    # #endregion
+    query = db.query(PPSTodo).options(
+        joinedload(PPSTodo.conflicts),
+        joinedload(PPSTodo.assigned_machine),
+        joinedload(PPSTodo.assigned_employee),
+        joinedload(PPSTodo.assigned_department),
+    )
     
     # Apply filters
     if date_from:
@@ -443,16 +410,8 @@ async def get_gantt_data(
             )
         )
     
-    # #region agent log - H1: Execute query on pps_todos
-    try:
-        # Note: MySQL doesn't support NULLS LAST, so we use COALESCE to put NULLs at end
-        from sqlalchemy import func
-        todos = query.order_by(func.coalesce(PPSTodo.planned_start, '9999-12-31').asc()).all()
-        _dbg("pps.py:get_gantt_data", "Query executed OK", {"todo_count": len(todos)}, "H1")
-    except Exception as e:
-        _dbg("pps.py:get_gantt_data", "Query FAILED - TABLE MISSING?", {"error": str(e), "tb": traceback.format_exc()[-500:]}, "H1")
-        raise
-    # #endregion
+    # Note: MySQL doesn't support NULLS LAST, so we use COALESCE to put NULLs at end
+    todos = query.order_by(func.coalesce(PPSTodo.planned_start, '9999-12-31').asc()).all()
     
     # Convert to Gantt tasks
     tasks = [_todo_to_gantt_task(t) for t in todos]
@@ -470,7 +429,6 @@ async def get_gantt_data(
     # Convert to Gantt links
     links = [GanttLink(**d.to_gantt_link()) for d in dependencies]
     
-    _dbg("pps.py:get_gantt_data", "EXIT", {"tasks": len(tasks), "links": len(links)}, "H1")
     return GanttData(data=tasks, links=links)
 
 
@@ -638,25 +596,17 @@ async def get_resources(
     db: Session = Depends(get_db),
 ):
     """Get cached resources"""
-    # #region agent log - H1: Test resource cache table
-    _dbg("pps.py:get_resources", "ENTRY", {"resource_type": resource_type, "is_active": is_active}, "H1")
-    try:
-        query = db.query(PPSResourceCache)
-        
-        if resource_type:
-            query = query.filter(PPSResourceCache.resource_type == resource_type)
-        if is_active is not None:
-            query = query.filter(PPSResourceCache.is_active == is_active)
-        
-        resources = query.order_by(
-            PPSResourceCache.resource_type,
-            PPSResourceCache.name
-        ).all()
-        _dbg("pps.py:get_resources", "Query OK", {"count": len(resources)}, "H1")
-    except Exception as e:
-        _dbg("pps.py:get_resources", "Query FAILED - TABLE MISSING?", {"error": str(e), "tb": traceback.format_exc()[-500:]}, "H1")
-        raise
-    # #endregion
+    query = db.query(PPSResourceCache)
+    
+    if resource_type:
+        query = query.filter(PPSResourceCache.resource_type == resource_type)
+    if is_active is not None:
+        query = query.filter(PPSResourceCache.is_active == is_active)
+    
+    resources = query.order_by(
+        PPSResourceCache.resource_type,
+        PPSResourceCache.name
+    ).all()
     
     return [Resource.model_validate(r) for r in resources]
 
@@ -770,32 +720,24 @@ async def get_conflicts(
     db: Session = Depends(get_db),
 ):
     """Get conflicts"""
-    # #region agent log - H1: Test conflicts table
-    _dbg("pps.py:get_conflicts", "ENTRY", {"resolved": resolved}, "H1")
-    try:
-        query = db.query(PPSConflict).options(
-            joinedload(PPSConflict.todo),
-            joinedload(PPSConflict.related_todo),
-        )
-        
-        if resolved is not None:
-            query = query.filter(PPSConflict.resolved == resolved)
-        if conflict_type:
-            query = query.filter(PPSConflict.conflict_type == conflict_type)
-        if todo_id:
-            query = query.filter(
-                or_(
-                    PPSConflict.todo_id == todo_id,
-                    PPSConflict.related_todo_id == todo_id,
-                )
+    query = db.query(PPSConflict).options(
+        joinedload(PPSConflict.todo),
+        joinedload(PPSConflict.related_todo),
+    )
+    
+    if resolved is not None:
+        query = query.filter(PPSConflict.resolved == resolved)
+    if conflict_type:
+        query = query.filter(PPSConflict.conflict_type == conflict_type)
+    if todo_id:
+        query = query.filter(
+            or_(
+                PPSConflict.todo_id == todo_id,
+                PPSConflict.related_todo_id == todo_id,
             )
-        
-        conflicts = query.order_by(PPSConflict.created_at.desc()).all()
-        _dbg("pps.py:get_conflicts", "Query OK", {"count": len(conflicts)}, "H1")
-    except Exception as e:
-        _dbg("pps.py:get_conflicts", "Query FAILED - TABLE MISSING?", {"error": str(e), "tb": traceback.format_exc()[-500:]}, "H1")
-        raise
-    # #endregion
+        )
+    
+    conflicts = query.order_by(PPSConflict.created_at.desc()).all()
     
     items = []
     for c in conflicts:

@@ -302,3 +302,21 @@ export interface ChildRemarksSummary {
   by_level: { [key: string]: number }
   items: ChildRemarkDetail[]
 }
+
+// Deep Search Results Types (flache Ergebnistabelle)
+export interface DeepSearchResultItem {
+  order_name: string
+  order_article_number: string
+  bom_article_number: string | null
+  bom_article_description: string | null
+  bom_quantity: number | null
+  match_source: 'order_article' | 'bom_detail' | 'workplan_detail'
+  order_id: number
+  order_article_id: number
+  bom_detail_id: number | null
+}
+
+export interface DeepSearchResultsResponse {
+  items: DeepSearchResultItem[]
+  total: number
+}

@@ -5,10 +5,11 @@
  */
 import React, { useState, useEffect, useCallback } from 'react'
 import api from '../services/api'
-import { OrderOverviewItem, HierarchyRemark, ChildRemarksSummary } from '../services/types'
+import { OrderOverviewItem, HierarchyRemark, ChildRemarksSummary, DeepSearchResultItem } from '../services/types'
 import OrdersFilterBar, { FilterValues } from '../components/orders/OrdersFilterBar'
 import OrderAccordion from '../components/orders/OrderAccordion'
 import ChildRemarksPopup from '../components/orders/ChildRemarksPopup'
+import DeepSearchResultsTable from '../components/orders/DeepSearchResultsTable'
 import remarksApi from '../services/remarksApi'
 
 const initialFilters: FilterValues = {
@@ -169,6 +170,8 @@ export default function OrdersOverviewPage() {
   const [orderRemarks, setOrderRemarks] = useState<Map<number, HierarchyRemark>>(new Map())
   // Child remarks popup state
   const [childRemarksPopup, setChildRemarksPopup] = useState<ChildRemarksSummary | null>(null)
+  // Deep search results table
+  const [deepSearchResults, setDeepSearchResults] = useState<DeepSearchResultItem[] | null>(null)
 
   // Load orders from API - accepts optional filter override
   const loadOrders = useCallback(async (filterOverride?: FilterValues) => {
@@ -209,8 +212,25 @@ export default function OrdersOverviewPage() {
           .filter((o: OrderOverviewItem) => o.match_level && o.order_id)
           .map((o: OrderOverviewItem) => o.order_id as number)
         setExpandedOrders(new Set(ordersToExpand))
+        
+        // Load deep search results table
+        try {
+          const deepParams: Record<string, string> = {}
+          if (activeFilters.articleSearch) deepParams.article_search = activeFilters.articleSearch
+          if (activeFilters.workstepSearch) deepParams.workstep_search = activeFilters.workstepSearch
+          if (activeFilters.statusIds && activeFilters.statusIds.length > 0) {
+            deepParams.status_ids = activeFilters.statusIds.join(',')
+          }
+          
+          const deepResponse = await api.get('/orders/deep-search-results', { params: deepParams })
+          setDeepSearchResults(deepResponse.data.items || [])
+        } catch (deepErr) {
+          console.error('Error loading deep search results:', deepErr)
+          setDeepSearchResults(null)
+        }
       } else {
         setExpandedOrders(new Set())
+        setDeepSearchResults(null)
       }
       
       // Batch-load all remarks for orders in a single request
@@ -335,6 +355,25 @@ export default function OrdersOverviewPage() {
       </div>
 
       {error && <div style={styles.error}>{error}</div>}
+
+      {/* Deep Search Results Table */}
+      {deepSearchResults && deepSearchResults.length > 0 && (
+        <DeepSearchResultsTable
+          results={deepSearchResults}
+          onClose={() => setDeepSearchResults(null)}
+          onNavigateToOrder={(orderId) => {
+            // Expand the order and scroll to it
+            setExpandedOrders(prev => new Set([...prev, orderId]))
+            // Find the order element and scroll to it
+            setTimeout(() => {
+              const orderElement = document.querySelector(`[data-order-id="${orderId}"]`)
+              if (orderElement) {
+                orderElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
+              }
+            }, 100)
+          }}
+        />
+      )}
 
       {/* Table Header */}
       <div style={styles.tableHeader}>

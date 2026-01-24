@@ -165,6 +165,183 @@ class OrderOverviewResponse(BaseModel):
     total: int
 
 
+class DeepSearchResultItem(BaseModel):
+    """Single item in deep search results table"""
+    order_name: str
+    order_article_number: str
+    bom_article_number: Optional[str] = None
+    bom_article_description: Optional[str] = None
+    bom_quantity: Optional[float] = None
+    match_source: str  # 'order_article', 'bom_detail', 'workplan_detail'
+    order_id: int
+    order_article_id: int
+    bom_detail_id: Optional[int] = None
+
+
+class DeepSearchResultsResponse(BaseModel):
+    """Response for deep search results"""
+    items: List[DeepSearchResultItem]
+    total: int
+
+
+@router.get("/orders/deep-search-results", response_model=DeepSearchResultsResponse)
+async def get_deep_search_results(
+    article_search: Optional[str] = Query(None, description="Suche in Artikelnummern/Bezeichnungen"),
+    workstep_search: Optional[str] = Query(None, description="Suche in Arbeitsgängen"),
+    status_ids: Optional[str] = Query(None, description="Status-IDs (kommagetrennt)")
+):
+    """
+    Get flat results table for deep search filters.
+    
+    Returns a flat list of all matching BOM positions with their context
+    (order name, order article number, etc.) for display in a results table.
+    """
+    # At least one search parameter required
+    if not article_search and not workstep_search:
+        return DeepSearchResultsResponse(items=[], total=0)
+    
+    connection = None
+    try:
+        connection = get_erp_db_connection()
+        cursor = connection.cursor(dictionary=True)
+        
+        # Parse status_ids or use defaults
+        if status_ids:
+            try:
+                active_status_ids = tuple(int(s.strip()) for s in status_ids.split(',') if s.strip())
+                if not active_status_ids:
+                    active_status_ids = VALID_ORDER_STATUS_IDS
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Ungültiges Format für status_ids")
+        else:
+            active_status_ids = VALID_ORDER_STATUS_IDS
+        
+        status_placeholders = ','.join(['%s'] * len(active_status_ids))
+        results = []
+        
+        # Search in BOM (packingnote_details) level
+        if article_search:
+            article_pattern = f"%{article_search}%"
+            
+            # Query for BOM-level matches
+            bom_query = f"""
+                SELECT DISTINCT
+                    ordertable.name as order_name,
+                    ordertable.id as order_id,
+                    article_oa.articlenumber as order_article_number,
+                    order_article.id as order_article_id,
+                    article_bom.articlenumber as bom_article_number,
+                    article_bom.description as bom_article_description,
+                    packingnote_details.cascadedQuantity as bom_quantity,
+                    packingnote_details.id as bom_detail_id
+                FROM ordertable
+                JOIN order_type ON order_type.id = ordertable.orderType
+                JOIN order_article_ref ON order_article_ref.orderid = ordertable.id
+                JOIN order_article ON order_article_ref.orderArticleId = order_article.id
+                JOIN article AS article_oa ON order_article.articleid = article_oa.id
+                JOIN packingnote_relation ON packingnote_relation.packingNoteId = order_article.packingnoteid
+                JOIN packingnote_details ON packingnote_details.id = packingnote_relation.detail
+                LEFT JOIN article AS article_bom ON article_bom.id = packingnote_details.article
+                WHERE order_type.name = 'ORDER'
+                  AND ordertable.status IN ({status_placeholders})
+                  AND ordertable.created > '2024-01-01'
+                  AND (article_bom.articlenumber LIKE %s OR article_bom.description LIKE %s)
+                ORDER BY ordertable.name, order_article.position, packingnote_details.pos
+                LIMIT 500
+            """
+            
+            cursor.execute(bom_query, list(active_status_ids) + [article_pattern, article_pattern])
+            bom_rows = cursor.fetchall()
+            
+            for row in bom_rows:
+                results.append(DeepSearchResultItem(
+                    order_name=row['order_name'] or '',
+                    order_article_number=row['order_article_number'] or '',
+                    bom_article_number=row.get('bom_article_number'),
+                    bom_article_description=row.get('bom_article_description'),
+                    bom_quantity=row.get('bom_quantity'),
+                    match_source='bom_detail',
+                    order_id=row['order_id'],
+                    order_article_id=row['order_article_id'],
+                    bom_detail_id=row.get('bom_detail_id')
+                ))
+        
+        # Search in workstep level
+        if workstep_search:
+            workstep_pattern = f"%{workstep_search}%"
+            
+            workstep_query = f"""
+                SELECT DISTINCT
+                    ordertable.name as order_name,
+                    ordertable.id as order_id,
+                    article_oa.articlenumber as order_article_number,
+                    order_article.id as order_article_id,
+                    article_bom.articlenumber as bom_article_number,
+                    article_bom.description as bom_article_description,
+                    packingnote_details.cascadedQuantity as bom_quantity,
+                    packingnote_details.id as bom_detail_id,
+                    workstep.name as workstep_name
+                FROM ordertable
+                JOIN order_type ON order_type.id = ordertable.orderType
+                JOIN order_article_ref ON order_article_ref.orderid = ordertable.id
+                JOIN order_article ON order_article_ref.orderArticleId = order_article.id
+                JOIN article AS article_oa ON order_article.articleid = article_oa.id
+                JOIN packingnote_relation ON packingnote_relation.packingNoteId = order_article.packingnoteid
+                JOIN packingnote_details ON packingnote_details.id = packingnote_relation.detail
+                LEFT JOIN article AS article_bom ON article_bom.id = packingnote_details.article
+                JOIN workplan ON workplan.packingnoteid = packingnote_details.id
+                JOIN workplan_relation ON workplan_relation.workplanId = workplan.id
+                JOIN workplan_details ON workplan_details.id = workplan_relation.detail
+                LEFT JOIN qualificationitem ON qualificationitem.id = workplan_details.qualificationitem
+                LEFT JOIN qualificationitem_workstep ON qualificationitem_workstep.item = qualificationitem.id
+                LEFT JOIN workstep ON workstep.id = qualificationitem_workstep.workstep
+                WHERE order_type.name = 'ORDER'
+                  AND ordertable.status IN ({status_placeholders})
+                  AND ordertable.created > '2024-01-01'
+                  AND workstep.name LIKE %s
+                ORDER BY ordertable.name, order_article.position, packingnote_details.pos
+                LIMIT 500
+            """
+            
+            cursor.execute(workstep_query, list(active_status_ids) + [workstep_pattern])
+            workstep_rows = cursor.fetchall()
+            
+            # Add workstep results, avoiding duplicates
+            existing_keys = {(r.order_id, r.order_article_id, r.bom_detail_id) for r in results}
+            
+            for row in workstep_rows:
+                key = (row['order_id'], row['order_article_id'], row.get('bom_detail_id'))
+                if key not in existing_keys:
+                    results.append(DeepSearchResultItem(
+                        order_name=row['order_name'] or '',
+                        order_article_number=row['order_article_number'] or '',
+                        bom_article_number=row.get('bom_article_number'),
+                        bom_article_description=row.get('bom_article_description'),
+                        bom_quantity=row.get('bom_quantity'),
+                        match_source='workplan_detail',
+                        order_id=row['order_id'],
+                        order_article_id=row['order_article_id'],
+                        bom_detail_id=row.get('bom_detail_id')
+                    ))
+                    existing_keys.add(key)
+        
+        cursor.close()
+        
+        return DeepSearchResultsResponse(items=results, total=len(results))
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error in deep search: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Fehler bei der Deep-Suche: {str(e)}"
+        )
+    finally:
+        if connection:
+            connection.close()
+
+
 @router.get("/orders/overview", response_model=OrderOverviewResponse)
 async def get_orders_overview(
     date_from: Optional[date] = Query(None, description="Filter: Liefertermin ab"),

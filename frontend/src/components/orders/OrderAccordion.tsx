@@ -269,7 +269,7 @@ export default function OrderAccordion({ order, isExpanded, isSelected, onToggle
   }
 
   return (
-    <div style={styles.container}>
+    <div style={styles.container} data-order-id={order.order_id}>
       <div
         style={isExpanded ? styles.rowExpanded : styles.row}
         onClick={onToggle}
