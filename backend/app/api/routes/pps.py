@@ -401,13 +401,6 @@ async def get_gantt_data(
     if erp_order_id:
         query = query.filter(PPSTodo.erp_order_id == erp_order_id)
     
-    # #region agent log - Before filter
-    import json
-    log_path = r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log"
-    with open(log_path, "a") as f:
-        f.write(json.dumps({"location":"pps.py:get_gantt_data:before_filter","message":"resource_ids filter","data":{"resource_ids":resource_ids},"timestamp":datetime.utcnow().isoformat(),"sessionId":"debug-session","hypothesisId":"H3"}) + "\n")
-    # #endregion
-    
     if resource_ids:
         ids = [int(x) for x in resource_ids.split(",")]
         # Get all todos that match the resource filter OR their parents/children match
@@ -437,11 +430,6 @@ async def get_gantt_data(
         
         # Combine all IDs
         all_ids = set(direct_match_ids + parent_ids + grandparent_ids)
-        
-        # #region agent log - After filter calc
-        with open(log_path, "a") as f:
-            f.write(json.dumps({"location":"pps.py:get_gantt_data:filter_calc","message":"Calculated IDs","data":{"ids":ids,"direct_match_count":len(direct_match_ids),"parent_count":len(parent_ids),"grandparent_count":len(grandparent_ids),"all_ids_count":len(all_ids)},"timestamp":datetime.utcnow().isoformat(),"sessionId":"debug-session","hypothesisId":"H3"}) + "\n")
-        # #endregion
         
         query = query.filter(PPSTodo.id.in_(all_ids))
     
