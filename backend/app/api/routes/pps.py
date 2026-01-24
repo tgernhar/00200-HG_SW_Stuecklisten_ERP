@@ -400,15 +400,50 @@ async def get_gantt_data(
         query = query.filter(PPSTodo.planned_start <= date_to)
     if erp_order_id:
         query = query.filter(PPSTodo.erp_order_id == erp_order_id)
+    
+    # #region agent log - Before filter
+    import json
+    log_path = r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log"
+    with open(log_path, "a") as f:
+        f.write(json.dumps({"location":"pps.py:get_gantt_data:before_filter","message":"resource_ids filter","data":{"resource_ids":resource_ids},"timestamp":datetime.utcnow().isoformat(),"sessionId":"debug-session","hypothesisId":"H3"}) + "\n")
+    # #endregion
+    
     if resource_ids:
         ids = [int(x) for x in resource_ids.split(",")]
-        query = query.filter(
+        # Get all todos that match the resource filter OR their parents/children match
+        # First, get direct matches
+        direct_matches = db.query(PPSTodo.id).filter(
             or_(
                 PPSTodo.assigned_department_id.in_(ids),
                 PPSTodo.assigned_machine_id.in_(ids),
                 PPSTodo.assigned_employee_id.in_(ids),
             )
-        )
+        ).all()
+        direct_match_ids = [m[0] for m in direct_matches]
+        
+        # Also get parent IDs of matching todos (to include container_order)
+        parent_ids = db.query(PPSTodo.parent_todo_id).filter(
+            PPSTodo.id.in_(direct_match_ids),
+            PPSTodo.parent_todo_id.isnot(None)
+        ).all()
+        parent_ids = [p[0] for p in parent_ids if p[0]]
+        
+        # Get grandparent IDs (container_order for container_article)
+        grandparent_ids = db.query(PPSTodo.parent_todo_id).filter(
+            PPSTodo.id.in_(parent_ids),
+            PPSTodo.parent_todo_id.isnot(None)
+        ).all()
+        grandparent_ids = [g[0] for g in grandparent_ids if g[0]]
+        
+        # Combine all IDs
+        all_ids = set(direct_match_ids + parent_ids + grandparent_ids)
+        
+        # #region agent log - After filter calc
+        with open(log_path, "a") as f:
+            f.write(json.dumps({"location":"pps.py:get_gantt_data:filter_calc","message":"Calculated IDs","data":{"ids":ids,"direct_match_count":len(direct_match_ids),"parent_count":len(parent_ids),"grandparent_count":len(grandparent_ids),"all_ids_count":len(all_ids)},"timestamp":datetime.utcnow().isoformat(),"sessionId":"debug-session","hypothesisId":"H3"}) + "\n")
+        # #endregion
+        
+        query = query.filter(PPSTodo.id.in_(all_ids))
     
     # Note: MySQL doesn't support NULLS LAST, so we use COALESCE to put NULLs at end
     todos = query.order_by(func.coalesce(PPSTodo.planned_start, '9999-12-31').asc()).all()

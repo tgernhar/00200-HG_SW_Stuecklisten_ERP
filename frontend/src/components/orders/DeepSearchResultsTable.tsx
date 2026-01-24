@@ -11,7 +11,7 @@ interface DeepSearchResultsTableProps {
   onNavigateToOrder?: (orderId: number) => void
 }
 
-type SortField = 'order_name' | 'order_article_number' | 'bom_article_number' | 'bom_article_description' | 'bom_quantity'
+type SortField = 'order_name' | 'order_article_number' | 'bom_article_number' | 'bom_article_description' | 'bom_quantity' | 'einzelmass' | 'gesamtmenge' | 'einheit'
 type SortDirection = 'asc' | 'desc'
 
 const styles = {
@@ -250,6 +250,41 @@ export default function DeepSearchResultsTable({
                 >
                   AU-Menge <span style={styles.sortIcon}>{getSortIcon('bom_quantity')}</span>
                 </th>
+                <th 
+                  style={{
+                    ...styles.th,
+                    ...(hoveredHeader === 'einzelmass' ? styles.thHover : {}),
+                    textAlign: 'right' as const
+                  }}
+                  onClick={() => handleSort('einzelmass')}
+                  onMouseEnter={() => setHoveredHeader('einzelmass')}
+                  onMouseLeave={() => setHoveredHeader(null)}
+                >
+                  Einzelmass <span style={styles.sortIcon}>{getSortIcon('einzelmass')}</span>
+                </th>
+                <th 
+                  style={{
+                    ...styles.th,
+                    ...(hoveredHeader === 'gesamtmenge' ? styles.thHover : {}),
+                    textAlign: 'right' as const
+                  }}
+                  onClick={() => handleSort('gesamtmenge')}
+                  onMouseEnter={() => setHoveredHeader('gesamtmenge')}
+                  onMouseLeave={() => setHoveredHeader(null)}
+                >
+                  Gesamtmenge <span style={styles.sortIcon}>{getSortIcon('gesamtmenge')}</span>
+                </th>
+                <th 
+                  style={{
+                    ...styles.th,
+                    ...(hoveredHeader === 'einheit' ? styles.thHover : {})
+                  }}
+                  onClick={() => handleSort('einheit')}
+                  onMouseEnter={() => setHoveredHeader('einheit')}
+                  onMouseLeave={() => setHoveredHeader(null)}
+                >
+                  Einheit <span style={styles.sortIcon}>{getSortIcon('einheit')}</span>
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -278,6 +313,15 @@ export default function DeepSearchResultsTable({
                   <td style={styles.td}>{item.bom_article_description || '-'}</td>
                   <td style={{ ...styles.td, textAlign: 'right' }}>
                     {item.bom_quantity !== null ? item.bom_quantity.toLocaleString('de-DE') : '-'}
+                  </td>
+                  <td style={{ ...styles.td, textAlign: 'right' }}>
+                    {item.einzelmass !== null ? item.einzelmass.toFixed(2) : '-'}
+                  </td>
+                  <td style={{ ...styles.td, textAlign: 'right' }}>
+                    {item.gesamtmenge !== null ? item.gesamtmenge.toFixed(2) : '-'}
+                  </td>
+                  <td style={styles.td}>
+                    {item.einheit || '-'}
                   </td>
                 </tr>
               ))}

@@ -311,6 +311,9 @@ export interface DeepSearchResultItem {
   bom_article_number: string | null
   bom_article_description: string | null
   bom_quantity: number | null
+  einzelmass: number | null
+  gesamtmenge: number | null
+  einheit: string | null
   match_source: 'order_article' | 'bom_detail' | 'workplan_detail'
   order_id: number
   order_article_id: number

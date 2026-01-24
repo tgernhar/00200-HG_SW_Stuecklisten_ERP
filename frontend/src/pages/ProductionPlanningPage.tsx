@@ -161,11 +161,19 @@ export default function ProductionPlanningPage() {
         ? selectedResourceIds.join(',') 
         : undefined
       
+      // #region agent log
+      fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ProductionPlanningPage.tsx:loadData',message:'loadData called',data:{selectedResourceIds,resourceFilter},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
+      // #endregion
+      
       const [ganttResponse, resourcesResponse, conflictsResponse] = await Promise.all([
         getGanttData({ resource_ids: resourceFilter }),
         getResources({ is_active: true }),
         getConflicts({ resolved: false }),
       ])
+      
+      // #region agent log
+      fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ProductionPlanningPage.tsx:loadData:response',message:'Gantt data received',data:{taskCount:ganttResponse.data?.length,tasks:ganttResponse.data?.map((t: GanttTask)=>({id:t.id,text:t.text,parent:t.parent,resource_name:t.resource_name}))},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2'})}).catch(()=>{});
+      // #endregion
       
       setGanttData(ganttResponse)
       setResources(resourcesResponse)

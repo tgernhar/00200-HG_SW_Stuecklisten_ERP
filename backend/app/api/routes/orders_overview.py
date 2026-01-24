@@ -173,6 +173,9 @@ class DeepSearchResultItem(BaseModel):
     bom_article_number: Optional[str] = None
     bom_article_description: Optional[str] = None
     bom_quantity: Optional[float] = None
+    einzelmass: Optional[float] = None
+    gesamtmenge: Optional[float] = None
+    einheit: Optional[str] = None
     match_source: str  # 'order_article', 'bom_detail', 'workplan_detail'
     order_id: int
     order_article_id: int
@@ -234,6 +237,9 @@ async def get_deep_search_results(
                     article_bom.articlenumber as bom_article_number,
                     article_bom.description as bom_article_description,
                     packingnote_details.cascadedQuantity as bom_quantity,
+                    packingnote_details.einzelmass,
+                    (packingnote_details.einzelmass * packingnote_details.cascadedQuantity) as gesamtmenge,
+                    calculation.name as einheit,
                     packingnote_details.id as bom_detail_id
                 FROM ordertable
                 JOIN order_type ON order_type.id = ordertable.orderType
@@ -243,6 +249,7 @@ async def get_deep_search_results(
                 JOIN packingnote_relation ON packingnote_relation.packingNoteId = order_article.packingnoteid
                 JOIN packingnote_details ON packingnote_details.id = packingnote_relation.detail
                 LEFT JOIN article AS article_bom ON article_bom.id = packingnote_details.article
+                LEFT JOIN calculation ON calculation.id = packingnote_details.calculation
                 WHERE order_type.name = 'ORDER'
                   AND ordertable.status IN ({status_placeholders})
                   AND ordertable.created > '2024-01-01'
@@ -261,6 +268,9 @@ async def get_deep_search_results(
                     bom_article_number=row.get('bom_article_number'),
                     bom_article_description=row.get('bom_article_description'),
                     bom_quantity=row.get('bom_quantity'),
+                    einzelmass=row.get('einzelmass'),
+                    gesamtmenge=row.get('gesamtmenge'),
+                    einheit=row.get('einheit'),
                     match_source='bom_detail',
                     order_id=row['order_id'],
                     order_article_id=row['order_article_id'],
@@ -280,6 +290,9 @@ async def get_deep_search_results(
                     article_bom.articlenumber as bom_article_number,
                     article_bom.description as bom_article_description,
                     packingnote_details.cascadedQuantity as bom_quantity,
+                    packingnote_details.einzelmass,
+                    (packingnote_details.einzelmass * packingnote_details.cascadedQuantity) as gesamtmenge,
+                    calculation.name as einheit,
                     packingnote_details.id as bom_detail_id,
                     workstep.name as workstep_name
                 FROM ordertable
@@ -290,6 +303,7 @@ async def get_deep_search_results(
                 JOIN packingnote_relation ON packingnote_relation.packingNoteId = order_article.packingnoteid
                 JOIN packingnote_details ON packingnote_details.id = packingnote_relation.detail
                 LEFT JOIN article AS article_bom ON article_bom.id = packingnote_details.article
+                LEFT JOIN calculation ON calculation.id = packingnote_details.calculation
                 JOIN workplan ON workplan.packingnoteid = packingnote_details.id
                 JOIN workplan_relation ON workplan_relation.workplanId = workplan.id
                 JOIN workplan_details ON workplan_details.id = workplan_relation.detail
@@ -319,6 +333,9 @@ async def get_deep_search_results(
                         bom_article_number=row.get('bom_article_number'),
                         bom_article_description=row.get('bom_article_description'),
                         bom_quantity=row.get('bom_quantity'),
+                        einzelmass=row.get('einzelmass'),
+                        gesamtmenge=row.get('gesamtmenge'),
+                        einheit=row.get('einheit'),
                         match_source='workplan_detail',
                         order_id=row['order_id'],
                         order_article_id=row['order_article_id'],
