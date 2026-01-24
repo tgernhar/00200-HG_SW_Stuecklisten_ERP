@@ -104,11 +104,19 @@ export default function WorkplanPanel({ detailId }: WorkplanPanelProps) {
   const [remarkText, setRemarkText] = useState('')
 
   useEffect(() => {
-    const loadWorkplan = async () => {
+    let isMounted = true
+    const MAX_RETRIES = 3
+    const RETRY_DELAY = 500 // ms
+    
+    const loadWorkplan = async (retryCount = 0) => {
       try {
         setLoading(true)
         setError(null)
         const response = await api.get(`/packingnote-details/${detailId}/workplan`)
+        
+        // Check if component is still mounted
+        if (!isMounted) return
+        
         const loadedItems = response.data.items || []
         setItems(loadedItems)
 
@@ -116,21 +124,38 @@ export default function WorkplanPanel({ detailId }: WorkplanPanelProps) {
         const ids = loadedItems
           .map((i: WorkplanItem) => i.workplan_detail_id)
           .filter((id: number | null): id is number => id !== null)
-        if (ids.length > 0) {
+        if (ids.length > 0 && isMounted) {
           const remarksResponse = await remarksApi.getRemarksByLevel('workplan_detail', ids)
-          const remarksMap = new Map<number, HierarchyRemark>()
-          remarksResponse.items.forEach(r => remarksMap.set(r.hugwawi_id, r))
-          setRemarks(remarksMap)
+          if (isMounted) {
+            const remarksMap = new Map<number, HierarchyRemark>()
+            remarksResponse.items.forEach(r => remarksMap.set(r.hugwawi_id, r))
+            setRemarks(remarksMap)
+          }
         }
+        if (isMounted) setLoading(false)
       } catch (err: any) {
-        setError(err.response?.data?.detail || 'Fehler beim Laden')
+        // Check if component is still mounted
+        if (!isMounted) return
+        
+        // Retry on Network Error (timing issues)
+        if (retryCount < MAX_RETRIES && (err.message === 'Network Error' || err.code === 'ERR_NETWORK')) {
+          console.log(`[WorkplanPanel] Retry ${retryCount + 1}/${MAX_RETRIES} for detailId:`, detailId)
+          setTimeout(() => {
+            if (isMounted) loadWorkplan(retryCount + 1)
+          }, RETRY_DELAY * (retryCount + 1))
+          return
+        }
+        
+        setError(err.response?.data?.detail || 'Fehler beim Laden des Arbeitsplans')
         console.error('Error loading workplan:', err)
-      } finally {
         setLoading(false)
       }
     }
 
     loadWorkplan()
+    
+    // Cleanup function to prevent state updates on unmounted component
+    return () => { isMounted = false }
   }, [detailId])
 
   const toggleSelect = (workplanDetailId: number) => {

@@ -113,11 +113,19 @@ export default function BomPanel({ orderArticleId }: BomPanelProps) {
   const [remarkText, setRemarkText] = useState('')
 
   useEffect(() => {
-    const loadBom = async () => {
+    let isMounted = true
+    const MAX_RETRIES = 3
+    const RETRY_DELAY = 500 // ms
+    
+    const loadBom = async (retryCount = 0) => {
       try {
         setLoading(true)
         setError(null)
         const response = await api.get(`/order-articles/${orderArticleId}/bom`)
+        
+        // Check if component is still mounted
+        if (!isMounted) return
+        
         const loadedItems = response.data.items || []
         setItems(loadedItems)
 
@@ -125,21 +133,38 @@ export default function BomPanel({ orderArticleId }: BomPanelProps) {
         const ids = loadedItems
           .map((i: BomItem) => i.detail_id)
           .filter((id: number | null): id is number => id !== null)
-        if (ids.length > 0) {
+        if (ids.length > 0 && isMounted) {
           const remarksResponse = await remarksApi.getRemarksByLevel('bom_detail', ids)
-          const remarksMap = new Map<number, HierarchyRemark>()
-          remarksResponse.items.forEach(r => remarksMap.set(r.hugwawi_id, r))
-          setRemarks(remarksMap)
+          if (isMounted) {
+            const remarksMap = new Map<number, HierarchyRemark>()
+            remarksResponse.items.forEach(r => remarksMap.set(r.hugwawi_id, r))
+            setRemarks(remarksMap)
+          }
         }
+        if (isMounted) setLoading(false)
       } catch (err: any) {
-        setError(err.response?.data?.detail || 'Fehler beim Laden')
+        // Check if component is still mounted
+        if (!isMounted) return
+        
+        // Retry on Network Error (timing issues)
+        if (retryCount < MAX_RETRIES && (err.message === 'Network Error' || err.code === 'ERR_NETWORK')) {
+          console.log(`[BomPanel] Retry ${retryCount + 1}/${MAX_RETRIES} for orderArticleId:`, orderArticleId)
+          setTimeout(() => {
+            if (isMounted) loadBom(retryCount + 1)
+          }, RETRY_DELAY * (retryCount + 1))
+          return
+        }
+        
+        setError(err.response?.data?.detail || 'Fehler beim Laden der Stückliste')
         console.error('Error loading BOM:', err)
-      } finally {
         setLoading(false)
       }
     }
 
     loadBom()
+    
+    // Cleanup function to prevent state updates on unmounted component
+    return () => { isMounted = false }
   }, [orderArticleId])
 
   const toggleExpand = (detailId: number) => {

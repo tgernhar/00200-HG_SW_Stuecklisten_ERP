@@ -134,33 +134,72 @@ export default function OrderArticlesPanel({ orderId }: OrderArticlesPanelProps)
   const [remarkText, setRemarkText] = useState('')
 
   useEffect(() => {
-    const loadArticles = async () => {
+    let isMounted = true
+    const MAX_RETRIES = 3
+    const RETRY_DELAY = 500 // ms
+    
+    const loadArticles = async (retryCount = 0) => {
       try {
+        // #region agent log
+        fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'OrderArticlesPanel.tsx:loadStart',message:'Loading articles',data:{orderId,retryCount},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H4'})}).catch(()=>{});
+        // #endregion
         setLoading(true)
         setError(null)
         const response = await api.get(`/orders/${orderId}/articles`)
+        
+        // Check if component is still mounted
+        if (!isMounted) return
+        
         const loadedItems = response.data.items || []
+        // #region agent log
+        fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'OrderArticlesPanel.tsx:articlesLoaded',message:'Articles loaded',data:{count:loadedItems.length,firstItem:loadedItems[0]},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2,H5'})}).catch(()=>{});
+        // #endregion
         setItems(loadedItems)
 
         // Load remarks for all items
         const ids = loadedItems
           .map((i: OrderArticleItem) => i.order_article_id)
           .filter((id: number | null): id is number => id !== null)
-        if (ids.length > 0) {
+        if (ids.length > 0 && isMounted) {
+          // #region agent log
+          fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'OrderArticlesPanel.tsx:loadRemarks',message:'Loading remarks',data:{ids},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H4'})}).catch(()=>{});
+          // #endregion
           const remarksResponse = await remarksApi.getRemarksByLevel('order_article', ids)
-          const remarksMap = new Map<number, HierarchyRemark>()
-          remarksResponse.items.forEach(r => remarksMap.set(r.hugwawi_id, r))
-          setRemarks(remarksMap)
+          if (isMounted) {
+            const remarksMap = new Map<number, HierarchyRemark>()
+            remarksResponse.items.forEach(r => remarksMap.set(r.hugwawi_id, r))
+            setRemarks(remarksMap)
+          }
         }
+        if (isMounted) setLoading(false)
       } catch (err: any) {
+        // Check if component is still mounted
+        if (!isMounted) return
+        
+        // Retry on Network Error (timing issues)
+        if (retryCount < MAX_RETRIES && (err.message === 'Network Error' || err.code === 'ERR_NETWORK')) {
+          // #region agent log
+          fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'OrderArticlesPanel.tsx:retry',message:'Retrying after error',data:{orderId,retryCount:retryCount+1,error:String(err)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H12'})}).catch(()=>{});
+          // #endregion
+          setTimeout(() => {
+            if (isMounted) loadArticles(retryCount + 1)
+          }, RETRY_DELAY * (retryCount + 1))
+          return
+        }
+        
+        // #region agent log
+        fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'OrderArticlesPanel.tsx:error',message:'Error loading',data:{error:String(err),detail:err?.response?.data?.detail},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1,H4'})}).catch(()=>{});
+        // #endregion
         setError(err.response?.data?.detail || 'Fehler beim Laden')
         console.error('Error loading order articles:', err)
-      } finally {
         setLoading(false)
       }
     }
 
     loadArticles()
+    
+    // Cleanup function to prevent state updates on unmounted component
+    return () => { isMounted = false }
   }, [orderId])
 
   const toggleExpand = (orderArticleId: number) => {

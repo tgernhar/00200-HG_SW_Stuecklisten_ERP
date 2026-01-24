@@ -68,87 +68,8 @@ def truncate_text(text: str, max_length: int = 50) -> str:
     return text[:max_length-3] + "..."
 
 
-@router.get("/hierarchy-remarks/{level_type}/{hugwawi_id}", response_model=Optional[RemarkResponse])
-async def get_remark(
-    level_type: str,
-    hugwawi_id: int,
-    db: Session = Depends(get_db)
-):
-    """
-    Get remark for a specific element.
-    
-    - **level_type**: 'order', 'order_article', 'bom_detail', or 'workplan_detail'
-    - **hugwawi_id**: The HUGWAWI ID of the element
-    """
-    if level_type not in VALID_LEVEL_TYPES:
-        raise HTTPException(status_code=400, detail=f"Invalid level_type. Must be one of: {VALID_LEVEL_TYPES}")
-    
-    remark = db.query(HierarchyRemark).filter(
-        HierarchyRemark.level_type == level_type,
-        HierarchyRemark.hugwawi_id == hugwawi_id
-    ).first()
-    
-    return remark
-
-
-@router.post("/hierarchy-remarks", response_model=RemarkResponse)
-async def save_remark(
-    data: RemarkCreate,
-    db: Session = Depends(get_db)
-):
-    """
-    Create or update a remark for an element.
-    If a remark already exists for the level_type/hugwawi_id combination, it will be updated.
-    """
-    if data.level_type not in VALID_LEVEL_TYPES:
-        raise HTTPException(status_code=400, detail=f"Invalid level_type. Must be one of: {VALID_LEVEL_TYPES}")
-    
-    # Check if remark already exists
-    existing = db.query(HierarchyRemark).filter(
-        HierarchyRemark.level_type == data.level_type,
-        HierarchyRemark.hugwawi_id == data.hugwawi_id
-    ).first()
-    
-    if existing:
-        # Update existing remark
-        existing.remark = data.remark
-        existing.created_by = data.created_by
-        existing.updated_at = datetime.utcnow()
-        db.commit()
-        db.refresh(existing)
-        return existing
-    else:
-        # Create new remark
-        new_remark = HierarchyRemark(
-            level_type=data.level_type,
-            hugwawi_id=data.hugwawi_id,
-            remark=data.remark,
-            created_by=data.created_by,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
-        )
-        db.add(new_remark)
-        db.commit()
-        db.refresh(new_remark)
-        return new_remark
-
-
-@router.delete("/hierarchy-remarks/{remark_id}")
-async def delete_remark(
-    remark_id: int,
-    db: Session = Depends(get_db)
-):
-    """Delete a remark by its ID."""
-    remark = db.query(HierarchyRemark).filter(HierarchyRemark.id == remark_id).first()
-    
-    if not remark:
-        raise HTTPException(status_code=404, detail="Remark not found")
-    
-    db.delete(remark)
-    db.commit()
-    
-    return {"message": "Remark deleted", "id": remark_id}
-
+# IMPORTANT: More specific routes MUST come BEFORE generic routes!
+# Otherwise FastAPI will match /by-level/order_article as {level_type}=by-level, {hugwawi_id}=order_article
 
 @router.get("/hierarchy-remarks/by-level/{level_type}", response_model=RemarkListResponse)
 async def get_remarks_by_level(
@@ -233,3 +154,86 @@ async def get_child_remarks(
     ]
     
     return ChildRemarksResponse(items=items, total=len(items))
+
+
+# Generic routes AFTER specific routes
+@router.get("/hierarchy-remarks/{level_type}/{hugwawi_id}", response_model=Optional[RemarkResponse])
+async def get_remark(
+    level_type: str,
+    hugwawi_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Get remark for a specific element.
+    
+    - **level_type**: 'order', 'order_article', 'bom_detail', or 'workplan_detail'
+    - **hugwawi_id**: The HUGWAWI ID of the element
+    """
+    if level_type not in VALID_LEVEL_TYPES:
+        raise HTTPException(status_code=400, detail=f"Invalid level_type. Must be one of: {VALID_LEVEL_TYPES}")
+    
+    remark = db.query(HierarchyRemark).filter(
+        HierarchyRemark.level_type == level_type,
+        HierarchyRemark.hugwawi_id == hugwawi_id
+    ).first()
+    
+    return remark
+
+
+@router.post("/hierarchy-remarks", response_model=RemarkResponse)
+async def save_remark(
+    data: RemarkCreate,
+    db: Session = Depends(get_db)
+):
+    """
+    Create or update a remark for an element.
+    If a remark already exists for the level_type/hugwawi_id combination, it will be updated.
+    """
+    if data.level_type not in VALID_LEVEL_TYPES:
+        raise HTTPException(status_code=400, detail=f"Invalid level_type. Must be one of: {VALID_LEVEL_TYPES}")
+    
+    # Check if remark already exists
+    existing = db.query(HierarchyRemark).filter(
+        HierarchyRemark.level_type == data.level_type,
+        HierarchyRemark.hugwawi_id == data.hugwawi_id
+    ).first()
+    
+    if existing:
+        # Update existing remark
+        existing.remark = data.remark
+        existing.created_by = data.created_by
+        existing.updated_at = datetime.utcnow()
+        db.commit()
+        db.refresh(existing)
+        return existing
+    else:
+        # Create new remark
+        new_remark = HierarchyRemark(
+            level_type=data.level_type,
+            hugwawi_id=data.hugwawi_id,
+            remark=data.remark,
+            created_by=data.created_by,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow()
+        )
+        db.add(new_remark)
+        db.commit()
+        db.refresh(new_remark)
+        return new_remark
+
+
+@router.delete("/hierarchy-remarks/{remark_id}")
+async def delete_remark(
+    remark_id: int,
+    db: Session = Depends(get_db)
+):
+    """Delete a remark by its ID."""
+    remark = db.query(HierarchyRemark).filter(HierarchyRemark.id == remark_id).first()
+    
+    if not remark:
+        raise HTTPException(status_code=404, detail="Remark not found")
+    
+    db.delete(remark)
+    db.commit()
+    
+    return {"message": "Remark deleted", "id": remark_id}

@@ -5,9 +5,10 @@
  */
 import React, { useState, useEffect, useCallback } from 'react'
 import api from '../services/api'
-import { OrderOverviewItem } from '../services/types'
+import { OrderOverviewItem, HierarchyRemark } from '../services/types'
 import OrdersFilterBar from '../components/orders/OrdersFilterBar'
 import OrderAccordion from '../components/orders/OrderAccordion'
+import remarksApi from '../services/remarksApi'
 
 interface FilterValues {
   dateFrom: string
@@ -170,30 +171,54 @@ export default function OrdersOverviewPage() {
   const [filters, setFilters] = useState<FilterValues>(initialFilters)
   const [expandedOrders, setExpandedOrders] = useState<Set<number>>(new Set())
   const [selectedOrders, setSelectedOrders] = useState<Set<number>>(new Set())
+  // Batch-loaded remarks for all orders to avoid many concurrent requests
+  const [orderRemarks, setOrderRemarks] = useState<Map<number, HierarchyRemark>>(new Map())
 
-  // Load orders from API
-  const loadOrders = useCallback(async () => {
+  // Load orders from API - accepts optional filter override
+  const loadOrders = useCallback(async (filterOverride?: FilterValues) => {
     setLoading(true)
     setError(null)
 
+    // Use override if provided, otherwise use current filters
+    const activeFilters = filterOverride !== undefined ? filterOverride : filters
+
     try {
       const params: Record<string, string> = {}
-      if (filters.dateFrom) params.date_from = filters.dateFrom
-      if (filters.dateTo) params.date_to = filters.dateTo
-      if (filters.responsible) params.responsible = filters.responsible
-      if (filters.customer) params.customer = filters.customer
-      if (filters.orderName) params.order_name = filters.orderName
-      if (filters.text) params.text = filters.text
-      if (filters.reference) params.reference = filters.reference
+      if (activeFilters.dateFrom) params.date_from = activeFilters.dateFrom
+      if (activeFilters.dateTo) params.date_to = activeFilters.dateTo
+      if (activeFilters.responsible) params.responsible = activeFilters.responsible
+      if (activeFilters.customer) params.customer = activeFilters.customer
+      if (activeFilters.orderName) params.order_name = activeFilters.orderName
+      if (activeFilters.text) params.text = activeFilters.text
+      if (activeFilters.reference) params.reference = activeFilters.reference
 
       const response = await api.get('/orders/overview', { params })
       const data = response.data
 
-      setOrders(data.items || [])
+      const loadedOrders = data.items || []
+      setOrders(loadedOrders)
       setTotal(data.total || 0)
       // Reset expanded and selected state when loading new data
       setExpandedOrders(new Set())
       setSelectedOrders(new Set())
+      
+      // Batch-load all remarks for orders in a single request
+      const orderIds = loadedOrders
+        .map((o: OrderOverviewItem) => o.order_id)
+        .filter((id: number | null): id is number => id !== null)
+      if (orderIds.length > 0) {
+        try {
+          const remarksResponse = await remarksApi.getRemarksByLevel('order', orderIds)
+          const remarksMap = new Map<number, HierarchyRemark>()
+          remarksResponse.items.forEach(r => remarksMap.set(r.hugwawi_id, r))
+          setOrderRemarks(remarksMap)
+        } catch (remarksErr) {
+          console.error('Error loading order remarks:', remarksErr)
+          // Don't fail the whole page if remarks fail
+        }
+      } else {
+        setOrderRemarks(new Map())
+      }
     } catch (err: any) {
       const message = err.response?.data?.detail || err.message || 'Fehler beim Laden'
       setError(message)
@@ -254,8 +279,8 @@ export default function OrdersOverviewPage() {
   // Clear filters
   const handleClearFilters = useCallback(() => {
     setFilters(initialFilters)
-    // Small delay to allow state update before reload
-    setTimeout(() => loadOrders(), 0)
+    // Load with empty filters immediately (no async state dependency)
+    loadOrders(initialFilters)
   }, [loadOrders])
 
   // Expand/Collapse all
@@ -269,6 +294,19 @@ export default function OrdersOverviewPage() {
 
   const collapseAll = useCallback(() => {
     setExpandedOrders(new Set())
+  }, [])
+
+  // Update a single order remark
+  const updateOrderRemark = useCallback((orderId: number, remark: HierarchyRemark | null) => {
+    setOrderRemarks(prev => {
+      const next = new Map(prev)
+      if (remark) {
+        next.set(orderId, remark)
+      } else {
+        next.delete(orderId)
+      }
+      return next
+    })
   }, [])
 
   return (
@@ -324,6 +362,8 @@ export default function OrdersOverviewPage() {
               isSelected={order.order_id ? selectedOrders.has(order.order_id) : false}
               onToggle={() => order.order_id && order.has_articles && toggleOrder(order.order_id)}
               onSelect={(selected) => order.order_id && toggleSelectOrder(order.order_id, selected)}
+              preloadedRemark={order.order_id ? orderRemarks.get(order.order_id) : undefined}
+              onRemarkChange={(remark) => order.order_id && updateOrderRemark(order.order_id, remark)}
             />
           ))
         )}

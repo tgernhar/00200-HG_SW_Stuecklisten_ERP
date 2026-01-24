@@ -3,7 +3,9 @@
  */
 import axios from 'axios'
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
+// In development, use relative URL so Vite proxy handles the request
+// In production (Docker), use the environment variable or absolute URL
+const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? '/api' : 'http://localhost:8000/api')
 
 const api = axios.create({
   baseURL: API_URL,
