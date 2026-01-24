@@ -3,7 +3,7 @@
  * Handles CRUD operations for hierarchy remarks
  */
 import api from './api'
-import { HierarchyRemark, RemarkCreate, RemarkListResponse, ChildRemarksResponse, LevelType } from './types'
+import { HierarchyRemark, RemarkCreate, RemarkListResponse, ChildRemarksResponse, ChildRemarksSummary, LevelType } from './types'
 
 export const remarksApi = {
   /**
@@ -54,6 +54,14 @@ export const remarksApi = {
    */
   getChildRemarks: async (levelType: LevelType, hugwawiId: number): Promise<ChildRemarksResponse> => {
     const response = await api.get(`/hierarchy-remarks/children/${levelType}/${hugwawiId}`)
+    return response.data
+  },
+
+  /**
+   * Get summary of all child remarks for an order (for badge display)
+   */
+  getChildRemarksSummary: async (orderId: number): Promise<ChildRemarksSummary> => {
+    const response = await api.get(`/hierarchy-remarks/child-summary/${orderId}`)
     return response.data
   }
 }

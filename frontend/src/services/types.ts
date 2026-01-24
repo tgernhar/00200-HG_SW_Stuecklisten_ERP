@@ -191,6 +191,9 @@ export interface OrderOverviewItem {
   status_name: string | null
   reference: string | null
   has_articles: boolean
+  // Deep filter match info for auto-expand
+  match_level: 'order_article' | 'bom_detail' | 'workplan_detail' | null
+  matched_article_ids: number[] | null
 }
 
 export interface OrderOverviewResponse {
@@ -282,4 +285,20 @@ export interface ChildRemarkInfo {
 export interface ChildRemarksResponse {
   items: ChildRemarkInfo[]
   total: number
+}
+
+export interface ChildRemarkDetail {
+  id: number
+  level_type: LevelType
+  hugwawi_id: number
+  remark: string
+  path: string
+  order_article_id: number | null
+  bom_detail_id: number | null
+}
+
+export interface ChildRemarksSummary {
+  total_count: number
+  by_level: { [key: string]: number }
+  items: ChildRemarkDetail[]
 }

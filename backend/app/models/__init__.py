@@ -8,5 +8,20 @@ from app.models.document_flag import DocumentGenerationFlag
 from app.models.import_job import ImportJob
 from app.models.userlogin_log import UserLoginLog
 from app.models.hierarchy_remark import HierarchyRemark
+# PPS Models
+from app.models.pps_todo import (
+    PPSTodo,
+    PPSTodoSegment,
+    PPSTodoDependency,
+    PPSResourceCache,
+    PPSConflict,
+    PPSAuditLog,
+)
 
-__all__ = ["Project", "Bom", "Article", "Order", "Document", "DocumentGenerationFlag", "ImportJob", "UserLoginLog", "HierarchyRemark"]
+__all__ = [
+    "Project", "Bom", "Article", "Order", "Document", "DocumentGenerationFlag",
+    "ImportJob", "UserLoginLog", "HierarchyRemark",
+    # PPS Models
+    "PPSTodo", "PPSTodoSegment", "PPSTodoDependency", "PPSResourceCache",
+    "PPSConflict", "PPSAuditLog",
+]

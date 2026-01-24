@@ -3,7 +3,7 @@
  * Single order row with expand/collapse functionality - Level 1
  */
 import React, { useState, useEffect } from 'react'
-import { OrderOverviewItem, HierarchyRemark} from '../../services/types'
+import { OrderOverviewItem, HierarchyRemark, ChildRemarksSummary } from '../../services/types'
 import OrderArticlesPanel from './OrderArticlesPanel'
 import remarksApi from '../../services/remarksApi'
 
@@ -15,6 +15,7 @@ interface OrderAccordionProps {
   onSelect: (selected: boolean) => void
   preloadedRemark?: HierarchyRemark
   onRemarkChange?: (remark: HierarchyRemark | null) => void
+  onShowChildRemarks?: (summary: ChildRemarksSummary) => void
 }
 
 const styles = {
@@ -143,6 +144,22 @@ const styles = {
     backgroundColor: '#ffffcc',
     padding: '2px 6px',
     borderRadius: '3px'
+  },
+  childRemarksBadge: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '3px',
+    backgroundColor: '#e3f2fd',
+    color: '#1976d2',
+    padding: '2px 6px',
+    borderRadius: '10px',
+    fontSize: '10px',
+    cursor: 'pointer',
+    marginLeft: '8px',
+    border: '1px solid #90caf9'
+  },
+  childRemarksBadgeIcon: {
+    fontSize: '11px'
   }
 }
 
@@ -181,12 +198,14 @@ const truncateText = (text: string, maxLength: number = 50): string => {
   return text.substring(0, maxLength - 3) + '...'
 }
 
-export default function OrderAccordion({ order, isExpanded, isSelected, onToggle, onSelect, preloadedRemark, onRemarkChange }: OrderAccordionProps) {
+export default function OrderAccordion({ order, isExpanded, isSelected, onToggle, onSelect, preloadedRemark, onRemarkChange, onShowChildRemarks }: OrderAccordionProps) {
   // Use preloaded remark if available, otherwise local state
   const [localRemark, setLocalRemark] = useState<HierarchyRemark | null>(null)
   const remark = preloadedRemark !== undefined ? preloadedRemark : localRemark
   const [editingRemark, setEditingRemark] = useState(false)
   const [remarkText, setRemarkText] = useState('')
+  const [childRemarksCount, setChildRemarksCount] = useState<number>(0)
+  const [childRemarksSummary, setChildRemarksSummary] = useState<ChildRemarksSummary | null>(null)
 
   // Only fetch remark if not preloaded (fallback for backwards compatibility)
   useEffect(() => {
@@ -201,6 +220,18 @@ export default function OrderAccordion({ order, isExpanded, isSelected, onToggle
       })
     }
   }, [order.order_id, preloadedRemark])
+
+  // Fetch child remarks count
+  useEffect(() => {
+    if (order.order_id && order.has_articles) {
+      remarksApi.getChildRemarksSummary(order.order_id).then((summary) => {
+        setChildRemarksCount(summary.total_count)
+        setChildRemarksSummary(summary)
+      }).catch(() => {
+        // Silently ignore errors
+      })
+    }
+  }, [order.order_id, order.has_articles])
 
   // Helper to update remark (either via callback or local state)
   const updateRemark = (newRemark: HierarchyRemark | null) => {
@@ -322,12 +353,32 @@ export default function OrderAccordion({ order, isExpanded, isSelected, onToggle
               autoFocus
               placeholder="Bemerkung eingeben..."
             />
-          ) : remark ? (
-            <span style={styles.remarkText} title={remark.remark}>
-              **{truncateText(remark.remark)}**
-            </span>
           ) : (
-            <span style={{ color: '#ccc', fontSize: '11px' }}>+ Bemerkung</span>
+            <>
+              {remark ? (
+                <span style={styles.remarkText} title={remark.remark}>
+                  **{truncateText(remark.remark)}**
+                </span>
+              ) : (
+                <span style={{ color: '#ccc', fontSize: '11px' }}>+ Bemerkung</span>
+              )}
+              {/* Child Remarks Badge */}
+              {childRemarksCount > 0 && (
+                <span
+                  style={styles.childRemarksBadge}
+                  title="Kind-Bemerkungen anzeigen"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    if (childRemarksSummary && onShowChildRemarks) {
+                      onShowChildRemarks(childRemarksSummary)
+                    }
+                  }}
+                >
+                  <span style={styles.childRemarksBadgeIcon}>📝</span>
+                  <span>{childRemarksCount}</span>
+                </span>
+              )}
+            </>
           )}
         </div>
       </div>

@@ -5,20 +5,11 @@
  */
 import React, { useState, useEffect, useCallback } from 'react'
 import api from '../services/api'
-import { OrderOverviewItem, HierarchyRemark } from '../services/types'
-import OrdersFilterBar from '../components/orders/OrdersFilterBar'
+import { OrderOverviewItem, HierarchyRemark, ChildRemarksSummary } from '../services/types'
+import OrdersFilterBar, { FilterValues } from '../components/orders/OrdersFilterBar'
 import OrderAccordion from '../components/orders/OrderAccordion'
+import ChildRemarksPopup from '../components/orders/ChildRemarksPopup'
 import remarksApi from '../services/remarksApi'
-
-interface FilterValues {
-  dateFrom: string
-  dateTo: string
-  responsible: string
-  customer: string
-  orderName: string
-  text: string
-  reference: string
-}
 
 const initialFilters: FilterValues = {
   dateFrom: '',
@@ -27,7 +18,10 @@ const initialFilters: FilterValues = {
   customer: '',
   orderName: '',
   text: '',
-  reference: ''
+  reference: '',
+  statusIds: [],  // Will be populated with default statuses on load
+  articleSearch: '',
+  workstepSearch: ''
 }
 
 const styles = {
@@ -173,6 +167,8 @@ export default function OrdersOverviewPage() {
   const [selectedOrders, setSelectedOrders] = useState<Set<number>>(new Set())
   // Batch-loaded remarks for all orders to avoid many concurrent requests
   const [orderRemarks, setOrderRemarks] = useState<Map<number, HierarchyRemark>>(new Map())
+  // Child remarks popup state
+  const [childRemarksPopup, setChildRemarksPopup] = useState<ChildRemarksSummary | null>(null)
 
   // Load orders from API - accepts optional filter override
   const loadOrders = useCallback(async (filterOverride?: FilterValues) => {
@@ -191,6 +187,11 @@ export default function OrdersOverviewPage() {
       if (activeFilters.orderName) params.order_name = activeFilters.orderName
       if (activeFilters.text) params.text = activeFilters.text
       if (activeFilters.reference) params.reference = activeFilters.reference
+      if (activeFilters.statusIds && activeFilters.statusIds.length > 0) {
+        params.status_ids = activeFilters.statusIds.join(',')
+      }
+      if (activeFilters.articleSearch) params.article_search = activeFilters.articleSearch
+      if (activeFilters.workstepSearch) params.workstep_search = activeFilters.workstepSearch
 
       const response = await api.get('/orders/overview', { params })
       const data = response.data
@@ -198,9 +199,19 @@ export default function OrdersOverviewPage() {
       const loadedOrders = data.items || []
       setOrders(loadedOrders)
       setTotal(data.total || 0)
-      // Reset expanded and selected state when loading new data
-      setExpandedOrders(new Set())
+      // Reset selected state when loading new data
       setSelectedOrders(new Set())
+      
+      // Auto-expand orders that have deep-filter matches
+      const isDeepFilter = activeFilters.articleSearch || activeFilters.workstepSearch
+      if (isDeepFilter) {
+        const ordersToExpand = loadedOrders
+          .filter((o: OrderOverviewItem) => o.match_level && o.order_id)
+          .map((o: OrderOverviewItem) => o.order_id as number)
+        setExpandedOrders(new Set(ordersToExpand))
+      } else {
+        setExpandedOrders(new Set())
+      }
       
       // Batch-load all remarks for orders in a single request
       const orderIds = loadedOrders
@@ -364,6 +375,7 @@ export default function OrdersOverviewPage() {
               onSelect={(selected) => order.order_id && toggleSelectOrder(order.order_id, selected)}
               preloadedRemark={order.order_id ? orderRemarks.get(order.order_id) : undefined}
               onRemarkChange={(remark) => order.order_id && updateOrderRemark(order.order_id, remark)}
+              onShowChildRemarks={(summary) => setChildRemarksPopup(summary)}
             />
           ))
         )}
@@ -400,6 +412,14 @@ export default function OrdersOverviewPage() {
           </button>
         </div>
       </div>
+
+      {/* Child Remarks Popup */}
+      {childRemarksPopup && (
+        <ChildRemarksPopup
+          summary={childRemarksPopup}
+          onClose={() => setChildRemarksPopup(null)}
+        />
+      )}
     </div>
   )
 }

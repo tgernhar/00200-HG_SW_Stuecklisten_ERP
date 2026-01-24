@@ -10,8 +10,9 @@ import MenuPage from './pages/MenuPage'
 import SWImportPage from './pages/SWImportPage'
 import './App.css'
 
-// Lazy load OrdersOverviewPage (will be created later)
+// Lazy load pages
 const OrdersOverviewPage = React.lazy(() => import('./pages/OrdersOverviewPage'))
+const ProductionPlanningPage = React.lazy(() => import('./pages/ProductionPlanningPage'))
 
 function App() {
   const { isAuthenticated, isLoading } = useAuth()
@@ -63,6 +64,14 @@ function App() {
             element={
               <React.Suspense fallback={<div style={{ padding: 20 }}>Lade Auftragsübersicht...</div>}>
                 <OrdersOverviewPage />
+              </React.Suspense>
+            } 
+          />
+          <Route 
+            path="produktionsplanung/planboard" 
+            element={
+              <React.Suspense fallback={<div style={{ padding: 20 }}>Lade Planboard...</div>}>
+                <ProductionPlanningPage />
               </React.Suspense>
             } 
           />

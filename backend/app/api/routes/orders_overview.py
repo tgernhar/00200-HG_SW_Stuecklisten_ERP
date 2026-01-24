@@ -13,6 +13,72 @@ from app.core.database import get_db, get_erp_db_connection
 router = APIRouter()
 
 
+# Pydantic models for status options (must be defined before use)
+class OrderStatusOption(BaseModel):
+    """Single status option for the filter dropdown"""
+    id: int
+    name: str
+    is_default: bool = False
+
+
+class OrderStatusOptionsResponse(BaseModel):
+    """Response for status options"""
+    items: List[OrderStatusOption]
+
+
+@router.get("/orders/status-options", response_model=OrderStatusOptionsResponse)
+async def get_order_status_options():
+    """
+    Get available order statuses for the filter dropdown.
+    
+    Returns all statuses that are used for orders, with is_default=True
+    for the default filter selection.
+    """
+    connection = None
+    try:
+        connection = get_erp_db_connection()
+        cursor = connection.cursor(dictionary=True)
+        
+        # Get all statuses used by orders with order_type='ORDER'
+        query = """
+            SELECT DISTINCT order_status.id, order_status.name
+            FROM order_status
+            WHERE order_status.id IN (
+                SELECT DISTINCT ordertable.status
+                FROM ordertable
+                JOIN order_type ON order_type.id = ordertable.orderType
+                WHERE order_type.name = 'ORDER'
+                  AND ordertable.created > '2024-01-01'
+            )
+            ORDER BY order_status.name
+        """
+        
+        cursor.execute(query)
+        rows = cursor.fetchall()
+        cursor.close()
+        
+        items = [
+            OrderStatusOption(
+                id=row['id'],
+                name=row['name'] or f"Status {row['id']}",
+                is_default=row['id'] in VALID_ORDER_STATUS_IDS
+            )
+            for row in rows
+        ]
+        
+        return OrderStatusOptionsResponse(items=items)
+        
+    except Exception as e:
+        print(f"Error fetching status options: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Fehler beim Laden der Status-Optionen: {str(e)}"
+        )
+    finally:
+        if connection:
+            connection.close()
+
+
 class OrderOverviewItem(BaseModel):
     """Single order item in the overview"""
     pos: int
@@ -28,6 +94,9 @@ class OrderOverviewItem(BaseModel):
     status_name: Optional[str] = None
     reference: Optional[str] = None
     has_articles: bool = False  # True if order has articles (for expand arrow)
+    # Deep filter match info for auto-expand
+    match_level: Optional[str] = None  # 'order_article', 'bom_detail', 'workplan_detail'
+    matched_article_ids: Optional[List[int]] = None  # order_article IDs that matched
 
 
 class OrderArticleItem(BaseModel):
@@ -84,7 +153,7 @@ class WorkplanResponse(BaseModel):
     total: int
 
 
-# Valid status IDs for orders to be displayed
+# Valid status IDs for orders to be displayed (defaults)
 # 1=Offen, 3=Gestoppt, 4=Geliefert, 14=Teilgeliefert, 15=Geliefert(BOOKING), 
 # 16=Email Versendet, 33=Zum liefern bereit, 37=Offen_TG30_geprüft
 VALID_ORDER_STATUS_IDS = (1, 3, 4, 14, 15, 16, 33, 37)
@@ -105,6 +174,9 @@ async def get_orders_overview(
     order_name: Optional[str] = Query(None, description="Filter: Auftragsnummer"),
     text: Optional[str] = Query(None, description="Filter: Auftragstext"),
     reference: Optional[str] = Query(None, description="Filter: Referenz"),
+    status_ids: Optional[str] = Query(None, description="Filter: Status-IDs (kommagetrennt, z.B. '1,3,4')"),
+    article_search: Optional[str] = Query(None, description="Deep-Filter: Suche in Artikelnummern/Bezeichnungen"),
+    workstep_search: Optional[str] = Query(None, description="Deep-Filter: Suche in Arbeitsgängen"),
     skip: int = Query(0, ge=0),
     limit: int = Query(500, ge=1, le=1000)
 ):
@@ -130,11 +202,22 @@ async def get_orders_overview(
         connection = get_erp_db_connection()
         cursor = connection.cursor(dictionary=True)
         
+        # Parse status_ids parameter or use defaults
+        if status_ids:
+            try:
+                active_status_ids = tuple(int(s.strip()) for s in status_ids.split(',') if s.strip())
+                if not active_status_ids:
+                    active_status_ids = VALID_ORDER_STATUS_IDS
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Ungültiges Format für status_ids")
+        else:
+            active_status_ids = VALID_ORDER_STATUS_IDS
+        
         # Build the query
         # Note: MySQL 5.5 doesn't support ROW_NUMBER(), so we'll enumerate in Python
-        # Filter: order_type.name = 'ORDER' AND status IN (1,3,4,14,15,16,33,37)
+        # Filter: order_type.name = 'ORDER' AND status IN (selected_status_ids)
         # AND created > '2024-01-01' (only recent orders)
-        status_placeholders = ','.join(['%s'] * len(VALID_ORDER_STATUS_IDS))
+        status_placeholders = ','.join(['%s'] * len(active_status_ids))
         query = f"""
             SELECT 
                 ordertable.id as order_id,
@@ -160,7 +243,7 @@ async def get_orders_overview(
               AND ordertable.created > '2024-01-01'
         """
         
-        params = list(VALID_ORDER_STATUS_IDS)
+        params = list(active_status_ids)
         
         # Add filters
         if date_from:
@@ -191,6 +274,49 @@ async def get_orders_overview(
             query += " AND ordertable.reference LIKE %s"
             params.append(f"%{reference}%")
         
+        # Deep-Filter: article_search (searches in order_article and packingnote_details level)
+        if article_search:
+            article_search_pattern = f"%{article_search}%"
+            query += """ AND (
+                EXISTS (
+                    SELECT 1 FROM order_article_ref oar
+                    JOIN order_article oa ON oar.orderArticleId = oa.id
+                    JOIN article a ON oa.articleid = a.id
+                    WHERE oar.orderid = ordertable.id
+                      AND (a.articlenumber LIKE %s OR a.description LIKE %s)
+                )
+                OR EXISTS (
+                    SELECT 1 FROM order_article_ref oar
+                    JOIN order_article oa ON oar.orderArticleId = oa.id
+                    JOIN packingnote_relation pnr ON pnr.packingNoteId = oa.packingnoteid
+                    JOIN packingnote_details pd ON pd.id = pnr.detail
+                    LEFT JOIN article a ON a.id = pd.article
+                    WHERE oar.orderid = ordertable.id
+                      AND (a.articlenumber LIKE %s OR a.description LIKE %s)
+                )
+            )"""
+            params.extend([article_search_pattern, article_search_pattern, 
+                          article_search_pattern, article_search_pattern])
+        
+        # Deep-Filter: workstep_search (searches in workstep level)
+        if workstep_search:
+            workstep_search_pattern = f"%{workstep_search}%"
+            query += """ AND EXISTS (
+                SELECT 1 FROM order_article_ref oar
+                JOIN order_article oa ON oar.orderArticleId = oa.id
+                JOIN packingnote_relation pnr ON pnr.packingNoteId = oa.packingnoteid
+                JOIN packingnote_details pd ON pd.id = pnr.detail
+                JOIN workplan wp ON wp.packingnoteid = pd.id
+                JOIN workplan_relation wpr ON wpr.workplanId = wp.id
+                JOIN workplan_details wpd ON wpd.id = wpr.detail
+                LEFT JOIN qualificationitem qi ON qi.id = wpd.qualificationitem
+                LEFT JOIN qualificationitem_workstep qiws ON qiws.item = qi.id
+                LEFT JOIN workstep ws ON ws.id = qiws.workstep
+                WHERE oar.orderid = ordertable.id
+                  AND ws.name LIKE %s
+            )"""
+            params.append(workstep_search_pattern)
+        
         # Order by confirmed delivery date
         query += " ORDER BY ordertable.date2 ASC"
         
@@ -212,7 +338,7 @@ async def get_orders_overview(
               AND ordertable.status IN ({status_placeholders})
               AND ordertable.created > '2024-01-01'
         """
-        count_params = list(VALID_ORDER_STATUS_IDS)
+        count_params = list(active_status_ids)
         
         if date_from:
             count_query += " AND ordertable.date2 >= %s"
@@ -242,15 +368,133 @@ async def get_orders_overview(
             count_query += " AND ordertable.reference LIKE %s"
             count_params.append(f"%{reference}%")
         
+        # Deep-Filter: article_search for count
+        if article_search:
+            article_search_pattern = f"%{article_search}%"
+            count_query += """ AND (
+                EXISTS (
+                    SELECT 1 FROM order_article_ref oar
+                    JOIN order_article oa ON oar.orderArticleId = oa.id
+                    JOIN article a ON oa.articleid = a.id
+                    WHERE oar.orderid = ordertable.id
+                      AND (a.articlenumber LIKE %s OR a.description LIKE %s)
+                )
+                OR EXISTS (
+                    SELECT 1 FROM order_article_ref oar
+                    JOIN order_article oa ON oar.orderArticleId = oa.id
+                    JOIN packingnote_relation pnr ON pnr.packingNoteId = oa.packingnoteid
+                    JOIN packingnote_details pd ON pd.id = pnr.detail
+                    LEFT JOIN article a ON a.id = pd.article
+                    WHERE oar.orderid = ordertable.id
+                      AND (a.articlenumber LIKE %s OR a.description LIKE %s)
+                )
+            )"""
+            count_params.extend([article_search_pattern, article_search_pattern, 
+                                article_search_pattern, article_search_pattern])
+        
+        # Deep-Filter: workstep_search for count
+        if workstep_search:
+            workstep_search_pattern = f"%{workstep_search}%"
+            count_query += """ AND EXISTS (
+                SELECT 1 FROM order_article_ref oar
+                JOIN order_article oa ON oar.orderArticleId = oa.id
+                JOIN packingnote_relation pnr ON pnr.packingNoteId = oa.packingnoteid
+                JOIN packingnote_details pd ON pd.id = pnr.detail
+                JOIN workplan wp ON wp.packingnoteid = pd.id
+                JOIN workplan_relation wpr ON wpr.workplanId = wp.id
+                JOIN workplan_details wpd ON wpd.id = wpr.detail
+                LEFT JOIN qualificationitem qi ON qi.id = wpd.qualificationitem
+                LEFT JOIN qualificationitem_workstep qiws ON qiws.item = qi.id
+                LEFT JOIN workstep ws ON ws.id = qiws.workstep
+                WHERE oar.orderid = ordertable.id
+                  AND ws.name LIKE %s
+            )"""
+            count_params.append(workstep_search_pattern)
+        
         cursor.execute(count_query, count_params)
         total_result = cursor.fetchone()
         total = total_result['total'] if total_result else 0
+        
+        # If deep filters are active, calculate match_level and matched_article_ids
+        match_info = {}
+        if article_search or workstep_search:
+            order_ids = [row.get('order_id') for row in rows if row.get('order_id')]
+            if order_ids:
+                # Determine match level and matched article IDs for each order
+                for order_id in order_ids:
+                    match_level = None
+                    matched_ids = []
+                    
+                    # Check workstep level first (deepest)
+                    if workstep_search:
+                        workstep_pattern = f"%{workstep_search}%"
+                        cursor.execute("""
+                            SELECT DISTINCT oa.id as order_article_id
+                            FROM order_article_ref oar
+                            JOIN order_article oa ON oar.orderArticleId = oa.id
+                            JOIN packingnote_relation pnr ON pnr.packingNoteId = oa.packingnoteid
+                            JOIN packingnote_details pd ON pd.id = pnr.detail
+                            JOIN workplan wp ON wp.packingnoteid = pd.id
+                            JOIN workplan_relation wpr ON wpr.workplanId = wp.id
+                            JOIN workplan_details wpd ON wpd.id = wpr.detail
+                            LEFT JOIN qualificationitem qi ON qi.id = wpd.qualificationitem
+                            LEFT JOIN qualificationitem_workstep qiws ON qiws.item = qi.id
+                            LEFT JOIN workstep ws ON ws.id = qiws.workstep
+                            WHERE oar.orderid = %s AND ws.name LIKE %s
+                        """, (order_id, workstep_pattern))
+                        workstep_matches = cursor.fetchall()
+                        if workstep_matches:
+                            match_level = 'workplan_detail'
+                            matched_ids = [r['order_article_id'] for r in workstep_matches]
+                    
+                    # Check BOM level
+                    if article_search:
+                        article_pattern = f"%{article_search}%"
+                        # Check order_article level
+                        cursor.execute("""
+                            SELECT DISTINCT oa.id as order_article_id
+                            FROM order_article_ref oar
+                            JOIN order_article oa ON oar.orderArticleId = oa.id
+                            JOIN article a ON oa.articleid = a.id
+                            WHERE oar.orderid = %s
+                              AND (a.articlenumber LIKE %s OR a.description LIKE %s)
+                        """, (order_id, article_pattern, article_pattern))
+                        article_matches = cursor.fetchall()
+                        if article_matches:
+                            if not match_level:
+                                match_level = 'order_article'
+                            matched_ids = list(set(matched_ids + [r['order_article_id'] for r in article_matches]))
+                        
+                        # Check packingnote_details (BOM) level
+                        cursor.execute("""
+                            SELECT DISTINCT oa.id as order_article_id
+                            FROM order_article_ref oar
+                            JOIN order_article oa ON oar.orderArticleId = oa.id
+                            JOIN packingnote_relation pnr ON pnr.packingNoteId = oa.packingnoteid
+                            JOIN packingnote_details pd ON pd.id = pnr.detail
+                            LEFT JOIN article a ON a.id = pd.article
+                            WHERE oar.orderid = %s
+                              AND (a.articlenumber LIKE %s OR a.description LIKE %s)
+                        """, (order_id, article_pattern, article_pattern))
+                        bom_matches = cursor.fetchall()
+                        if bom_matches:
+                            if not match_level or match_level == 'order_article':
+                                match_level = 'bom_detail'
+                            matched_ids = list(set(matched_ids + [r['order_article_id'] for r in bom_matches]))
+                    
+                    if match_level:
+                        match_info[order_id] = {
+                            'match_level': match_level,
+                            'matched_article_ids': matched_ids
+                        }
         
         cursor.close()
         
         # Transform rows to response items with position numbers
         items = []
         for idx, row in enumerate(rows, start=skip + 1):
+            order_id = row.get('order_id')
+            info = match_info.get(order_id, {})
             items.append(OrderOverviewItem(
                 pos=idx,
                 au_verantwortlich=row.get('au_verantwortlich'),
@@ -261,10 +505,12 @@ async def get_orders_overview(
                 produktionsinfo=row.get('produktionsinfo'),
                 lt_kundenwunsch=row.get('lt_kundenwunsch'),
                 technischer_kontakt=row.get('technischer_kontakt'),
-                order_id=row.get('order_id'),
+                order_id=order_id,
                 status_name=row.get('status_name'),
                 reference=row.get('reference'),
-                has_articles=bool(row.get('has_articles', 0))
+                has_articles=bool(row.get('has_articles', 0)),
+                match_level=info.get('match_level'),
+                matched_article_ids=info.get('matched_article_ids')
             ))
         
         return OrderOverviewResponse(items=items, total=total)

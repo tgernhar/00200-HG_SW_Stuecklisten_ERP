@@ -13,7 +13,8 @@
     "react-router-dom": "^6.21.0",
     "ag-grid-react": "^31.0.0",
     "ag-grid-community": "^31.0.0",
-    "axios": "^1.6.2"
+    "axios": "^1.6.2",
+    "dhtmlx-gantt": "^8.0.0"
   },
   "devDependencies": {
     "@types/react": "^18.2.43",

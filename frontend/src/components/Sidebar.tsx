@@ -40,6 +40,17 @@ const menuItems: MenuItem[] = [
         path: '/menu/fertigungsplanung/auftraege'
       }
     ]
+  },
+  {
+    id: 'produktionsplanung',
+    label: 'Produktionsplanung',
+    children: [
+      {
+        id: 'planboard',
+        label: 'Planboard',
+        path: '/menu/produktionsplanung/planboard'
+      }
+    ]
   }
 ]
 
@@ -117,7 +128,7 @@ const styles = {
 }
 
 export default function Sidebar() {
-  const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set(['stuecklisten', 'fertigungsplanung']))
+  const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set(['stuecklisten', 'fertigungsplanung', 'produktionsplanung']))
   const [hoveredItem, setHoveredItem] = useState<string | null>(null)
   
   const navigate = useNavigate()

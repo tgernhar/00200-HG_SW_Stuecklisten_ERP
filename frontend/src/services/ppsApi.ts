@@ -1,0 +1,209 @@
+/**
+ * PPS API Service
+ * 
+ * Handles all API calls for production planning
+ */
+import api from './api'
+import {
+  PPSTodo,
+  PPSTodoCreate,
+  PPSTodoUpdate,
+  PPSTodoWithDetails,
+  PPSTodoSegment,
+  TodoSplitRequest,
+  PPSDependency,
+  PPSDependencyCreate,
+  PPSResource,
+  PPSConflictWithTodos,
+  ConflictListResponse,
+  GanttData,
+  GanttSyncRequest,
+  GanttSyncResponse,
+  TodoListResponse,
+  ResourceSyncResponse,
+  GenerateTodosRequest,
+  GenerateTodosResponse,
+  AvailableOrder,
+  AuditLogEntry,
+  ResourceType,
+} from './ppsTypes'
+
+const BASE_URL = '/pps'
+
+// ============== Todos ==============
+
+export async function getTodos(params?: {
+  skip?: number
+  limit?: number
+  erp_order_id?: number
+  status?: string
+  todo_type?: string
+  date_from?: string
+  date_to?: string
+  resource_id?: number
+  has_conflicts?: boolean
+  parent_todo_id?: number
+  search?: string
+}): Promise<TodoListResponse> {
+  const response = await api.get(`${BASE_URL}/todos`, { params })
+  return response.data
+}
+
+export async function getTodo(todoId: number): Promise<PPSTodoWithDetails> {
+  const response = await api.get(`${BASE_URL}/todos/${todoId}`)
+  return response.data
+}
+
+export async function createTodo(data: PPSTodoCreate): Promise<PPSTodo> {
+  const response = await api.post(`${BASE_URL}/todos`, data)
+  return response.data
+}
+
+export async function updateTodo(todoId: number, data: PPSTodoUpdate): Promise<PPSTodo> {
+  const response = await api.patch(`${BASE_URL}/todos/${todoId}`, data)
+  return response.data
+}
+
+export async function deleteTodo(todoId: number): Promise<{ success: boolean; deleted_id: number }> {
+  const response = await api.delete(`${BASE_URL}/todos/${todoId}`)
+  return response.data
+}
+
+export async function splitTodo(todoId: number, data: TodoSplitRequest): Promise<PPSTodoSegment[]> {
+  const response = await api.post(`${BASE_URL}/todos/${todoId}/split`, data)
+  return response.data
+}
+
+// ============== Gantt Data ==============
+
+export async function getGanttData(params?: {
+  date_from?: string
+  date_to?: string
+  erp_order_id?: number
+  resource_ids?: string
+}): Promise<GanttData> {
+  const response = await api.get(`${BASE_URL}/gantt/data`, { params })
+  return response.data
+}
+
+export async function syncGanttData(data: GanttSyncRequest): Promise<GanttSyncResponse> {
+  const response = await api.post(`${BASE_URL}/gantt/sync`, data)
+  return response.data
+}
+
+// ============== Resources ==============
+
+export async function getResources(params?: {
+  resource_type?: ResourceType
+  is_active?: boolean
+}): Promise<PPSResource[]> {
+  const response = await api.get(`${BASE_URL}/resources`, { params })
+  return response.data
+}
+
+export async function getResource(resourceId: number): Promise<PPSResource> {
+  const response = await api.get(`${BASE_URL}/resources/${resourceId}`)
+  return response.data
+}
+
+export async function syncResources(resource_types?: ResourceType[]): Promise<ResourceSyncResponse> {
+  const response = await api.post(`${BASE_URL}/resources/sync`, { resource_types })
+  return response.data
+}
+
+// ============== Dependencies ==============
+
+export async function getDependencies(todoId?: number): Promise<PPSDependency[]> {
+  const params = todoId ? { todo_id: todoId } : undefined
+  const response = await api.get(`${BASE_URL}/dependencies`, { params })
+  return response.data
+}
+
+export async function createDependency(data: PPSDependencyCreate): Promise<PPSDependency> {
+  const response = await api.post(`${BASE_URL}/dependencies`, data)
+  return response.data
+}
+
+export async function deleteDependency(dependencyId: number): Promise<{ success: boolean; deleted_id: number }> {
+  const response = await api.delete(`${BASE_URL}/dependencies/${dependencyId}`)
+  return response.data
+}
+
+// ============== Conflicts ==============
+
+export async function getConflicts(params?: {
+  resolved?: boolean
+  conflict_type?: string
+  todo_id?: number
+}): Promise<ConflictListResponse> {
+  const response = await api.get(`${BASE_URL}/conflicts`, { params })
+  return response.data
+}
+
+export async function checkConflicts(): Promise<{
+  success: boolean
+  conflicts_found: number
+  resource_overlaps: number
+  dependency_conflicts: number
+  delivery_conflicts: number
+}> {
+  const response = await api.post(`${BASE_URL}/conflicts/check`)
+  return response.data
+}
+
+export async function resolveConflict(conflictId: number): Promise<{ success: boolean; conflict_id: number }> {
+  const response = await api.patch(`${BASE_URL}/conflicts/${conflictId}/resolve`)
+  return response.data
+}
+
+// ============== Todo Generation ==============
+
+export async function getAvailableOrders(params?: {
+  search?: string
+  has_todos?: boolean
+}): Promise<AvailableOrder[]> {
+  const response = await api.get(`${BASE_URL}/orders/available`, { params })
+  return response.data
+}
+
+export async function generateTodos(data: GenerateTodosRequest): Promise<GenerateTodosResponse> {
+  const response = await api.post(`${BASE_URL}/generate-todos`, data)
+  return response.data
+}
+
+// ============== Audit Log ==============
+
+export async function getAuditLog(params?: {
+  todo_id?: number
+  action?: string
+  limit?: number
+}): Promise<AuditLogEntry[]> {
+  const response = await api.get(`${BASE_URL}/audit-log`, { params })
+  return response.data
+}
+
+// Export all functions as a single object for convenience
+export const ppsApi = {
+  getTodos,
+  getTodo,
+  createTodo,
+  updateTodo,
+  deleteTodo,
+  splitTodo,
+  getGanttData,
+  syncGanttData,
+  getResources,
+  getResource,
+  syncResources,
+  getDependencies,
+  createDependency,
+  deleteDependency,
+  getConflicts,
+  checkConflicts,
+  resolveConflict,
+  getAvailableOrders,
+  generateTodos,
+  getAuditLog,
+}
+
+export default ppsApi
