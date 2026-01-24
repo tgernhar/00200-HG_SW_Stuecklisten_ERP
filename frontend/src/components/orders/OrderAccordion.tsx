@@ -188,28 +188,16 @@ export default function OrderAccordion({ order, isExpanded, isSelected, onToggle
   const [editingRemark, setEditingRemark] = useState(false)
   const [remarkText, setRemarkText] = useState('')
 
-  // #region agent log
-  fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'OrderAccordion.tsx:RENDER',message:'OrderAccordion rendered',data:{order_id:order.order_id,has_articles:order.has_articles,has_articles_type:typeof order.has_articles},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2'})}).catch(()=>{});
-  // #endregion
-
   // Only fetch remark if not preloaded (fallback for backwards compatibility)
   useEffect(() => {
     // Skip if preloaded remark is available
     if (preloadedRemark !== undefined) return
     
     if (order.order_id) {
-      // #region agent log
-      fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'OrderAccordion.tsx:useEffect',message:'Fetching remark',data:{order_id:order.order_id},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
-      // #endregion
       remarksApi.getRemark('order', order.order_id).then((r) => {
-        // #region agent log
-        fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'OrderAccordion.tsx:remarkSuccess',message:'Remark fetched',data:{remark:r},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
-        // #endregion
         setLocalRemark(r)
-      }).catch((err) => {
-        // #region agent log
-        fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'OrderAccordion.tsx:remarkError',message:'Remark fetch error',data:{error:String(err)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
-        // #endregion
+      }).catch(() => {
+        // Silently ignore errors for individual remark fetch
       })
     }
   }, [order.order_id, preloadedRemark])
@@ -344,14 +332,8 @@ export default function OrderAccordion({ order, isExpanded, isSelected, onToggle
         </div>
       </div>
       
-      {/* #region agent log */}
-      {(() => { fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'OrderAccordion.tsx:PANEL_CHECK',message:'Checking panel render',data:{isExpanded,order_id:order.order_id,has_articles:order.has_articles,shouldRender:isExpanded && order.order_id && order.has_articles},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H6'})}).catch(()=>{}); return null; })()}
-      {/* #endregion */}
       {isExpanded && order.order_id && order.has_articles && (
         <div style={styles.detailPanel}>
-          {/* #region agent log */}
-          {(() => { fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'OrderAccordion.tsx:RENDER_PANEL',message:'Rendering OrderArticlesPanel',data:{order_id:order.order_id},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H8'})}).catch(()=>{}); return null; })()}
-          {/* #endregion */}
           <OrderArticlesPanel orderId={order.order_id} />
         </div>
       )}
