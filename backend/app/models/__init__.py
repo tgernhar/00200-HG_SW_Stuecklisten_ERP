@@ -6,5 +6,6 @@ from app.models.order import Order
 from app.models.document import Document
 from app.models.document_flag import DocumentGenerationFlag
 from app.models.import_job import ImportJob
+from app.models.userlogin_log import UserLoginLog
 
-__all__ = ["Project", "Bom", "Article", "Order", "Document", "DocumentGenerationFlag", "ImportJob"]
+__all__ = ["Project", "Bom", "Article", "Order", "Document", "DocumentGenerationFlag", "ImportJob", "UserLoginLog"]

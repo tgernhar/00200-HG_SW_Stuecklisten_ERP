@@ -5,7 +5,7 @@ from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
-from app.api.routes import projects, articles, documents, erp, hugwawi, boms, import_jobs
+from app.api.routes import projects, articles, documents, erp, hugwawi, boms, import_jobs, auth, orders_overview
 from app.core.config import settings
 import traceback
 
@@ -50,6 +50,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 
 # Include Routers
+app.include_router(auth.router, prefix=settings.API_V1_STR, tags=["auth"])
 app.include_router(projects.router, prefix=settings.API_V1_STR, tags=["projects"])
 app.include_router(articles.router, prefix=settings.API_V1_STR, tags=["articles"])
 app.include_router(documents.router, prefix=settings.API_V1_STR, tags=["documents"])
@@ -57,6 +58,7 @@ app.include_router(erp.router, prefix=settings.API_V1_STR, tags=["erp"])
 app.include_router(hugwawi.router, prefix=settings.API_V1_STR, tags=["hugwawi"])
 app.include_router(boms.router, prefix=settings.API_V1_STR, tags=["boms"])
 app.include_router(import_jobs.router, prefix=settings.API_V1_STR, tags=["import-jobs"])
+app.include_router(orders_overview.router, prefix=settings.API_V1_STR, tags=["orders-overview"])
 
 
 @app.get("/")
