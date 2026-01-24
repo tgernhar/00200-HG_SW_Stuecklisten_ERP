@@ -42,6 +42,7 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
   const apiBaseUrl = (api as any)?.defaults?.baseURL || ''
   const gridApiRef = useRef<any>(null)
   const gridColumnApiRef = useRef<any>(null)
+  const lastOrdersButtonMouseDownAtRef = useRef<number>(0)
   const [showHidden, setShowHidden] = useState(false)
   const [showBestellinfo, setShowBestellinfo] = useState(true)
   const [showDokumentstatus, setShowDokumentstatus] = useState(true)
@@ -752,7 +753,21 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
             return React.createElement(
               'button',
               {
+                onMouseDown: (e: any) => {
+                  // Robust against AG Grid / DOM re-render between mousedown & click
+                  lastOrdersButtonMouseDownAtRef.current = Date.now()
+                  e?.preventDefault?.()
+                  e?.stopPropagation?.()
+                  if (a && onOpenOrders) onOpenOrders(a)
+                },
                 onClick: (e: any) => {
+                  // Avoid double-open when click follows mousedown
+                  const dt = Date.now() - (lastOrdersButtonMouseDownAtRef.current || 0)
+                  if (dt < 500) {
+                    e?.preventDefault?.()
+                    e?.stopPropagation?.()
+                    return
+                  }
                   e?.preventDefault?.()
                   e?.stopPropagation?.()
                   if (a && onOpenOrders) onOpenOrders(a)
@@ -1306,7 +1321,11 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
   }, [onAfterBulkUpdate])
 
   return (
-    <div style={{ width: '100%', height: '100%' }} onKeyDownCapture={handleKeyDownCapture} onMouseDownCapture={handleMouseDownCapture}>
+    <div
+      style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 }}
+      onKeyDownCapture={handleKeyDownCapture}
+      onMouseDownCapture={handleMouseDownCapture}
+    >
       {/* Diff dropdown for conflict resolution */}
       {diffDropdownState && (() => {
         // Calculate position - open upwards if too close to bottom
@@ -1478,7 +1497,7 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
           </div>
         </div>
       )}
-      <div style={{ display: 'flex', gap: '12px', alignItems: 'center', padding: '6px 8px', fontSize: '12px' }}>
+      <div style={{ display: 'flex', gap: '12px', alignItems: 'center', padding: '6px 8px', fontSize: '12px', flex: '0 0 auto' }}>
         <button
           onClick={handlePushSelectedToSolidworks}
           title="Schreibt die Custom Properties der ausgewählten Artikel zurück in die SOLIDWORKS-Bauteile"
@@ -1656,7 +1675,10 @@ export const ArticleGrid: React.FC<ArticleGridProps> = ({ articles, projectId, s
           </>
         )}
       </div>
-      <div className="ag-theme-alpine" style={{ width: '100%', height: '100%' }}>
+      <div
+        className="ag-theme-alpine"
+        style={{ width: '100%', flex: 1, minHeight: 0, height: 0 }}
+      >
         <AgGridReact
           rowData={rowData}
           columnDefs={columnDefs}

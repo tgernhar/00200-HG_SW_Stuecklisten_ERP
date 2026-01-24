@@ -18,10 +18,10 @@ function App() {
 
   // Show loading state while checking authentication
   if (isLoading) {
-    return (
-      <div style={{
-        display: 'flex',
-        justifyContent: 'center',
+  return (
+        <div style={{
+          display: 'flex',
+          justifyContent: 'center',
         alignItems: 'center',
         height: '100vh',
         fontFamily: 'Arial, sans-serif',
@@ -29,7 +29,7 @@ function App() {
         color: '#666666'
       }}>
         Lade...
-      </div>
+            </div>
     )
   }
 
