@@ -1,0 +1,28 @@
+---
+description: Backend Python/FastAPI Konventionen
+globs: backend/**/*.py
+alwaysApply: false
+---
+
+# Tech-Stack (nicht ändern ohne Rücksprache)
+
+- FastAPI 0.104.x
+- SQLAlchemy 2.0 (synchron, kein async)
+- Pydantic 2.x
+- Alembic für Migrationen
+
+# Struktur
+
+- Routes: `app/api/routes/`
+- Services: `app/services/`
+- Models: `app/models/`
+- Schemas: `app/schemas/`
+
+# Datenbank-Zugriff
+
+- Lokale DB: SQLAlchemy Session
+- HUGWAWI: `mysql.connector` mit eigenem Connection-Management
+
+# Neue Dependencies
+
+Vor dem Hinzufügen neuer Packages prüfen ob Funktionalität mit bestehenden möglich ist.

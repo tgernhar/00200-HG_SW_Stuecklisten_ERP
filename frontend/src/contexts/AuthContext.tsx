@@ -46,6 +46,7 @@ const TOKEN_KEY = 'auth_token'
 const USER_KEY = 'auth_user'
 const ROLES_KEY = 'auth_roles'
 const LOG_ID_KEY = 'auth_log_id'
+const INACTIVITY_SHOWN_KEY = 'inactivity_logout_shown'
 
 // Inactivity timeout (45 minutes in milliseconds)
 const INACTIVITY_TIMEOUT = 45 * 60 * 1000
@@ -184,6 +185,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
       const response = await api.post('/auth/login', { loginname, password })
       const { access_token, user, roles, log_id } = response.data
 
+      // Clear inactivity flag on new login
+      sessionStorage.removeItem(INACTIVITY_SHOWN_KEY)
+
       // Store in localStorage
       localStorage.setItem(TOKEN_KEY, access_token)
       localStorage.setItem(USER_KEY, JSON.stringify(user))
@@ -212,6 +216,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }
 
   const handleLogout = async (isInactivity: boolean = false) => {
+    // Prevent showing multiple inactivity alerts
+    const alreadyShown = sessionStorage.getItem(INACTIVITY_SHOWN_KEY)
+    if (isInactivity && alreadyShown) {
+      return
+    }
+    
     try {
       // Call logout endpoint if we have a token
       if (state.isAuthenticated) {
@@ -234,8 +244,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
         logId: null
       })
 
-      // Show message if due to inactivity
-      if (isInactivity) {
+      // Show message if due to inactivity (only once per session)
+      if (isInactivity && !alreadyShown) {
+        sessionStorage.setItem(INACTIVITY_SHOWN_KEY, 'true')
         alert('Sie wurden aufgrund von Inaktivität abgemeldet.')
       }
     }

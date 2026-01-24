@@ -1,0 +1,25 @@
+---
+description: Allgemeine Projekt-Regeln für HG_SW_Stuecklisten_ERP
+alwaysApply: true
+---
+
+# Projekt-Architektur
+
+- 3-Tier: Frontend (React) → Backend (FastAPI) → Datenbanken
+- Backend läuft in Docker, SolidWorks-Connector auf Windows nativ
+
+# Datenbanken
+
+- `stuecklisten_erp`: Lokale MySQL DB (read/write)
+- `hugwawi`: Externe HUGWAWI DB (nur lesend, niemals schreiben!)
+
+# Debugging
+
+- Keine Backend-Logs verwenden (Docker)
+- Stattdessen: Frontend Console oder SolidWorks-Connector Logs
+
+# Konventionen
+
+- UI-Texte: Deutsch
+- Code/Kommentare: Englisch
+- Dokumentation: `docs/` Ordner

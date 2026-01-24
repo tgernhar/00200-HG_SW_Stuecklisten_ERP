@@ -25,6 +25,13 @@ class OrderOverviewItem(BaseModel):
     lt_kundenwunsch: Optional[date] = None
     technischer_kontakt: Optional[str] = None
     order_id: Optional[int] = None
+    status_name: Optional[str] = None
+
+
+# Valid status IDs for orders to be displayed
+# 1=Offen, 3=Gestoppt, 4=Geliefert, 14=Teilgeliefert, 15=Geliefert(BOOKING), 
+# 16=Email Versendet, 33=Zum liefern bereit, 37=Offen_TG30_geprüft
+VALID_ORDER_STATUS_IDS = (1, 3, 4, 14, 15, 16, 33, 37)
 
 
 class OrderOverviewResponse(BaseModel):
@@ -66,7 +73,9 @@ async def get_orders_overview(
         
         # Build the query
         # Note: MySQL 5.5 doesn't support ROW_NUMBER(), so we'll enumerate in Python
-        query = """
+        # Filter: order_type.name = 'ORDER' AND status IN (1,3,4,14,15,16,33,37)
+        status_placeholders = ','.join(['%s'] * len(VALID_ORDER_STATUS_IDS))
+        query = f"""
             SELECT 
                 ordertable.id as order_id,
                 userlogin.loginname as au_verantwortlich,
@@ -76,15 +85,19 @@ async def get_orders_overview(
                 ordertable.text as au_text,
                 ordertable.productionText as produktionsinfo,
                 ordertable.date1 as lt_kundenwunsch,
-                adrcont.suchname as technischer_kontakt
+                adrcont.suchname as technischer_kontakt,
+                order_status.name as status_name
             FROM ordertable
             LEFT JOIN adrbase ON adrbase.id = ordertable.kid
             LEFT JOIN userlogin ON userlogin.id = ordertable.infoSales
             LEFT JOIN adrcont ON adrcont.id = ordertable.techcont
-            WHERE ordertable.status < 100
+            LEFT JOIN order_type ON order_type.id = ordertable.orderType
+            LEFT JOIN order_status ON order_status.id = ordertable.status
+            WHERE order_type.name = 'ORDER'
+              AND ordertable.status IN ({status_placeholders})
         """
         
-        params = []
+        params = list(VALID_ORDER_STATUS_IDS)
         
         # Add filters
         if date_from:
@@ -114,14 +127,16 @@ async def get_orders_overview(
         rows = cursor.fetchall()
         
         # Get total count for pagination
-        count_query = """
+        count_query = f"""
             SELECT COUNT(*) as total
             FROM ordertable
             LEFT JOIN adrbase ON adrbase.id = ordertable.kid
             LEFT JOIN userlogin ON userlogin.id = ordertable.infoSales
-            WHERE ordertable.status < 100
+            LEFT JOIN order_type ON order_type.id = ordertable.orderType
+            WHERE order_type.name = 'ORDER'
+              AND ordertable.status IN ({status_placeholders})
         """
-        count_params = []
+        count_params = list(VALID_ORDER_STATUS_IDS)
         
         if date_from:
             count_query += " AND ordertable.date2 >= %s"
@@ -158,7 +173,8 @@ async def get_orders_overview(
                 produktionsinfo=row.get('produktionsinfo'),
                 lt_kundenwunsch=row.get('lt_kundenwunsch'),
                 technischer_kontakt=row.get('technischer_kontakt'),
-                order_id=row.get('order_id')
+                order_id=row.get('order_id'),
+                status_name=row.get('status_name')
             ))
         
         return OrderOverviewResponse(items=items, total=total)

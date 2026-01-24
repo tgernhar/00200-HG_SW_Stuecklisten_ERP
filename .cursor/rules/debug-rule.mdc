@@ -1,6 +1,0 @@
----
-alwaysApply: true
----
-
-never use the backend debug log because the backend runs on docker
-use alwas frontend lag and solidworksconnector log instead

@@ -1,0 +1,21 @@
+---
+description: SolidWorks Connector Konventionen
+globs: solidworks-connector/**/*.py
+alwaysApply: false
+---
+
+# Laufzeitumgebung
+
+- Läuft auf Windows (NICHT in Docker)
+- Benötigt SolidWorks Installation
+- pywin32 für COM-Zugriff
+
+# Debugging
+
+- Logs hier direkt verwendbar
+- Console-Output für Debugging erlaubt
+
+# API
+
+- FastAPI auf Port 8001
+- Kommuniziert mit Backend via HTTP

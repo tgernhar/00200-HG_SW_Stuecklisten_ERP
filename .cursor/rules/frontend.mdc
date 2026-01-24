@@ -1,0 +1,33 @@
+---
+description: Frontend React/TypeScript Konventionen
+globs: frontend/**/*.{ts,tsx}
+alwaysApply: false
+---
+
+# Tech-Stack (nicht ändern ohne Rücksprache)
+
+- React 18 (funktionale Komponenten, keine Klassen)
+- TypeScript
+- Vite
+- AG Grid Community
+- Axios
+- React Router DOM 6.x
+
+# State Management
+
+- React Context für globalen State (AuthContext)
+- useState/useReducer für lokalen State
+- Kein Redux oder andere State-Libraries
+
+# Struktur
+
+- Pages: `src/pages/`
+- Komponenten: `src/components/`
+- Hooks: `src/hooks/`
+- Services: `src/services/`
+- Contexts: `src/contexts/`
+
+# Styling
+
+- Inline Styles oder CSS-Dateien
+- Keine CSS-in-JS Libraries oder Tailwind
