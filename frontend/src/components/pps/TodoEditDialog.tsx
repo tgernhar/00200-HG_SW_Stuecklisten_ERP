@@ -4,14 +4,15 @@
  * Styled like the Planboard Lightbox with orange header.
  * Can be used in both ProductionPlanningPage (Gantt) and TodoListPage.
  */
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { updateTodo, getResources, deleteTodo } from '../../services/ppsApi'
 import { PPSTodoWithERPDetails, PPSTodoUpdate, PPSResource, TodoStatus, TodoType } from '../../services/ppsTypes'
 
 interface TodoEditDialogProps {
   todo: PPSTodoWithERPDetails
+  ganttType?: 'task' | 'project' | 'milestone'  // Gantt display type (optional, for Planboard)
   onClose: () => void
-  onSave: (updatedTodo: PPSTodoWithERPDetails) => void
+  onSave: (updatedTodo: PPSTodoWithERPDetails, ganttType?: 'task' | 'project' | 'milestone') => void
   onDelete?: (todoId: number) => void
 }
 
@@ -265,6 +266,7 @@ const typeOptions: { value: TodoType; label: string }[] = [
 
 export default function TodoEditDialog({
   todo,
+  ganttType: initialGanttType,
   onClose,
   onSave,
   onDelete,
@@ -272,6 +274,9 @@ export default function TodoEditDialog({
   // Form state
   const [priority, setPriority] = useState(todo.priority)
   const [todoType, setTodoType] = useState<TodoType>(todo.todo_type)
+  const [ganttType, setGanttType] = useState<'task' | 'project' | 'milestone'>(
+    initialGanttType || (todo.todo_type.startsWith('container') ? 'project' : 'task')
+  )
   const [description, setDescription] = useState(todo.description || '')
   const [status, setStatus] = useState<TodoStatus>(todo.status)
   const [plannedStart, setPlannedStart] = useState(
@@ -307,9 +312,12 @@ export default function TodoEditDialog({
     const loadResources = async () => {
       try {
         const resources = await getResources({ is_active: true })
-        setDepartments(resources.filter(r => r.resource_type === 'department'))
-        setMachines(resources.filter(r => r.resource_type === 'machine'))
-        setEmployees(resources.filter(r => r.resource_type === 'employee'))
+        const deps = resources.filter(r => r.resource_type === 'department')
+        const machs = resources.filter(r => r.resource_type === 'machine')
+        const emps = resources.filter(r => r.resource_type === 'employee')
+        setDepartments(deps)
+        setMachines(machs)
+        setEmployees(emps)
       } catch (err) {
         console.error('Error loading resources:', err)
       }
@@ -356,7 +364,8 @@ export default function TodoEditDialog({
         bom_article_number: todo.bom_article_number,
         workstep_name: todo.workstep_name,
       }
-      onSave(updatedWithErp)
+      // Pass ganttType back to parent (for Planboard to update Gantt display)
+      onSave(updatedWithErp, ganttType)
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Fehler beim Speichern'
       setError(message)
@@ -406,6 +415,100 @@ export default function TodoEditDialog({
   // Check if ERP fields have values
   const hasErpData = todo.order_name || todo.order_article_number || 
                      todo.bom_article_number || todo.workstep_name
+
+  // Filter machines based on selected department
+  // If no department selected, show all machines
+  // If department selected, show only machines belonging to that department
+  // Fallback: If no machines match (e.g. erp_department_id not synced), show all machines
+  const filteredMachines = useMemo(() => {
+    if (!assignedDepartmentId) {
+      return machines
+    }
+    // Find the department's erp_id to match against machine's erp_department_id
+    const selectedDepartment = departments.find(d => d.id === assignedDepartmentId)
+    if (!selectedDepartment) {
+      return machines
+    }
+    const result = machines.filter(m => m.erp_department_id === selectedDepartment.erp_id)
+
+    // Fallback: If no machines match the department filter (e.g. erp_department_id not synced yet),
+    // show all machines instead of an empty list
+    return result.length > 0 ? result : machines
+  }, [machines, departments, assignedDepartmentId])
+
+  // Filter employees based on selected department (same logic as machines)
+  // If no department selected, show all employees
+  // If department selected, show only employees belonging to that department
+  const filteredEmployees = useMemo(() => {
+    if (!assignedDepartmentId) {
+      return employees
+    }
+    // Find the department's erp_id to match against employee's erp_department_id
+    const selectedDepartment = departments.find(d => d.id === assignedDepartmentId)
+    if (!selectedDepartment) {
+      return employees
+    }
+    const result = employees.filter(e => e.erp_department_id === selectedDepartment.erp_id)
+
+    // Fallback: If no employees match, show all employees
+    return result.length > 0 ? result : employees
+  }, [employees, departments, assignedDepartmentId])
+
+  // Reset machine selection if it's no longer in filtered list
+  useEffect(() => {
+    if (assignedMachineId && filteredMachines.length > 0) {
+      const machineStillValid = filteredMachines.some(m => m.id === assignedMachineId)
+      if (!machineStillValid) {
+        setAssignedMachineId(null)
+      }
+    }
+  }, [filteredMachines, assignedMachineId])
+
+  // Reset employee selection if it's no longer in filtered list
+  useEffect(() => {
+    if (assignedEmployeeId && filteredEmployees.length > 0) {
+      const employeeStillValid = filteredEmployees.some(e => e.id === assignedEmployeeId)
+      if (!employeeStillValid) {
+        setAssignedEmployeeId(null)
+      }
+    }
+  }, [filteredEmployees, assignedEmployeeId])
+
+  // Handle mouse wheel on resource dropdowns
+  const handleResourceWheel = (
+    e: React.WheelEvent<HTMLSelectElement>,
+    options: PPSResource[],
+    currentValue: number | null,
+    setValue: (v: number | null) => void
+  ) => {
+    e.preventDefault()
+    if (options.length === 0) return
+    
+    const currentIndex = currentValue ? options.findIndex(o => o.id === currentValue) : -1
+    const delta = e.deltaY > 0 ? 1 : -1
+    const newIndex = Math.max(-1, Math.min(options.length - 1, currentIndex + delta))
+    
+    setValue(newIndex === -1 ? null : options[newIndex].id)
+  }
+
+  // Handle arrow keys on resource dropdowns
+  const handleResourceKeyDown = (
+    e: React.KeyboardEvent<HTMLSelectElement>,
+    options: PPSResource[],
+    currentValue: number | null,
+    setValue: (v: number | null) => void
+  ) => {
+    if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return
+    
+    e.preventDefault()
+    if (options.length === 0) return
+    
+    const currentIndex = currentValue ? options.findIndex(o => o.id === currentValue) : -1
+    const delta = e.key === 'ArrowDown' ? 1 : -1
+    const newIndex = Math.max(-1, Math.min(options.length - 1, currentIndex + delta))
+    
+    setValue(newIndex === -1 ? null : options[newIndex].id)
+  }
 
   return (
     <div style={styles.overlay} onClick={onClose}>
@@ -461,7 +564,7 @@ export default function TodoEditDialog({
             </div>
           )}
 
-          {/* Type */}
+          {/* Type (Backend) */}
           <div style={styles.formGroup}>
             <label style={styles.label}>Typ</label>
             <select
@@ -477,6 +580,22 @@ export default function TodoEditDialog({
               ))}
             </select>
           </div>
+
+          {/* Gantt Type (Display) - only show if initialGanttType was provided (Planboard context) */}
+          {initialGanttType !== undefined && (
+            <div style={styles.formGroup}>
+              <label style={styles.label}>Gantt-Typ</label>
+              <select
+                value={ganttType}
+                onChange={e => setGanttType(e.target.value as 'task' | 'project' | 'milestone')}
+                style={styles.select}
+              >
+                <option value="task">Aufgabe</option>
+                <option value="project">Projekt/Container</option>
+                <option value="milestone">Meilenstein</option>
+              </select>
+            </div>
+          )}
 
           {/* Description */}
           <div style={styles.formGroup}>
@@ -594,6 +713,8 @@ export default function TodoEditDialog({
                 <select
                   value={assignedDepartmentId || ''}
                   onChange={e => setAssignedDepartmentId(e.target.value ? parseInt(e.target.value) : null)}
+                  onWheel={e => handleResourceWheel(e, departments, assignedDepartmentId, setAssignedDepartmentId)}
+                  onKeyDown={e => handleResourceKeyDown(e, departments, assignedDepartmentId, setAssignedDepartmentId)}
                   style={styles.select}
                 >
                   <option value="">--</option>
@@ -607,10 +728,12 @@ export default function TodoEditDialog({
                 <select
                   value={assignedMachineId || ''}
                   onChange={e => setAssignedMachineId(e.target.value ? parseInt(e.target.value) : null)}
+                  onWheel={e => handleResourceWheel(e, filteredMachines, assignedMachineId, setAssignedMachineId)}
+                  onKeyDown={e => handleResourceKeyDown(e, filteredMachines, assignedMachineId, setAssignedMachineId)}
                   style={styles.select}
                 >
                   <option value="">--</option>
-                  {machines.map(m => (
+                  {filteredMachines.map(m => (
                     <option key={m.id} value={m.id}>{m.name}</option>
                   ))}
                 </select>
@@ -620,11 +743,13 @@ export default function TodoEditDialog({
                 <select
                   value={assignedEmployeeId || ''}
                   onChange={e => setAssignedEmployeeId(e.target.value ? parseInt(e.target.value) : null)}
+                  onWheel={e => handleResourceWheel(e, filteredEmployees, assignedEmployeeId, setAssignedEmployeeId)}
+                  onKeyDown={e => handleResourceKeyDown(e, filteredEmployees, assignedEmployeeId, setAssignedEmployeeId)}
                   style={styles.select}
                 >
                   <option value="">--</option>
-                  {employees.map(e => (
-                    <option key={e.id} value={e.id}>{e.name}</option>
+                  {filteredEmployees.map(emp => (
+                    <option key={emp.id} value={emp.id}>{emp.name}</option>
                   ))}
                 </select>
               </div>

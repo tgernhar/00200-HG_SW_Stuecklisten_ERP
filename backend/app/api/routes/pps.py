@@ -34,6 +34,7 @@ from app.services.pps_sync_service import (
     get_subordinate_ids, 
     get_employee_resource_ids_for_erp_ids
 )
+from app.services.pps_service import resolve_erp_details_for_todos
 
 router = APIRouter(prefix="/pps", tags=["PPS"])
 
@@ -292,8 +293,6 @@ async def get_todos_with_erp_details(
     - bom_article_number: article.articlenumber via packingnote_details
     - workstep_name: qualificationitem.name via workplan_details
     """
-    from app.services.pps_service import resolve_erp_details_for_todos
-    
     query = db.query(PPSTodo).options(joinedload(PPSTodo.conflicts))
     
     # Filter "eigene" todos by visibility
@@ -398,6 +397,38 @@ async def get_todo(todo_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Todo nicht gefunden")
     
     return todo
+
+
+@router.get("/todos/{todo_id}/with-erp-details", response_model=TodoWithERPDetails)
+async def get_todo_with_erp_details(todo_id: int, db: Session = Depends(get_db)):
+    """
+    Get single todo with ERP details resolved from HUGWAWI.
+    
+    Returns:
+    - order_name: from ordertable.name
+    - order_article_number: from article.articlenumber via order_article
+    - bom_article_number: from article.articlenumber via packingnote_details
+    - workstep_name: from qualificationitem.name via workplan_details
+    """
+    try:
+        todo = db.query(PPSTodo).options(
+            joinedload(PPSTodo.conflicts),
+        ).filter(PPSTodo.id == todo_id).first()
+        
+        if not todo:
+            raise HTTPException(status_code=404, detail="Todo nicht gefunden")
+        
+        # Resolve ERP details
+        enriched = resolve_erp_details_for_todos([todo])
+        
+        if not enriched:
+            raise HTTPException(status_code=500, detail="Fehler beim Laden der ERP-Details")
+        
+        return enriched[0]
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/todos", response_model=Todo)

@@ -17,6 +17,7 @@ export interface PPSResource {
   id: number
   resource_type: ResourceType
   erp_id: number
+  erp_department_id?: number  // qualificationitem.department (for machines)
   name: string
   capacity: number
   is_active: boolean

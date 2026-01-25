@@ -19,6 +19,7 @@ interface GanttChartProps {
   onTaskUpdate?: (taskId: number, task: Partial<GanttTask>) => void
   onTaskCreate?: (task: Partial<GanttTask>) => void
   onTaskDelete?: (taskId: number) => void
+  onTaskEdit?: (taskId: number) => void  // Opens custom edit dialog instead of DHTMLX lightbox
   onLinkCreate?: (link: Partial<GanttLink>) => void
   onLinkDelete?: (linkId: number) => void
   onSelectionChange?: (selectedIds: number[]) => void
@@ -45,6 +46,7 @@ export default function GanttChart({
   onTaskUpdate,
   onTaskCreate,
   onTaskDelete,
+  onTaskEdit,
   onLinkCreate,
   onLinkDelete,
   onSelectionChange,
@@ -56,6 +58,7 @@ export default function GanttChart({
   const containerRef = useRef<HTMLDivElement>(null)
   const initialized = useRef(false)
   const onTaskUpdateRef = useRef(onTaskUpdate)
+  const onTaskEditRef = useRef(onTaskEdit)
   const workingHoursRef = useRef(workingHours)
   
   // Update workingHours ref when it changes
@@ -63,10 +66,14 @@ export default function GanttChart({
     workingHoursRef.current = workingHours
   }, [workingHours])
 
-  // Update ref when callback changes
+  // Update refs when callbacks change
   useEffect(() => {
     onTaskUpdateRef.current = onTaskUpdate
   }, [onTaskUpdate])
+
+  useEffect(() => {
+    onTaskEditRef.current = onTaskEdit
+  }, [onTaskEdit])
 
   // Configure Gantt
   const configureGantt = useCallback(() => {
@@ -339,15 +346,6 @@ export default function GanttChart({
     gantt.init(containerRef.current)
     initialized.current = true
     
-    // #region agent log
-    // Debug: Check Gantt structure after init - look for scrollbar views
-    const scrollbarViews = document.querySelectorAll('[data-cell-id*="scroll"]');
-    const ganttScrollbar = document.querySelector('.gantt_scrollbar');
-    const ganttVerScroll = document.querySelector('.gantt_ver_scroll');
-    const layoutContent = document.querySelectorAll('.gantt_layout_content');
-    fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'GanttChart.tsx:init',message:'Gantt init scrollbar check',data:{autosize: gantt.config.autosize, scrollbarViewCount: scrollbarViews.length, scrollbarViewIds: Array.from(scrollbarViews).map(el => el.getAttribute('data-cell-id')), hasGanttScrollbar: !!ganttScrollbar, hasVerScroll: !!ganttVerScroll, layoutContentCount: layoutContent.length, layoutConfig: JSON.stringify(gantt.config.layout).substring(0,200)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H11'})}).catch(()=>{});
-    // #endregion
-    
     return () => {
       gantt.clearAll()
       style.remove()
@@ -415,6 +413,16 @@ export default function GanttChart({
   // Event handlers
   useEffect(() => {
     if (!initialized.current) return
+    
+    // Intercept lightbox to use custom dialog
+    const onBeforeLightbox = gantt.attachEvent('onBeforeLightbox', (id: number) => {
+      // If custom edit handler is provided, use it instead of native lightbox
+      if (onTaskEditRef.current) {
+        onTaskEditRef.current(id)
+        return false  // Prevent native lightbox
+      }
+      return true  // Allow native lightbox if no custom handler
+    })
     
     // Task updated (drag/resize)
     const onAfterTaskUpdate = gantt.attachEvent('onAfterTaskUpdate', (id: number, task: GanttTask) => {
@@ -487,6 +495,7 @@ export default function GanttChart({
     })
     
     return () => {
+      gantt.detachEvent(onBeforeLightbox)
       gantt.detachEvent(onAfterTaskUpdate)
       gantt.detachEvent(onAfterTaskAdd)
       gantt.detachEvent(onAfterTaskDelete)
@@ -518,7 +527,6 @@ export default function GanttChart({
     setTimeout(() => {
       gantt.render()
       
-      // #region agent log - force scrollbar visibility via JS (H10 fix)
       // Force overflow via JavaScript since CSS is overridden by DHTMLX
       const dataArea = document.querySelector('.gantt_data_area') as HTMLElement;
       const gridData = document.querySelector('.gantt_grid_data') as HTMLElement;
@@ -531,11 +539,6 @@ export default function GanttChart({
       if (timelineData) timelineData.style.overflow = 'visible';
       if (ganttGrid) ganttGrid.style.overflow = 'auto';
       if (ganttTask) ganttTask.style.overflow = 'auto';
-      
-      // Debug: Check if JS override worked
-      const container = containerRef.current;
-      fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'GanttChart.tsx:afterRender',message:'JS overflow fix applied',data:{containerSize: container?.offsetWidth + 'x' + container?.offsetHeight, dataAreaOverflow: dataArea ? dataArea.style.overflow : 'n/a', gridDataOverflow: gridData ? gridData.style.overflow : 'n/a', ganttGridOverflow: ganttGrid ? ganttGrid.style.overflow : 'n/a', ganttTaskOverflow: ganttTask ? ganttTask.style.overflow : 'n/a', dataAreaScrollHeight: dataArea?.scrollHeight, dataAreaClientHeight: dataArea?.clientHeight, taskCount: data?.data?.length},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H10'})}).catch(()=>{});
-      // #endregion
     }, 100)
     
   }, [data])

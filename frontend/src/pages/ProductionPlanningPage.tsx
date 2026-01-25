@@ -12,6 +12,7 @@ import GanttChart, { zoomIn, zoomOut, setZoom } from '../components/pps/GanttCha
 import ResourcePanel from '../components/pps/ResourcePanel'
 import ConflictPanel from '../components/pps/ConflictPanel'
 import TodoGeneratorModal from '../components/pps/TodoGeneratorModal'
+import TodoEditDialog from '../components/pps/TodoEditDialog'
 import {
   getGanttData,
   syncGanttData,
@@ -20,12 +21,14 @@ import {
   getConflicts,
   checkConflicts,
   getWorkingHours,
+  getTodoWithERPDetails,
   WorkingHours,
 } from '../services/ppsApi'
 import {
   GanttData,
   GanttTask,
   GanttLink,
+  PPSTodoWithERPDetails,
   GanttSyncRequest,
   PPSResource,
   PPSConflictWithTodos,
@@ -174,6 +177,9 @@ export default function ProductionPlanningPage() {
   const [zoomLevel, setZoomLevel] = useState<'hour' | 'day' | 'week'>('day')
   const [showResourcePanel, setShowResourcePanel] = useState(true)
   
+  // Edit dialog state
+  const [editingTodo, setEditingTodo] = useState<PPSTodoWithERPDetails | null>(null)
+  
   // Track pending changes for sync before filter change
   const pendingChangesRef = useRef<GanttSyncRequest | null>(null)
 
@@ -200,10 +206,6 @@ export default function ProductionPlanningPage() {
       setConflicts(conflictsResponse.items)
       setUnresolvedCount(conflictsResponse.unresolved_count)
       setWorkingHours(workingHoursResponse)
-      
-      // #region agent log
-      fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ProductionPlanningPage.tsx:loadData',message:'Data loaded',data:{taskCount: ganttResponse?.data?.length, resourceCount: resourcesResponse?.length, workingHoursCount: workingHoursResponse?.length},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3-H4'})}).catch(()=>{});
-      // #endregion
       
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Fehler beim Laden'
@@ -361,6 +363,54 @@ export default function ProductionPlanningPage() {
     loadData()
   }, [loadData])
 
+  // Handle task edit - opens TodoEditDialog instead of DHTMLX lightbox
+  const handleTaskEdit = useCallback(async (taskId: number) => {
+    try {
+      const todoWithErp = await getTodoWithERPDetails(taskId)
+      // Find current Gantt task to get its type
+      const ganttTask = ganttData?.data.find(t => t.id === taskId)
+      setEditingTodo({ ...todoWithErp, gantt_type: ganttTask?.type })
+    } catch (err) {
+      console.error('Error loading todo for edit:', err)
+    }
+  }, [ganttData])
+
+  // Handle save from edit dialog
+  const handleEditSave = useCallback((updatedTodo: PPSTodoWithERPDetails, ganttType?: 'task' | 'project' | 'milestone') => {
+    setEditingTodo(null)
+    
+    // Update Gantt task directly instead of full reload for better UX
+    if (ganttData && ganttType) {
+      const updatedGanttData = {
+        ...ganttData,
+        data: ganttData.data.map(task => {
+          if (task.id === updatedTodo.id) {
+            return {
+              ...task,
+              type: ganttType,
+              text: updatedTodo.title,
+              priority: updatedTodo.priority,
+              status: updatedTodo.status,
+              start_date: updatedTodo.planned_start ? updatedTodo.planned_start.slice(0, 16).replace('T', ' ') : undefined,
+              duration: updatedTodo.total_duration_minutes,
+            }
+          }
+          return task
+        })
+      }
+      setGanttData(updatedGanttData)
+    } else {
+      // Fallback: full reload if no Gantt context
+      loadData()
+    }
+  }, [ganttData, loadData])
+
+  // Handle delete from edit dialog
+  const handleDeleteFromDialog = useCallback((todoId: number) => {
+    setEditingTodo(null)
+    loadData()
+  }, [loadData])
+
   // Render loading state
   if (loading && !ganttData) {
     return (
@@ -506,6 +556,7 @@ export default function ProductionPlanningPage() {
               data={ganttData}
               onTaskUpdate={handleTaskUpdate}
               onTaskDelete={handleTaskDelete}
+              onTaskEdit={handleTaskEdit}
               onLinkCreate={handleLinkCreate}
               onLinkDelete={handleLinkDelete}
               onSelectionChange={setSelectedTaskIds}
@@ -547,6 +598,17 @@ export default function ProductionPlanningPage() {
         <TodoGeneratorModal
           onClose={() => setShowGeneratorModal(false)}
           onSuccess={handleGeneratorSuccess}
+        />
+      )}
+
+      {/* Todo Edit Dialog */}
+      {editingTodo && (
+        <TodoEditDialog
+          todo={editingTodo}
+          ganttType={(editingTodo as any).gantt_type}
+          onClose={() => setEditingTodo(null)}
+          onSave={handleEditSave}
+          onDelete={handleDeleteFromDialog}
         />
       )}
     </div>

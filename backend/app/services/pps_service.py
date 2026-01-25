@@ -248,6 +248,42 @@ def get_available_orders_for_todos(
             erp_conn.close()
 
 
+def _update_container_durations(db: Session, container_id: int) -> int:
+    """
+    Recursively update container todo durations from their children.
+    
+    Container-Todos (order, article) get their duration as the sum of children.
+    Returns the total duration for this container.
+    """
+    container = db.query(PPSTodo).filter(PPSTodo.id == container_id).first()
+    if not container:
+        return 0
+    
+    # Get all direct children
+    children = db.query(PPSTodo).filter(PPSTodo.parent_todo_id == container_id).all()
+    
+    if not children:
+        # No children - keep existing duration or set default
+        return container.total_duration_minutes or 5
+    
+    total_duration = 0
+    for child in children:
+        if child.todo_type.startswith('container'):
+            # Recursively process child containers
+            child_duration = _update_container_durations(db, child.id)
+        else:
+            # Operation - use its duration
+            child_duration = child.total_duration_minutes or 5
+        total_duration += child_duration
+    
+    # Update container duration if not manually set
+    if container.todo_type.startswith('container') and not container.is_duration_manual:
+        container.total_duration_minutes = total_duration or 5
+        container.updated_at = datetime.utcnow()
+    
+    return total_duration
+
+
 def generate_todos_from_order(
     db: Session,
     erp_order_id: int,
@@ -400,14 +436,14 @@ def generate_todos_from_order(
             if include_workplan and article_row['packingnoteid']:
                 packingnoteid = article_row['packingnoteid']
                 
-                # Get workplan details
-                # Note: HUGWAWI workplan_details may not have setupTime/executionTime columns
-                # We use the existing working query pattern from orders_overview.py
+                # Get workplan details with time values (setuptime, unittime)
                 # wp.packingnoteid references packingnote_details.id (BOM item)
                 cursor.execute("""
                     SELECT 
                         wpd.id as detail_id,
                         wpd.pos,
+                        wpd.setuptime,
+                        wpd.unittime,
                         ws.id as workstep_id,
                         ws.name as workstep_name,
                         qi.id as machine_id,
@@ -447,12 +483,22 @@ def generate_todos_from_order(
                         if wp_row['machine_name']:
                             op_title += f" ({wp_row['machine_name']})"
                         
-                        # Default duration values (can be edited later in the UI)
-                        # HUGWAWI workplan_details doesn't have time columns in this installation
-                        setup_time = 0
-                        exec_time = 60  # Default: 60 minutes per operation
+                        # Get time values from HUGWAWI workplan_details
+                        # setuptime = Rüstzeit in Minuten
+                        # unittime = Stückzeit pro Teil in Minuten
+                        setup_time = wp_row.get('setuptime') or 0
+                        unit_time = wp_row.get('unittime') or 0
                         quantity = article_row['quantity'] or 1
-                        total_duration = setup_time + (exec_time * quantity)
+                        
+                        # Calculate total duration: setup + (unit_time * quantity)
+                        # If no time data available, use default of 5 minutes
+                        if setup_time == 0 and unit_time == 0:
+                            total_duration = 5  # Default fallback
+                            setup_time = 0
+                            exec_time = 5
+                        else:
+                            exec_time = unit_time
+                            total_duration = setup_time + (unit_time * quantity)
                         
                         # Find or create machine resource
                         machine_resource_id = None
@@ -515,6 +561,10 @@ def generate_todos_from_order(
                     prev_operation_id = operation_id
         
         cursor.close()
+        
+        # Update container durations (aggregated from children)
+        _update_container_durations(db, order_container_id)
+        
         db.commit()
         
         return GenerateTodosResponse(

@@ -36,6 +36,7 @@ class PPSResourceCache(Base):
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     resource_type = Column(String(20), nullable=False)  # 'department', 'machine', 'employee'
     erp_id = Column(Integer, nullable=False)  # ID from HUGWAWI
+    erp_department_id = Column(Integer, nullable=True, index=True)  # qualificationitem.department (for machines)
     name = Column(String(100), nullable=False)
     capacity = Column(Integer, nullable=False, default=1)
     is_active = Column(Boolean, nullable=False, default=True)

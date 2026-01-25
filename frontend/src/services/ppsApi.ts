@@ -83,6 +83,11 @@ export async function getTodo(todoId: number): Promise<PPSTodoWithDetails> {
   return response.data
 }
 
+export async function getTodoWithERPDetails(todoId: number): Promise<PPSTodoWithERPDetails> {
+  const response = await api.get(`${BASE_URL}/todos/${todoId}/with-erp-details`)
+  return response.data
+}
+
 export async function createTodo(data: PPSTodoCreate): Promise<PPSTodo> {
   const response = await api.post(`${BASE_URL}/todos`, data)
   return response.data

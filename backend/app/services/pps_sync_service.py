@@ -157,17 +157,34 @@ def _sync_machines(db: Session, cursor) -> dict:
     updated = 0
     deactivated = 0
     
-    # Query machines
-    cursor.execute("""
-        SELECT id, name, description 
-        FROM qualificationitem 
-        ORDER BY name
-    """)
+    # Query machines - only non-blocked, include department id
+    try:
+        # Some HUGWAWI installations use department_id, others use department
+        try:
+            cursor.execute("""
+                SELECT id, name, department_id, blocked
+                FROM qualificationitem
+                WHERE blocked = 0 OR blocked IS NULL
+                ORDER BY name
+            """)
+            dept_field = 'department_id'
+        except Exception:
+            cursor.execute("""
+                SELECT id, name, department, blocked
+                FROM qualificationitem
+                WHERE blocked = 0 OR blocked IS NULL
+                ORDER BY name
+            """)
+            dept_field = 'department'
+        rows = cursor.fetchall()
+    except Exception as e:
+        raise
     
     erp_ids = set()
-    for row in cursor.fetchall():
+    for row in rows:
         erp_id = row['id']
         name = row['name']
+        department_id = row.get('department_id') if 'department_id' in row else row.get('department')
         erp_ids.add(erp_id)
         
         existing = db.query(PPSResourceCache).filter(
@@ -176,9 +193,16 @@ def _sync_machines(db: Session, cursor) -> dict:
         ).first()
         
         if existing:
-            if existing.name != name or not existing.is_active:
+            # Check if anything changed
+            needs_update = (
+                existing.name != name or 
+                not existing.is_active or
+                existing.erp_department_id != department_id
+            )
+            if needs_update:
                 existing.name = name
                 existing.is_active = True
+                existing.erp_department_id = department_id
                 existing.last_sync_at = datetime.utcnow()
                 existing.updated_at = datetime.utcnow()
                 updated += 1
@@ -186,6 +210,7 @@ def _sync_machines(db: Session, cursor) -> dict:
             resource = PPSResourceCache(
                 resource_type='machine',
                 erp_id=erp_id,
+                erp_department_id=department_id,
                 name=name,
                 capacity=1,  # Single machine
                 is_active=True,
@@ -196,7 +221,7 @@ def _sync_machines(db: Session, cursor) -> dict:
             db.add(resource)
             added += 1
     
-    # Deactivate removed machines
+    # Deactivate removed or blocked machines
     removed = db.query(PPSResourceCache).filter(
         PPSResourceCache.resource_type == 'machine',
         PPSResourceCache.erp_id.notin_(erp_ids),
@@ -217,30 +242,34 @@ def _sync_employees(db: Session, cursor) -> dict:
     updated = 0
     deactivated = 0
     
-    # Query active employees
-    cursor.execute("""
-        SELECT id, loginname, Vorname, Nachname 
-        FROM userlogin 
-        WHERE (blocked = 0 OR blocked IS NULL)
-        ORDER BY Nachname, Vorname
-    """)
+    # Query active employees with department
+    # Try department_id first, fallback to department
+    try:
+        cursor.execute("""
+            SELECT id, loginname, Vorname, Nachname, department_id
+            FROM userlogin 
+            WHERE (blocked = 0 OR blocked IS NULL)
+            ORDER BY Nachname, Vorname
+        """)
+        dept_field = 'department_id'
+    except Exception:
+        cursor.execute("""
+            SELECT id, loginname, Vorname, Nachname, department
+            FROM userlogin 
+            WHERE (blocked = 0 OR blocked IS NULL)
+            ORDER BY Nachname, Vorname
+        """)
+        dept_field = 'department'
     
+    emp_rows = cursor.fetchall()
     erp_ids = set()
-    for row in cursor.fetchall():
+    for row in emp_rows:
         erp_id = row['id']
-        vorname = row['Vorname'] or ''
-        nachname = row['Nachname'] or ''
         loginname = row['loginname'] or ''
+        department_id = row.get('department_id') if 'department_id' in row else row.get('department')
         
-        # Build display name
-        if vorname and nachname:
-            name = f"{nachname}, {vorname}"
-        elif nachname:
-            name = nachname
-        elif vorname:
-            name = vorname
-        else:
-            name = loginname
+        # Use loginname directly as requested
+        name = loginname if loginname else f"User {erp_id}"
         
         erp_ids.add(erp_id)
         
@@ -250,9 +279,15 @@ def _sync_employees(db: Session, cursor) -> dict:
         ).first()
         
         if existing:
-            if existing.name != name or not existing.is_active:
+            needs_update = (
+                existing.name != name or 
+                not existing.is_active or
+                existing.erp_department_id != department_id
+            )
+            if needs_update:
                 existing.name = name
                 existing.is_active = True
+                existing.erp_department_id = department_id
                 existing.last_sync_at = datetime.utcnow()
                 existing.updated_at = datetime.utcnow()
                 updated += 1
@@ -260,6 +295,7 @@ def _sync_employees(db: Session, cursor) -> dict:
             resource = PPSResourceCache(
                 resource_type='employee',
                 erp_id=erp_id,
+                erp_department_id=department_id,
                 name=name,
                 capacity=1,  # Single person
                 is_active=True,

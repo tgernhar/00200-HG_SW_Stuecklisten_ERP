@@ -204,9 +204,32 @@ export default function TodoGeneratorModal({
   
   const [search, setSearch] = useState('')
   const [showOnlyNew, setShowOnlyNew] = useState(true)
-  const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null)
+  const [selectedOrderIds, setSelectedOrderIds] = useState<Set<number>>(new Set())
   const [includeWorkplan, setIncludeWorkplan] = useState(true)
   const [hoveredOrderId, setHoveredOrderId] = useState<number | null>(null)
+
+  // Toggle order selection
+  const toggleOrderSelection = (orderId: number) => {
+    setSelectedOrderIds(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(orderId)) {
+        newSet.delete(orderId)
+      } else {
+        newSet.add(orderId)
+      }
+      return newSet
+    })
+  }
+
+  // Select all visible orders
+  const selectAll = () => {
+    setSelectedOrderIds(new Set(orders.map(o => o.order_id)))
+  }
+
+  // Deselect all
+  const deselectAll = () => {
+    setSelectedOrderIds(new Set())
+  }
 
   // Load orders
   const loadOrders = useCallback(async () => {
@@ -232,32 +255,61 @@ export default function TodoGeneratorModal({
     loadOrders()
   }, [loadOrders])
 
-  // Handle generate
+  // Handle generate - now supports multiple orders
   const handleGenerate = async () => {
-    if (!selectedOrderId) return
+    if (selectedOrderIds.size === 0) return
     
     setGenerating(true)
     setError(null)
     setSuccessMessage(null)
     
+    let totalTodos = 0
+    let totalDependencies = 0
+    const orderNames: string[] = []
+    const errors: string[] = []
+    
     try {
-      const result = await generateTodos({
-        erp_order_id: selectedOrderId,
-        include_workplan: includeWorkplan,
-      })
+      // Process each selected order
+      for (const orderId of selectedOrderIds) {
+        try {
+          const result = await generateTodos({
+            erp_order_id: orderId,
+            include_workplan: includeWorkplan,
+          })
+          
+          if (result.success) {
+            totalTodos += result.created_todos
+            totalDependencies += result.created_dependencies
+            if (result.order_name) {
+              orderNames.push(result.order_name)
+            }
+          } else {
+            errors.push(...result.errors)
+          }
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : `Fehler bei Auftrag ${orderId}`
+          errors.push(message)
+        }
+      }
       
-      if (result.success) {
+      if (errors.length > 0) {
+        setError(errors.join(', '))
+      }
+      
+      if (totalTodos > 0 || totalDependencies > 0) {
+        const orderInfo = orderNames.length <= 3 
+          ? orderNames.join(', ') 
+          : `${orderNames.slice(0, 3).join(', ')} und ${orderNames.length - 3} weitere`
+        
         setSuccessMessage(
-          `Erfolgreich: ${result.created_todos} ToDos und ${result.created_dependencies} Abhängigkeiten erstellt` +
-          (result.order_name ? ` für ${result.order_name}` : '')
+          `Erfolgreich: ${totalTodos} ToDos und ${totalDependencies} Abhängigkeiten erstellt` +
+          (orderInfo ? ` für ${orderInfo}` : '')
         )
         
         // Wait a moment then close
         setTimeout(() => {
           onSuccess()
         }, 1500)
-      } else {
-        setError(result.errors.join(', ') || 'Unbekannter Fehler')
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Fehler beim Generieren'
@@ -309,6 +361,23 @@ export default function TodoGeneratorModal({
               />
               Nur Aufträge ohne ToDos
             </label>
+            <span style={{ marginLeft: 'auto', fontSize: '12px', color: '#666' }}>
+              {selectedOrderIds.size > 0 && `${selectedOrderIds.size} ausgewählt`}
+            </span>
+            <button
+              style={{ ...styles.button, padding: '4px 8px', fontSize: '11px' }}
+              onClick={selectAll}
+              disabled={orders.length === 0}
+            >
+              Alle auswählen
+            </button>
+            <button
+              style={{ ...styles.button, padding: '4px 8px', fontSize: '11px' }}
+              onClick={deselectAll}
+              disabled={selectedOrderIds.size === 0}
+            >
+              Auswahl aufheben
+            </button>
           </div>
 
           {/* Order list */}
@@ -325,26 +394,38 @@ export default function TodoGeneratorModal({
                   key={order.order_id}
                   style={{
                     ...styles.orderItem,
-                    ...(selectedOrderId === order.order_id ? styles.orderItemSelected : {}),
-                    ...(hoveredOrderId === order.order_id && selectedOrderId !== order.order_id ? styles.orderItemHover : {}),
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: '10px',
+                    ...(selectedOrderIds.has(order.order_id) ? styles.orderItemSelected : {}),
+                    ...(hoveredOrderId === order.order_id && !selectedOrderIds.has(order.order_id) ? styles.orderItemHover : {}),
                     ...(order.has_todos ? styles.orderItemWithTodos : {}),
                   }}
-                  onClick={() => setSelectedOrderId(order.order_id)}
+                  onClick={() => toggleOrderSelection(order.order_id)}
                   onMouseEnter={() => setHoveredOrderId(order.order_id)}
                   onMouseLeave={() => setHoveredOrderId(null)}
                 >
-                  <div>
-                    <span style={styles.orderName}>{order.order_name}</span>
-                    {order.has_todos && (
-                      <span style={styles.todosBadge}>
-                        {order.todo_count} ToDos
-                      </span>
-                    )}
-                  </div>
-                  <div style={styles.orderMeta}>
-                    <span>Kunde: {order.customer || '-'}</span>
-                    <span>Liefertermin: {formatDate(order.delivery_date)}</span>
-                    <span>Artikel: {order.article_count}</span>
+                  <input
+                    type="checkbox"
+                    checked={selectedOrderIds.has(order.order_id)}
+                    onChange={() => toggleOrderSelection(order.order_id)}
+                    onClick={e => e.stopPropagation()}
+                    style={{ marginTop: '2px' }}
+                  />
+                  <div style={{ flex: 1 }}>
+                    <div>
+                      <span style={styles.orderName}>{order.order_name}</span>
+                      {order.has_todos && (
+                        <span style={styles.todosBadge}>
+                          {order.todo_count} ToDos
+                        </span>
+                      )}
+                    </div>
+                    <div style={styles.orderMeta}>
+                      <span>Kunde: {order.customer || '-'}</span>
+                      <span>Liefertermin: {formatDate(order.delivery_date)}</span>
+                      <span>Artikel: {order.article_count}</span>
+                    </div>
                   </div>
                 </div>
               ))
@@ -352,7 +433,7 @@ export default function TodoGeneratorModal({
           </div>
 
           {/* Options */}
-          {selectedOrderId && (
+          {selectedOrderIds.size > 0 && (
             <div style={styles.options}>
               <label style={styles.optionLabel}>
                 <input
@@ -378,12 +459,17 @@ export default function TodoGeneratorModal({
           <button
             style={{
               ...styles.buttonPrimary,
-              ...((!selectedOrderId || generating) ? styles.buttonDisabled : {}),
+              ...((selectedOrderIds.size === 0 || generating) ? styles.buttonDisabled : {}),
             }}
             onClick={handleGenerate}
-            disabled={!selectedOrderId || generating}
+            disabled={selectedOrderIds.size === 0 || generating}
           >
-            {generating ? 'Generiere...' : 'Generieren'}
+            {generating 
+              ? 'Generiere...' 
+              : selectedOrderIds.size > 1 
+                ? `${selectedOrderIds.size} Aufträge generieren`
+                : 'Generieren'
+            }
           </button>
         </div>
       </div>
