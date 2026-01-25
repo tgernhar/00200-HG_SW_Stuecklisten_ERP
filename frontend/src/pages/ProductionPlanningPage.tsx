@@ -208,8 +208,18 @@ export default function ProductionPlanningPage() {
   
   // Track pending changes for sync before filter change
   const pendingChangesRef = useRef<GanttSyncRequest | null>(null)
+  
+  // Refs to track current date filter values (to avoid dependency issues)
+  const dateFromRef = useRef<string>('')
+  const dateToRef = useRef<string>('')
+  
+  // Update refs when state changes
+  useEffect(() => {
+    dateFromRef.current = dateFrom
+    dateToRef.current = dateTo
+  }, [dateFrom, dateTo])
 
-  // Load initial data
+  // Load data - uses current date filter values from refs
   const loadData = useCallback(async () => {
     setLoading(true)
     setError(null)
@@ -220,11 +230,15 @@ export default function ProductionPlanningPage() {
         ? selectedResourceIds.join(',') 
         : undefined
       
+      // Use refs to get current date filter values
+      const currentDateFrom = dateFromRef.current
+      const currentDateTo = dateToRef.current
+      
       const [ganttResponse, resourcesResponse, conflictsResponse, workingHoursResponse] = await Promise.all([
         getGanttData({ 
           resource_ids: resourceFilter,
-          date_from: dateFrom || undefined,
-          date_to: dateTo || undefined,
+          date_from: currentDateFrom || undefined,
+          date_to: currentDateTo || undefined,
         }),
         getResources({ is_active: true }),
         getConflicts({ resolved: false }),
@@ -246,6 +260,7 @@ export default function ProductionPlanningPage() {
     }
   }, [selectedResourceIds])
 
+  // Initial load
   // Initial load
   useEffect(() => {
     loadData()
@@ -427,6 +442,11 @@ export default function ProductionPlanningPage() {
     if (!editingTodo) return
     
     try {
+      // Get planned_start from editing todo (convert from ISO to backend format)
+      const parentPlannedStart = editingTodo.planned_start 
+        ? editingTodo.planned_start.replace('T', ' ').slice(0, 19)
+        : undefined
+      
       for (const item of selectedItems) {
         let newTodo: PPSTodoCreate
         
@@ -442,6 +462,7 @@ export default function ProductionPlanningPage() {
               quantity: articleItem.quantity || 1,
               priority: 50,
               status: 'new',
+              planned_start: parentPlannedStart,
             }
             break
           }
@@ -457,6 +478,7 @@ export default function ProductionPlanningPage() {
               quantity: Math.round(bomItem.quantity || 1),
               priority: 50,
               status: 'new',
+              planned_start: parentPlannedStart,
             }
             break
           }
@@ -474,6 +496,7 @@ export default function ProductionPlanningPage() {
               run_time_minutes: workstepItem.unittime ? Math.round(workstepItem.unittime) : undefined,
               priority: 50,
               status: 'new',
+              planned_start: parentPlannedStart,
             }
             break
           }
@@ -683,6 +706,8 @@ export default function ProductionPlanningPage() {
               onLinkDelete={handleLinkDelete}
               onSelectionChange={setSelectedTaskIds}
               workingHours={workingHours}
+              dateFrom={dateFrom}
+              dateTo={dateTo}
               height="100%"
             />
           ) : (

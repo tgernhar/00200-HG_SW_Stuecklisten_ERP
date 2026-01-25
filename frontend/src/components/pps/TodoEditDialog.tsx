@@ -361,7 +361,7 @@ export default function TodoEditDialog({
   }
   const [status, setStatus] = useState<TodoStatus>(todo.status)
   const [plannedStart, setPlannedStart] = useState(
-    todo.planned_start ? todo.planned_start.slice(0, 16) : ''
+    todo.planned_start ? todo.planned_start.replace(' ', 'T').slice(0, 19) : ''
   )
   const [totalDurationMinutes, setTotalDurationMinutes] = useState(
     todo.total_duration_minutes || 60
@@ -787,73 +787,38 @@ export default function TodoEditDialog({
 
           {/* Time Section with +/- controls */}
           <div style={styles.timeSection}>
-            <select
-              value={plannedStart ? new Date(plannedStart).getDate() : ''}
+            <input
+              type="date"
+              value={plannedStart ? plannedStart.slice(0, 10) : ''}
               onChange={e => {
-                if (plannedStart) {
-                  const d = new Date(plannedStart)
-                  d.setDate(parseInt(e.target.value))
-                  setPlannedStart(d.toISOString().slice(0, 19))
+                if (e.target.value && plannedStart) {
+                  // Replace date part, keep time
+                  const newDate = e.target.value + plannedStart.slice(10)
+                  setPlannedStart(newDate)
+                } else if (e.target.value) {
+                  // No plannedStart yet, create new with default time
+                  setPlannedStart(e.target.value + 'T09:00:00')
                 }
               }}
-              style={{ ...styles.select, width: '50px' }}
-            >
-              {Array.from({ length: 31 }, (_, i) => (
-                <option key={i + 1} value={i + 1}>{i + 1}</option>
-              ))}
-            </select>
+              style={{ ...styles.input, width: '140px' }}
+            />
             
-            <select
-              value={plannedStart ? new Date(plannedStart).getMonth() : 0}
+            <input
+              type="time"
+              value={plannedStart ? plannedStart.slice(11, 16) : '09:00'}
               onChange={e => {
-                if (plannedStart) {
-                  const d = new Date(plannedStart)
-                  d.setMonth(parseInt(e.target.value))
-                  setPlannedStart(d.toISOString().slice(0, 19))
+                if (e.target.value && plannedStart) {
+                  // Keep date part, replace time
+                  const newDate = plannedStart.slice(0, 11) + e.target.value + ':00'
+                  setPlannedStart(newDate)
+                } else if (e.target.value) {
+                  // No plannedStart yet, create with today's date
+                  const today = new Date().toISOString().slice(0, 10)
+                  setPlannedStart(today + 'T' + e.target.value + ':00')
                 }
               }}
-              style={{ ...styles.select, width: '100px' }}
-            >
-              {['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'].map((month, i) => (
-                <option key={i} value={i}>{month}</option>
-              ))}
-            </select>
-            
-            <select
-              value={plannedStart ? new Date(plannedStart).getFullYear() : 2026}
-              onChange={e => {
-                if (plannedStart) {
-                  const d = new Date(plannedStart)
-                  d.setFullYear(parseInt(e.target.value))
-                  setPlannedStart(d.toISOString().slice(0, 19))
-                }
-              }}
-              style={{ ...styles.select, width: '70px' }}
-            >
-              {Array.from({ length: 10 }, (_, i) => 2024 + i).map(year => (
-                <option key={year} value={year}>{year}</option>
-              ))}
-            </select>
-            
-            <select
-              value={plannedStart ? new Date(plannedStart).toTimeString().slice(0, 5) : '09:00'}
-              onChange={e => {
-                if (plannedStart) {
-                  const [hours, minutes] = e.target.value.split(':')
-                  const d = new Date(plannedStart)
-                  d.setHours(parseInt(hours), parseInt(minutes), 0, 0)
-                  setPlannedStart(d.toISOString().slice(0, 19))
-                }
-              }}
-              style={{ ...styles.select, width: '70px' }}
-            >
-              {Array.from({ length: 24 }, (_, h) => 
-                Array.from({ length: 4 }, (_, q) => {
-                  const time = `${h.toString().padStart(2, '0')}:${(q * 15).toString().padStart(2, '0')}`
-                  return <option key={time} value={time}>{time}</option>
-                })
-              ).flat()}
-            </select>
+              style={{ ...styles.input, width: '80px' }}
+            />
 
             <span style={styles.timeLabel}>-</span>
             

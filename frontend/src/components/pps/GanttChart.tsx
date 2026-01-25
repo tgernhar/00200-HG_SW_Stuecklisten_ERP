@@ -27,6 +27,8 @@ interface GanttChartProps {
   readOnly?: boolean
   height?: string
   workingHours?: WorkingHours[]
+  dateFrom?: string  // YYYY-MM-DD format
+  dateTo?: string    // YYYY-MM-DD format
 }
 
 const styles = {
@@ -54,6 +56,8 @@ export default function GanttChart({
   readOnly = false,
   height = '100%',
   workingHours,
+  dateFrom,
+  dateTo,
 }: GanttChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const initialized = useRef(false)
@@ -494,12 +498,24 @@ export default function GanttChart({
       links: data.links,
     })
     
+    // Set date range if provided
+    if (dateFrom && dateTo) {
+      const startDate = new Date(dateFrom + 'T00:00:00')
+      const endDate = new Date(dateTo + 'T23:59:59')
+      gantt.config.start_date = startDate
+      gantt.config.end_date = endDate
+    } else {
+      // Auto-calculate date range from tasks
+      gantt.config.start_date = null
+      gantt.config.end_date = null
+    }
+    
     // Render
     setTimeout(() => {
       gantt.render()
     }, 100)
     
-  }, [data])
+  }, [data, dateFrom, dateTo])
 
   return (
     <div 

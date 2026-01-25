@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import and_, or_, func
 from typing import List, Optional
 from datetime import datetime, date, timedelta
+import datetime as dt_module
 from app.core.database import get_db
 from app.models.pps_todo import (
     PPSTodo, PPSTodoSegment, PPSTodoDependency,
@@ -468,7 +469,9 @@ async def create_todo(payload: TodoCreate, db: Session = Depends(get_db)):
     
     # Calculate duration if not manual
     if not todo.is_duration_manual:
-        todo.total_duration_minutes = todo.calculate_duration()
+        calculated_duration = todo.calculate_duration()
+        # Use calculated duration, or default to 60 minutes if 0
+        todo.total_duration_minutes = calculated_duration if calculated_duration > 0 else 60
     
     # Calculate end if start and duration are set
     if todo.planned_start and todo.total_duration_minutes and not todo.planned_end:
@@ -596,8 +599,8 @@ async def split_todo(todo_id: int, payload: TodoSplitRequest, db: Session = Depe
 
 @router.get("/gantt/data", response_model=GanttData)
 async def get_gantt_data(
-    date_from: Optional[datetime] = None,
-    date_to: Optional[datetime] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
     erp_order_id: Optional[int] = None,
     resource_ids: Optional[str] = None,  # comma-separated
     current_employee_erp_id: Optional[int] = Header(None, alias="X-Employee-ERP-ID"),
@@ -609,6 +612,24 @@ async def get_gantt_data(
     - If current_employee_erp_id is provided, "eigene" todos are filtered by visibility
     - Without this header, "eigene" todos are excluded from Gantt view
     """
+    # Parse date strings to datetime objects
+    date_from_dt = None
+    date_to_dt = None
+    
+    if date_from:
+        try:
+            # Accept YYYY-MM-DD format and convert to datetime at start of day
+            date_from_dt = dt_module.datetime.strptime(date_from, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="date_from must be in YYYY-MM-DD format")
+    
+    if date_to:
+        try:
+            # Accept YYYY-MM-DD format and convert to datetime at end of day
+            date_to_dt = dt_module.datetime.strptime(date_to, "%Y-%m-%d").replace(hour=23, minute=59, second=59)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="date_to must be in YYYY-MM-DD format")
+    
     query = db.query(PPSTodo).options(
         joinedload(PPSTodo.conflicts),
         joinedload(PPSTodo.assigned_machine),
@@ -632,10 +653,10 @@ async def get_gantt_data(
         query = query.filter(PPSTodo.todo_type != 'eigene')
     
     # Apply filters
-    if date_from:
-        query = query.filter(PPSTodo.planned_end >= date_from)
-    if date_to:
-        query = query.filter(PPSTodo.planned_start <= date_to)
+    if date_from_dt:
+        query = query.filter(PPSTodo.planned_end >= date_from_dt)
+    if date_to_dt:
+        query = query.filter(PPSTodo.planned_start <= date_to_dt)
     if erp_order_id:
         query = query.filter(PPSTodo.erp_order_id == erp_order_id)
     
@@ -680,6 +701,40 @@ async def get_gantt_data(
     
     # Convert to Gantt tasks
     tasks = [_todo_to_gantt_task(t) for t in todos]
+    
+    # Calculate parent container dates from children
+    # Build parent-child map
+    parent_map = {}
+    for task in tasks:
+        if task.parent and task.parent != 0:
+            if task.parent not in parent_map:
+                parent_map[task.parent] = []
+            parent_map[task.parent].append(task)
+    
+    # Update parent dates based on children
+    for task in tasks:
+        if task.id in parent_map:
+            children = parent_map[task.id]
+            # Find earliest start and latest end among children
+            child_starts = [c.start_date for c in children if c.start_date]
+            if child_starts:
+                task.start_date = min(child_starts)
+                # Calculate total duration from start to end of all children
+                child_ends = []
+                for c in children:
+                    if c.start_date and c.duration:
+                        # Parse start_date and add duration
+                        from datetime import datetime, timedelta
+                        start = datetime.strptime(c.start_date, "%Y-%m-%d %H:%M")
+                        end = start + timedelta(minutes=c.duration)
+                        child_ends.append(end.strftime("%Y-%m-%d %H:%M"))
+                
+                if child_ends:
+                    latest_end = max(child_ends)
+                    # Calculate duration from earliest start to latest end
+                    start_dt = datetime.strptime(task.start_date, "%Y-%m-%d %H:%M")
+                    end_dt = datetime.strptime(latest_end, "%Y-%m-%d %H:%M")
+                    task.duration = int((end_dt - start_dt).total_seconds() / 60)
     
     # Get all dependencies for these todos
     todo_ids = [t.id for t in todos]
@@ -1230,7 +1285,6 @@ async def get_article_bom_items(article_id: int, db: Session = Depends(get_db)):
         
         # Get BOM items (packingnote_details) for this packingnote
         # Note: We need to go through packingnote_relation to get the details
-        print(f"[DEBUG] Fetching BOM items for packingnote_id={packingnote_id}, article_id={article_id}")
         cursor.execute("""
             SELECT 
                 pd.id as bom_item_id,
@@ -1245,10 +1299,7 @@ async def get_article_bom_items(article_id: int, db: Session = Depends(get_db)):
             ORDER BY pd.pos
         """, (packingnote_id,))
         
-        print(f"[DEBUG] Query executed, fetching results...")
-        
         rows = cursor.fetchall()
-        print(f"[DEBUG] Found {len(rows)} BOM items")
         cursor.close()
         erp_conn.close()
         
