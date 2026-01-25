@@ -84,13 +84,6 @@ def _todo_to_gantt_task(todo: PPSTodo) -> GanttTask:
     """Convert todo to DHTMLX Gantt task format"""
     duration = todo.total_duration_minutes or todo.calculate_duration() or 60
     
-    # #region agent log
-    import json
-    with open(r'c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log', 'a') as f:
-        from datetime import datetime as dt
-        f.write(json.dumps({"location":"pps.py:_todo_to_gantt_task","message":"Converting to Gantt","data":{"todo_id":todo.id,"title":todo.title[:50],"total_duration_minutes":todo.total_duration_minutes,"calculated_duration":todo.calculate_duration() if not todo.total_duration_minutes else None,"final_duration":duration,"quantity":todo.quantity,"setup_time":todo.setup_time_minutes,"run_time":todo.run_time_minutes,"is_manual":todo.is_duration_manual},"timestamp":int(dt.now().timestamp()*1000),"sessionId":"debug-session","hypothesisId":"H8"}) + '\n')
-    # #endregion
-    
     # Determine resource name
     resource_name = None
     resource_id = None
