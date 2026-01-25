@@ -159,7 +159,10 @@ class PPSTodo(Base):
     )
     
     def calculate_duration(self):
-        """Calculate total duration from setup and run times"""
+        """
+        Calculate total duration from setup and run times.
+        Returns duration rounded to 15-minute intervals (REQ-TODO-010).
+        """
         if self.is_duration_manual and self.total_duration_minutes is not None:
             return self.total_duration_minutes
         
@@ -167,7 +170,12 @@ class PPSTodo(Base):
         run = self.run_time_minutes or 0
         qty = self.quantity or 1
         
-        return setup + (run * qty)
+        raw_duration = setup + (run * qty)
+        
+        # Round to 15-minute intervals (REQ-TODO-010, REQ-CAL-001)
+        if raw_duration <= 0:
+            return 15
+        return int(((raw_duration + 14) // 15) * 15)
     
     def to_gantt_task(self):
         """Convert to DHTMLX Gantt task format"""

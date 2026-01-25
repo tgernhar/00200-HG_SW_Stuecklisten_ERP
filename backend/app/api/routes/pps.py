@@ -36,7 +36,7 @@ from app.services.pps_sync_service import (
     get_subordinate_ids, 
     get_employee_resource_ids_for_erp_ids
 )
-from app.services.pps_service import resolve_erp_details_for_todos
+from app.services.pps_service import resolve_erp_details_for_todos, round_to_15_minutes
 
 router = APIRouter(prefix="/pps", tags=["PPS"])
 
@@ -84,6 +84,13 @@ def _todo_to_gantt_task(todo: PPSTodo) -> GanttTask:
     """Convert todo to DHTMLX Gantt task format"""
     duration = todo.total_duration_minutes or todo.calculate_duration() or 60
     
+    # #region agent log
+    import json
+    with open(r'c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log', 'a') as f:
+        from datetime import datetime as dt
+        f.write(json.dumps({"location":"pps.py:_todo_to_gantt_task","message":"Converting to Gantt","data":{"todo_id":todo.id,"title":todo.title[:50],"total_duration_minutes":todo.total_duration_minutes,"calculated_duration":todo.calculate_duration() if not todo.total_duration_minutes else None,"final_duration":duration,"quantity":todo.quantity,"setup_time":todo.setup_time_minutes,"run_time":todo.run_time_minutes,"is_manual":todo.is_duration_manual},"timestamp":int(dt.now().timestamp()*1000),"sessionId":"debug-session","hypothesisId":"H8"}) + '\n')
+    # #endregion
+    
     # Determine resource name
     resource_name = None
     resource_id = None
@@ -121,12 +128,16 @@ def _todo_to_gantt_task(todo: PPSTodo) -> GanttTask:
         end_dt = todo.planned_start + timedelta(minutes=duration)
         end_date_str = end_dt.strftime("%Y-%m-%d %H:%M")
     
+    # CRITICAL: DHTMLX Gantt with duration_step=15 expects duration in 15-minute units
+    # We store duration in minutes, so divide by 15 for Gantt display
+    duration_in_gantt_units = duration / 15
+    
     return GanttTask(
         id=todo.id,
         text=todo.title,
         start_date=todo.planned_start.strftime("%Y-%m-%d %H:%M") if todo.planned_start else None,
         end_date=end_date_str,
-        duration=duration,
+        duration=duration_in_gantt_units,  # Convert minutes to 15-minute units
         parent=todo.parent_todo_id or 0,
         type=gantt_type,
         progress=progress,
@@ -535,9 +546,15 @@ async def update_todo(todo_id: int, payload: TodoUpdate, db: Session = Depends(g
             new_values[field] = str(value) if value else None
         setattr(todo, field, value)
     
+    # Round total_duration_minutes to 15-minute intervals (REQ-TODO-010)
+    if "total_duration_minutes" in update_data and update_data["total_duration_minutes"]:
+        todo.total_duration_minutes = round_to_15_minutes(update_data["total_duration_minutes"])
+        todo.is_duration_manual = True
+    
     # Recalculate duration if times changed and not manual
     if not todo.is_duration_manual and ("setup_time_minutes" in update_data or "run_time_minutes" in update_data or "quantity" in update_data):
-        todo.total_duration_minutes = todo.calculate_duration()
+        raw_duration = todo.calculate_duration()
+        todo.total_duration_minutes = round_to_15_minutes(raw_duration)
     
     # Recalculate end if start or duration changed
     if "planned_start" in update_data or "total_duration_minutes" in update_data:
@@ -801,8 +818,6 @@ async def sync_gantt_data(payload: GanttSyncRequest, db: Session = Depends(get_d
                 errors.append(f"Todo {task_id} nicht gefunden")
                 continue
             
-            print(f"[DEBUG] sync_gantt_data: task_id={task_id}, incoming_data={task_data}, current_duration={todo.total_duration_minutes}")
-            
             # Parse start_date from Gantt format
             if "start_date" in task_data and task_data["start_date"]:
                 try:
@@ -813,17 +828,17 @@ async def sync_gantt_data(payload: GanttSyncRequest, db: Session = Depends(get_d
                     except ValueError:
                         pass
             
-            # Duration in minutes
+            # Duration in minutes - round to 15-minute intervals (REQ-CAL-001)
+            # CRITICAL: Gantt sends duration in 15-minute units, convert back to minutes
             if "duration" in task_data:
-                old_duration = todo.total_duration_minutes
-                todo.total_duration_minutes = int(task_data["duration"])
+                duration_in_gantt_units = int(task_data["duration"])
+                raw_duration_minutes = duration_in_gantt_units * 15  # Convert from 15-min units to minutes
+                todo.total_duration_minutes = round_to_15_minutes(raw_duration_minutes)
                 todo.is_duration_manual = True
-                print(f"[DEBUG] sync_gantt_data: duration changed from {old_duration} to {todo.total_duration_minutes}")
             
             # Always recalculate planned_end if we have start and duration
             if todo.planned_start and todo.total_duration_minutes:
                 todo.planned_end = todo.planned_start + timedelta(minutes=todo.total_duration_minutes)
-                print(f"[DEBUG] sync_gantt_data: calculated planned_end={todo.planned_end}, start={todo.planned_start}, duration={todo.total_duration_minutes}")
             
             # Parent
             if "parent" in task_data:

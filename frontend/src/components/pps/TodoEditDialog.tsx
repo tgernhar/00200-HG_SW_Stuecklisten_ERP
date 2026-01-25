@@ -496,10 +496,23 @@ export default function TodoEditDialog({
     }
   }
 
+  // Round duration to 15-minute intervals (REQ-TODO-010, REQ-CAL-001)
+  const roundTo15Minutes = (minutes: number): number => {
+    if (minutes <= 0) return 15
+    return Math.ceil(minutes / 15) * 15
+  }
+
   // Duration adjustment
   const adjustDuration = (delta: number) => {
     const newDuration = Math.max(15, totalDurationMinutes + delta)
     setTotalDurationMinutes(newDuration)
+  }
+  
+  // Handle manual duration input with rounding
+  const handleDurationChange = (value: string) => {
+    const parsed = parseInt(value) || 15
+    const rounded = roundTo15Minutes(parsed)
+    setTotalDurationMinutes(rounded)
   }
 
   // Format date range for header
@@ -845,7 +858,8 @@ export default function TodoEditDialog({
             <input
               type="number"
               value={totalDurationMinutes}
-              onChange={e => setTotalDurationMinutes(parseInt(e.target.value) || 15)}
+              onChange={e => handleDurationChange(e.target.value)}
+              onBlur={e => handleDurationChange(e.target.value)}
               style={styles.timeInput}
               min={15}
               step={15}

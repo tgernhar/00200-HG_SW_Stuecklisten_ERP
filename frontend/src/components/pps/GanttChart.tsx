@@ -87,11 +87,13 @@ export default function GanttChart({
     gantt.config.auto_scheduling = false
     gantt.config.auto_scheduling_strict = false
     
-    // 15-minute time step
+    // 15-minute time step (REQ-TODO-010, REQ-CAL-001)
     gantt.config.time_step = 15
     gantt.config.min_duration = 15 * 60 * 1000 // 15 minutes in ms
     gantt.config.duration_unit = 'minute'
     gantt.config.duration_step = 15 // Duration changes in 15-min steps
+    gantt.config.round_dnd_dates = true // Round dates during drag & drop to time_step
+    gantt.config.skip_off_time = false // Allow dragging to any time (not just working hours)
     
     // Scale configuration
     gantt.config.scale_unit = 'day'
@@ -399,13 +401,27 @@ export default function GanttChart({
       return true  // Allow native lightbox if no custom handler
     })
     
+    // Track drag mode to distinguish from resize
+    let isDragging = false
+    const onBeforeTaskDrag = gantt.attachEvent('onBeforeTaskDrag', (id: number, mode: string) => {
+      isDragging = (mode === 'move')  // 'move' = drag, 'resize' = resize
+      return true
+    })
+    
     // Task updated (drag/resize)
     const onAfterTaskUpdate = gantt.attachEvent('onAfterTaskUpdate', (id: number, task: GanttTask) => {
       if (onTaskUpdate && !readOnly) {
+        // If it was a drag (not resize), preserve original duration from database
+        const originalDuration = data?.data.find(t => t.id === id)?.duration
+        const duration = isDragging && originalDuration ? originalDuration : task.duration
+        
+        // Reset drag flag
+        isDragging = false
+        
         const updateData = {
           text: task.text,
           start_date: gantt.templates.format_date(task.start_date),
-          duration: task.duration,
+          duration: duration,
           parent: task.parent,
           priority: typeof task.priority === 'string' ? parseInt(task.priority) || 50 : task.priority,
           type: task.type,
@@ -471,6 +487,7 @@ export default function GanttChart({
     
     return () => {
       gantt.detachEvent(onBeforeLightbox)
+      gantt.detachEvent(onBeforeTaskDrag)
       gantt.detachEvent(onAfterTaskUpdate)
       gantt.detachEvent(onAfterTaskAdd)
       gantt.detachEvent(onAfterTaskDelete)

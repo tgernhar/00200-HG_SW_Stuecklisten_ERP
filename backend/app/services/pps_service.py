@@ -18,6 +18,29 @@ from app.schemas.pps import (
 from app.core.database import get_erp_db_connection
 
 
+def round_to_15_minutes(minutes: float) -> int:
+    """
+    Round duration to 15-minute intervals (REQ-TODO-010, REQ-CAL-001).
+    
+    Args:
+        minutes: Duration in minutes (can be float)
+    
+    Returns:
+        Rounded duration in minutes (always multiple of 15)
+    
+    Examples:
+        1-7 minutes -> 15 minutes
+        8-22 minutes -> 15 minutes
+        23-37 minutes -> 30 minutes
+        67 minutes -> 75 minutes
+    """
+    if minutes <= 0:
+        return 15  # Minimum 15 minutes
+    
+    # Round up to next 15-minute interval
+    return int(((minutes + 14) // 15) * 15)
+
+
 def resolve_erp_details_for_todos(todos: List[PPSTodo]) -> List[Dict[str, Any]]:
     """
     Resolve ERP names for a list of todos by querying HUGWAWI.
@@ -341,7 +364,7 @@ def generate_todos_from_order(
                 art.articlenumber,
                 art.description,
                 art.department as department_id,
-                oar.batchsize as quantity
+                COALESCE(oar.batchsize, 1) as quantity
             FROM order_article_ref oar
             JOIN order_article oa ON oar.orderArticleId = oa.id
             JOIN article art ON oa.articleid = art.id
@@ -358,6 +381,12 @@ def generate_todos_from_order(
         
         cursor.execute(article_query, params)
         article_rows = cursor.fetchall()
+        
+        # #region agent log
+        import json
+        with open(r'c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log', 'a', encoding='utf-8') as f:
+            f.write(json.dumps({"location":"pps_service.py:383","message":"Article rows loaded","data":{"article_count":len(article_rows),"first_article":article_rows[0] if article_rows else None},"timestamp":int(datetime.now().timestamp()*1000),"sessionId":"debug-session","hypothesisId":"H7"}) + '\n')
+        # #endregion
         
         # All orders are 'task' type, but we'll set gantt_type differently
         # Orders with articles will have gantt_type='project' for visual grouping
@@ -460,11 +489,19 @@ def generate_todos_from_order(
                 created_todos += 1
             
             # 3. Get workplan for this article (if requested)
+            # #region agent log
+            import json
+            with open(r'c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log', 'a', encoding='utf-8') as f:
+                f.write(json.dumps({"location":"pps_service.py:486","message":"Before workplan check","data":{"include_workplan":include_workplan,"packingnoteid":article_row.get('packingnoteid'),"article_keys":list(article_row.keys())},"timestamp":int(datetime.now().timestamp()*1000),"sessionId":"debug-session","hypothesisId":"H7"}) + '\n')
+            # #endregion
+            
             if include_workplan and article_row['packingnoteid']:
                 packingnoteid = article_row['packingnoteid']
                 
                 # Get workplan details with time values (setuptime, unittime)
-                # wp.packingnoteid references packingnote_details.id (BOM item)
+                # IMPORTANT: workplan.packingnoteid references packingnote_details.id (BOM item), 
+                # NOT order_article.packingnoteid (which is the packingnote header ID)
+                # We need to go through packingnote_relation to get all BOM items
                 cursor.execute("""
                     SELECT 
                         wpd.id as detail_id,
@@ -475,18 +512,28 @@ def generate_todos_from_order(
                         ws.name as workstep_name,
                         qi.id as machine_id,
                         qi.name as machine_name,
-                        wp.packingnoteid as packingnote_details_id
-                    FROM workplan wp
+                        pd.id as packingnote_details_id,
+                        pd.quantity as bom_quantity
+                    FROM packingnote_relation pnr
+                    JOIN packingnote_details pd ON pd.id = pnr.detail
+                    JOIN workplan wp ON wp.packingnoteid = pd.id
                     JOIN workplan_relation wpr ON wpr.workplanId = wp.id
                     JOIN workplan_details wpd ON wpd.id = wpr.detail
                     LEFT JOIN qualificationitem qi ON qi.id = wpd.qualificationitem
                     LEFT JOIN qualificationitem_workstep qiws ON qiws.item = qi.id
                     LEFT JOIN workstep ws ON ws.id = qiws.workstep
-                    WHERE wp.packingnoteid = %s
-                    ORDER BY wpd.pos
+                    WHERE pnr.packingNoteId = %s
+                    ORDER BY pd.pos, wpd.pos
                 """, (packingnoteid,))
                 
                 workplan_rows = cursor.fetchall()
+                
+                # #region agent log
+                import json
+                with open(r'c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log', 'a', encoding='utf-8') as f:
+                    f.write(json.dumps({"location":"pps_service.py:512","message":"Workplan rows from DB","data":{"packingnoteid":packingnoteid,"row_count":len(workplan_rows),"first_row":workplan_rows[0] if workplan_rows else None},"timestamp":int(datetime.now().timestamp()*1000),"sessionId":"debug-session","hypothesisId":"H5"}) + '\n')
+                # #endregion
+                
                 prev_operation_id = None
                 
                 for wp_row in workplan_rows:
@@ -515,17 +562,34 @@ def generate_todos_from_order(
                         # unittime = Stückzeit pro Teil in Minuten
                         setup_time = wp_row.get('setuptime') or 0
                         unit_time = wp_row.get('unittime') or 0
-                        quantity = article_row['quantity'] or 1
+                        # Use BOM quantity from packingnote_details, not order article quantity
+                        quantity = wp_row.get('bom_quantity') or article_row['quantity'] or 1
+                        
+                        # #region agent log
+                        import json
+                        with open(r'c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log', 'a', encoding='utf-8') as f:
+                            f.write(json.dumps({"location":"pps_service.py:520","message":"Time values from ERP","data":{"setup_time":setup_time,"unit_time":unit_time,"quantity":quantity,"wp_row_keys":list(wp_row.keys()),"article_row_quantity":article_row.get('quantity')},"timestamp":int(datetime.now().timestamp()*1000),"sessionId":"debug-session","hypothesisId":"H1,H2,H5"}) + '\n')
+                        # #endregion
                         
                         # Calculate total duration: setup + (unit_time * quantity)
-                        # If no time data available, use default of 5 minutes
+                        # If no time data available, use default of 15 minutes (rounded)
                         if setup_time == 0 and unit_time == 0:
-                            total_duration = 5  # Default fallback
+                            total_duration = 15  # Default fallback (rounded to 15-min)
                             setup_time = 0
-                            exec_time = 5
+                            exec_time = 15
+                            # #region agent log
+                            with open(r'c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log', 'a', encoding='utf-8') as f:
+                                f.write(json.dumps({"location":"pps_service.py:533","message":"Using fallback duration","data":{"total_duration":total_duration},"timestamp":int(datetime.now().timestamp()*1000),"sessionId":"debug-session","hypothesisId":"H1,H4"}) + '\n')
+                            # #endregion
                         else:
                             exec_time = unit_time
-                            total_duration = setup_time + (unit_time * quantity)
+                            # Calculate raw duration and round to 15-minute intervals (REQ-TODO-010)
+                            raw_duration = setup_time + (unit_time * quantity)
+                            total_duration = round_to_15_minutes(raw_duration)
+                            # #region agent log
+                            with open(r'c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log', 'a', encoding='utf-8') as f:
+                                f.write(json.dumps({"location":"pps_service.py:542","message":"Calculated duration","data":{"raw_duration":raw_duration,"total_duration":total_duration,"formula":f"{setup_time} + ({unit_time} * {quantity})"},"timestamp":int(datetime.now().timestamp()*1000),"sessionId":"debug-session","hypothesisId":"H3,H4"}) + '\n')
+                            # #endregion
                         
                         # Find or create machine resource
                         machine_resource_id = None
@@ -548,10 +612,11 @@ def generate_todos_from_order(
                             parent_todo_id=article_container_id,
                             todo_type='operation',
                             title=op_title[:255],
-                            quantity=quantity,
-                            setup_time_minutes=setup_time,
-                            run_time_minutes=exec_time,
-                            total_duration_minutes=total_duration,
+                            quantity=quantity,  # Store actual BOM quantity for transparency
+                            setup_time_minutes=setup_time,  # Store setup time as-is
+                            run_time_minutes=exec_time,  # Store unit time (NOT multiplied)
+                            total_duration_minutes=total_duration,  # Store final calculated duration
+                            is_duration_manual=True,  # CRITICAL: Prevent calculate_duration() from recalculating
                             status='new',
                             delivery_date=delivery_date,
                             assigned_department_id=department_resource_id,
@@ -561,12 +626,22 @@ def generate_todos_from_order(
                             created_at=datetime.utcnow(),
                             updated_at=datetime.utcnow(),
                         )
+                        
+                        # #region agent log
+                        print(f"[DEBUG] Created operation: title={op_title[:50]}, qty={quantity}, setup={setup_time}, run={exec_time}, total={total_duration}, is_manual=True")
+                        # #endregion
+                        
                         # Calculate planned_end from planned_start + duration
                         if operation.planned_start and operation.total_duration_minutes:
                             operation.planned_end = operation.planned_start + timedelta(minutes=operation.total_duration_minutes)
                         
                         db.add(operation)
                         db.flush()
+                        
+                        # #region agent log
+                        print(f"[DEBUG] After flush: id={operation.id}, total_duration_minutes={operation.total_duration_minutes}, is_duration_manual={operation.is_duration_manual}")
+                        # #endregion
+                        
                         operation_id = operation.id
                         created_todos += 1
                     
