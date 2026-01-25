@@ -456,5 +456,38 @@ class WorkingHoursListResponse(BaseModel):
     items: List[WorkingHours]
 
 
+# ============== Picker Schemas (for Todo creation from ERP hierarchy) ==============
+
+class OrderArticleOption(BaseModel):
+    """Order article option for picker dialog"""
+    id: int  # order_article.id
+    position: Optional[str] = None
+    articlenumber: str
+    description: Optional[str] = None
+    quantity: Optional[int] = None
+    has_todo: bool = False  # Whether a todo already exists for this article
+
+
+class BomItemOption(BaseModel):
+    """BOM item (Stücklistenartikel) option for picker dialog"""
+    id: int  # packingnote_details.id
+    position: Optional[str] = None
+    articlenumber: str
+    description: Optional[str] = None
+    quantity: Optional[float] = None
+    has_todo: bool = False
+
+
+class WorkstepOption(BaseModel):
+    """Workstep (Arbeitsgang) option for picker dialog"""
+    id: int  # workplan_details.id
+    position: Optional[str] = None
+    name: str
+    machine_name: Optional[str] = None
+    setuptime: Optional[float] = None
+    unittime: Optional[float] = None
+    has_todo: bool = False
+
+
 # Forward references for self-referencing models
 TodoWithDetails.model_rebuild()

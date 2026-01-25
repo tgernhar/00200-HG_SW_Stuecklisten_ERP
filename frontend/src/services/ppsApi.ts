@@ -28,6 +28,9 @@ import {
   AvailableOrder,
   AuditLogEntry,
   ResourceType,
+  OrderArticleOption,
+  BomItemOption,
+  WorkstepOption,
 } from './ppsTypes'
 
 const BASE_URL = '/pps'
@@ -244,6 +247,23 @@ export async function updateWorkingHours(data: WorkingHoursUpdate[]): Promise<Wo
   return response.data.items
 }
 
+// ============== Picker APIs (for Todo creation from ERP hierarchy) ==============
+
+export async function getOrderArticles(orderId: number): Promise<OrderArticleOption[]> {
+  const response = await api.get(`${BASE_URL}/orders/${orderId}/articles`)
+  return response.data
+}
+
+export async function getArticleBomItems(articleId: number): Promise<BomItemOption[]> {
+  const response = await api.get(`${BASE_URL}/articles/${articleId}/bom-items`)
+  return response.data
+}
+
+export async function getBomWorksteps(bomId: number): Promise<WorkstepOption[]> {
+  const response = await api.get(`${BASE_URL}/bom-items/${bomId}/worksteps`)
+  return response.data
+}
+
 // Export all functions as a single object for convenience
 export const ppsApi = {
   getTodos,
@@ -269,6 +289,9 @@ export const ppsApi = {
   getAuditLog,
   getWorkingHours,
   updateWorkingHours,
+  getOrderArticles,
+  getArticleBomItems,
+  getBomWorksteps,
 }
 
 export default ppsApi

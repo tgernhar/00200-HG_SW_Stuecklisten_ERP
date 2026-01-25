@@ -29,6 +29,7 @@ from app.schemas.pps import (
     GenerateTodosRequest, GenerateTodosResponse, AvailableOrder,
     ResourceSyncRequest, ResourceSyncResponse,
     TodoType, TodoStatus, ResourceType,
+    OrderArticleOption, BomItemOption, WorkstepOption,
 )
 from app.services.pps_sync_service import (
     get_subordinate_ids, 
@@ -1140,3 +1141,203 @@ async def get_audit_log(
         }
         for e in entries
     ]
+
+
+# ============== Picker Endpoints (for Todo creation from ERP hierarchy) ==============
+
+@router.get("/orders/{order_id}/articles", response_model=List[OrderArticleOption])
+async def get_order_articles(order_id: int, db: Session = Depends(get_db)):
+    """
+    Get all order articles (Auftragsartikel) for an order.
+    Used by picker dialog to create todos from specific articles.
+    """
+    from app.core.database import get_erp_db_connection
+    
+    try:
+        erp_conn = get_erp_db_connection()
+        cursor = erp_conn.cursor(dictionary=True)
+        
+        # Query order articles from HUGWAWI
+        cursor.execute("""
+            SELECT 
+                oa.id as order_article_id,
+                oa.position,
+                art.articlenumber,
+                art.description,
+                oar.batchsize as quantity
+            FROM order_article_ref oar
+            JOIN order_article oa ON oar.orderArticleId = oa.id
+            JOIN article art ON oa.articleid = art.id
+            WHERE oar.orderid = %s
+            ORDER BY oa.position
+        """, (order_id,))
+        
+        rows = cursor.fetchall()
+        cursor.close()
+        erp_conn.close()
+        
+        # Check which articles already have todos
+        existing_article_ids = set(
+            r[0] for r in db.query(PPSTodo.erp_order_article_id)
+            .filter(
+                PPSTodo.erp_order_article_id.isnot(None),
+                PPSTodo.erp_order_id == order_id
+            ).all()
+        )
+        
+        result = []
+        for row in rows:
+            result.append(OrderArticleOption(
+                id=row['order_article_id'],
+                position=str(row['position']) if row['position'] else None,
+                articlenumber=row['articlenumber'] or '',
+                description=row['description'],
+                quantity=row['quantity'],
+                has_todo=row['order_article_id'] in existing_article_ids
+            ))
+        
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Fehler beim Laden der Auftragsartikel: {str(e)}")
+
+
+@router.get("/articles/{article_id}/bom-items", response_model=List[BomItemOption])
+async def get_article_bom_items(article_id: int, db: Session = Depends(get_db)):
+    """
+    Get all BOM items (Stücklistenartikel) for an order article.
+    Uses the packingnoteid from order_article to find related packingnote_details.
+    """
+    from app.core.database import get_erp_db_connection
+    
+    try:
+        erp_conn = get_erp_db_connection()
+        cursor = erp_conn.cursor(dictionary=True)
+        
+        # First get the packingnoteid for this order article
+        cursor.execute("""
+            SELECT oa.packingnoteid
+            FROM order_article oa
+            WHERE oa.id = %s
+        """, (article_id,))
+        
+        oa_row = cursor.fetchone()
+        if not oa_row or not oa_row['packingnoteid']:
+            cursor.close()
+            erp_conn.close()
+            return []
+        
+        packingnote_id = oa_row['packingnoteid']
+        
+        # Get BOM items (packingnote_details) for this packingnote
+        # Note: We need to go through packingnote_relation to get the details
+        print(f"[DEBUG] Fetching BOM items for packingnote_id={packingnote_id}, article_id={article_id}")
+        cursor.execute("""
+            SELECT 
+                pd.id as bom_item_id,
+                pd.pos as position,
+                art.articlenumber,
+                art.description,
+                pd.cascadedQuantity as quantity
+            FROM packingnote_relation pnr
+            JOIN packingnote_details pd ON pd.id = pnr.detail
+            LEFT JOIN article art ON art.id = pd.article
+            WHERE pnr.packingNoteId = %s
+            ORDER BY pd.pos
+        """, (packingnote_id,))
+        
+        print(f"[DEBUG] Query executed, fetching results...")
+        
+        rows = cursor.fetchall()
+        print(f"[DEBUG] Found {len(rows)} BOM items")
+        cursor.close()
+        erp_conn.close()
+        
+        # Check which BOM items already have todos
+        existing_bom_ids = set(
+            r[0] for r in db.query(PPSTodo.erp_packingnote_details_id)
+            .filter(PPSTodo.erp_packingnote_details_id.isnot(None))
+            .all()
+        )
+        
+        result = []
+        for row in rows:
+            try:
+                result.append(BomItemOption(
+                    id=row['bom_item_id'],
+                    position=str(row['position']) if row['position'] else None,
+                    articlenumber=row['articlenumber'] or '',
+                    description=row['description'] or '',  # Ensure not None
+                    quantity=float(row['quantity']) if row['quantity'] is not None else None,
+                    has_todo=row['bom_item_id'] in existing_bom_ids
+                ))
+            except Exception as row_error:
+                # Log but continue with other rows
+                print(f"Error processing BOM item row: {row}, error: {row_error}")
+                continue
+        
+        return result
+    except Exception as e:
+        import traceback
+        error_detail = f"Fehler beim Laden der Stücklistenartikel: {str(e)}\n{traceback.format_exc()}"
+        print(error_detail)
+        raise HTTPException(status_code=500, detail=error_detail)
+
+
+@router.get("/bom-items/{bom_id}/worksteps", response_model=List[WorkstepOption])
+async def get_bom_worksteps(bom_id: int, db: Session = Depends(get_db)):
+    """
+    Get all worksteps (Arbeitsgänge) for a BOM item (packingnote_details).
+    Uses the workplan associated with the packingnote_details.
+    """
+    from app.core.database import get_erp_db_connection
+    
+    try:
+        erp_conn = get_erp_db_connection()
+        cursor = erp_conn.cursor(dictionary=True)
+        
+        # Get workplan details for this BOM item
+        # wp.packingnoteid references packingnote_details.id
+        cursor.execute("""
+            SELECT 
+                wpd.id as workstep_id,
+                wpd.pos as position,
+                ws.name as workstep_name,
+                qi.name as machine_name,
+                wpd.setuptime,
+                wpd.unittime
+            FROM workplan wp
+            JOIN workplan_relation wpr ON wpr.workplanId = wp.id
+            JOIN workplan_details wpd ON wpd.id = wpr.detail
+            LEFT JOIN qualificationitem qi ON qi.id = wpd.qualificationitem
+            LEFT JOIN qualificationitem_workstep qiws ON qiws.item = qi.id
+            LEFT JOIN workstep ws ON ws.id = qiws.workstep
+            WHERE wp.packingnoteid = %s
+            ORDER BY wpd.pos
+        """, (bom_id,))
+        
+        rows = cursor.fetchall()
+        cursor.close()
+        erp_conn.close()
+        
+        # Check which worksteps already have todos
+        existing_workstep_ids = set(
+            r[0] for r in db.query(PPSTodo.erp_workplan_detail_id)
+            .filter(PPSTodo.erp_workplan_detail_id.isnot(None))
+            .all()
+        )
+        
+        result = []
+        for row in rows:
+            result.append(WorkstepOption(
+                id=row['workstep_id'],
+                position=str(row['position']) if row['position'] else None,
+                name=row['workstep_name'] or 'Arbeitsgang',
+                machine_name=row['machine_name'],
+                setuptime=row['setuptime'],
+                unittime=row['unittime'],
+                has_todo=row['workstep_id'] in existing_workstep_ids
+            ))
+        
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Fehler beim Laden der Arbeitsgänge: {str(e)}")

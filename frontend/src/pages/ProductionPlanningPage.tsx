@@ -22,6 +22,7 @@ import {
   checkConflicts,
   getWorkingHours,
   getTodoWithERPDetails,
+  createTodo,
   WorkingHours,
 } from '../services/ppsApi'
 import {
@@ -29,10 +30,15 @@ import {
   GanttTask,
   GanttLink,
   PPSTodoWithERPDetails,
+  PPSTodoCreate,
   GanttSyncRequest,
   PPSResource,
   PPSConflictWithTodos,
+  OrderArticleOption,
+  BomItemOption,
+  WorkstepOption,
 } from '../services/ppsTypes'
+import { PickerType } from '../components/pps/ErpPickerDialog'
 
 const styles = {
   container: {
@@ -151,6 +157,22 @@ const styles = {
     height: '100%',
     color: '#666666',
   },
+  dateFilterGroup: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    marginLeft: '12px',
+  },
+  dateLabel: {
+    fontSize: '12px',
+    color: '#666',
+  },
+  dateInput: {
+    padding: '4px 8px',
+    border: '1px solid #ccc',
+    borderRadius: '3px',
+    fontSize: '12px',
+  },
   error: {
     padding: '20px',
     backgroundColor: '#ffeeee',
@@ -180,6 +202,10 @@ export default function ProductionPlanningPage() {
   // Edit dialog state
   const [editingTodo, setEditingTodo] = useState<PPSTodoWithERPDetails | null>(null)
   
+  // Date filter state
+  const [dateFrom, setDateFrom] = useState<string>('')
+  const [dateTo, setDateTo] = useState<string>('')
+  
   // Track pending changes for sync before filter change
   const pendingChangesRef = useRef<GanttSyncRequest | null>(null)
 
@@ -195,7 +221,11 @@ export default function ProductionPlanningPage() {
         : undefined
       
       const [ganttResponse, resourcesResponse, conflictsResponse, workingHoursResponse] = await Promise.all([
-        getGanttData({ resource_ids: resourceFilter }),
+        getGanttData({ 
+          resource_ids: resourceFilter,
+          date_from: dateFrom || undefined,
+          date_to: dateTo || undefined,
+        }),
         getResources({ is_active: true }),
         getConflicts({ resolved: false }),
         getWorkingHours(),
@@ -389,6 +419,78 @@ export default function ProductionPlanningPage() {
     loadData()
   }, [loadData])
 
+  // Handle creating new todos from picker selection
+  const handleCreateFromPicker = useCallback(async (
+    selectedItems: Array<OrderArticleOption | BomItemOption | WorkstepOption>,
+    pickerType: PickerType
+  ) => {
+    if (!editingTodo) return
+    
+    try {
+      for (const item of selectedItems) {
+        let newTodo: PPSTodoCreate
+        
+        switch (pickerType) {
+          case 'article': {
+            const articleItem = item as OrderArticleOption
+            newTodo = {
+              todo_type: 'container_article',
+              title: `Pos ${articleItem.position || ''}: ${articleItem.articlenumber} - ${articleItem.description || ''}`.slice(0, 255),
+              erp_order_id: editingTodo.erp_order_id,
+              erp_order_article_id: articleItem.id,
+              parent_todo_id: editingTodo.id,
+              quantity: articleItem.quantity || 1,
+              priority: 50,
+              status: 'new',
+            }
+            break
+          }
+          case 'bom': {
+            const bomItem = item as BomItemOption
+            newTodo = {
+              todo_type: 'operation',  // BOM items become operations
+              title: `Stückliste ${bomItem.position || ''}: ${bomItem.articlenumber} - ${bomItem.description || ''}`.slice(0, 255),
+              erp_order_id: editingTodo.erp_order_id,
+              erp_order_article_id: editingTodo.erp_order_article_id,
+              erp_packingnote_details_id: bomItem.id,
+              parent_todo_id: editingTodo.id,
+              quantity: Math.round(bomItem.quantity || 1),
+              priority: 50,
+              status: 'new',
+            }
+            break
+          }
+          case 'workstep': {
+            const workstepItem = item as WorkstepOption
+            newTodo = {
+              todo_type: 'operation',
+              title: `AG ${workstepItem.position || ''}: ${workstepItem.name}${workstepItem.machine_name ? ` (${workstepItem.machine_name})` : ''}`.slice(0, 255),
+              erp_order_id: editingTodo.erp_order_id,
+              erp_order_article_id: editingTodo.erp_order_article_id,
+              erp_packingnote_details_id: editingTodo.erp_packingnote_details_id,
+              erp_workplan_detail_id: workstepItem.id,
+              parent_todo_id: editingTodo.id,
+              setup_time_minutes: workstepItem.setuptime ? Math.round(workstepItem.setuptime) : undefined,
+              run_time_minutes: workstepItem.unittime ? Math.round(workstepItem.unittime) : undefined,
+              priority: 50,
+              status: 'new',
+            }
+            break
+          }
+        }
+        
+        await createTodo(newTodo)
+      }
+      
+      // Close dialog and reload data
+      setEditingTodo(null)
+      loadData()
+    } catch (err) {
+      console.error('Error creating todos from picker:', err)
+      alert('Fehler beim Erstellen der Todos: ' + (err instanceof Error ? err.message : 'Unbekannter Fehler'))
+    }
+  }, [editingTodo, loadData])
+
   // Render loading state
   if (loading && !ganttData) {
     return (
@@ -453,9 +555,51 @@ export default function ProductionPlanningPage() {
         >
           Zoom -
         </button>
-        <span style={{ fontSize: '11px', color: '#666' }}>
+        <span style={{ fontSize: '11px', color: '#666', marginRight: '8px' }}>
           {zoomLevel === 'hour' ? 'Stunde' : zoomLevel === 'day' ? 'Tag' : 'Woche'}
         </span>
+        
+        <div style={styles.toolbarSeparator} />
+        
+        {/* Date range filter */}
+        <div style={styles.dateFilterGroup}>
+          <span style={styles.dateLabel}>Von:</span>
+          <input
+            type="date"
+            value={dateFrom}
+            onChange={e => setDateFrom(e.target.value)}
+            style={styles.dateInput}
+          />
+          <span style={styles.dateLabel}>Bis:</span>
+          <input
+            type="date"
+            value={dateTo}
+            onChange={e => setDateTo(e.target.value)}
+            style={styles.dateInput}
+          />
+          <button
+            style={styles.toolbarButton}
+            onClick={() => loadData()}
+            disabled={isSyncing}
+          >
+            Anwenden
+          </button>
+          {(dateFrom || dateTo) && (
+            <button
+              style={styles.toolbarButton}
+              onClick={() => {
+                setDateFrom('')
+                setDateTo('')
+                // Reload after clearing - use setTimeout to ensure state is updated
+                setTimeout(() => loadData(), 0)
+              }}
+              disabled={isSyncing}
+              title="Datumsfilter zurücksetzen"
+            >
+              ×
+            </button>
+          )}
+        </div>
         
         <div style={styles.toolbarSeparator} />
         
@@ -588,6 +732,7 @@ export default function ProductionPlanningPage() {
           onClose={() => setEditingTodo(null)}
           onSave={handleEditSave}
           onDelete={handleDeleteFromDialog}
+          onCreateFromPicker={handleCreateFromPicker}
         />
       )}
     </div>

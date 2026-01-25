@@ -3,10 +3,15 @@
  * 
  * Styled like the Planboard Lightbox with orange header.
  * Can be used in both ProductionPlanningPage (Gantt) and TodoListPage.
+ * 
+ * Supports:
+ * - Editing existing todos
+ * - Creating new todos from ERP hierarchy via "+" buttons
  */
 import React, { useState, useEffect, useMemo } from 'react'
-import { updateTodo, getResources, deleteTodo } from '../../services/ppsApi'
-import { PPSTodoWithERPDetails, PPSTodoUpdate, PPSResource, TodoStatus, TodoType } from '../../services/ppsTypes'
+import { updateTodo, getResources, deleteTodo, createTodo } from '../../services/ppsApi'
+import { PPSTodoWithERPDetails, PPSTodoUpdate, PPSTodoCreate, PPSResource, TodoStatus, TodoType, OrderArticleOption, BomItemOption, WorkstepOption } from '../../services/ppsTypes'
+import ErpPickerDialog, { PickerType } from './ErpPickerDialog'
 
 interface TodoEditDialogProps {
   todo: PPSTodoWithERPDetails
@@ -15,6 +20,7 @@ interface TodoEditDialogProps {
   onClose: () => void
   onSave: (updatedTodo: PPSTodoWithERPDetails, ganttType?: 'task' | 'project' | 'milestone') => void
   onDelete?: (todoId: number) => void
+  onCreateFromPicker?: (selectedItems: Array<OrderArticleOption | BomItemOption | WorkstepOption>, pickerType: PickerType) => void
 }
 
 const styles = {
@@ -153,6 +159,50 @@ const styles = {
     border: '1px solid #e0e0e0',
     borderRadius: '2px',
   },
+  erpValueEmpty: {
+    flex: 1,
+    color: '#999999',
+    padding: '2px 6px',
+    backgroundColor: '#fafafa',
+    border: '1px solid #e0e0e0',
+    borderRadius: '2px',
+    fontStyle: 'italic' as const,
+  },
+  erpValueHighlight: {
+    flex: 1,
+    color: '#2e7d32',
+    padding: '2px 6px',
+    backgroundColor: '#e8f5e9',
+    border: '1px solid #a5d6a7',
+    borderRadius: '2px',
+    fontWeight: 500,
+  },
+  plusButton: {
+    width: '22px',
+    height: '22px',
+    padding: 0,
+    marginRight: '6px',
+    border: '1px solid #4caf50',
+    borderRadius: '3px',
+    backgroundColor: '#ffffff',
+    color: '#4caf50',
+    fontSize: '16px',
+    fontWeight: 'bold' as const,
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    transition: 'all 0.15s',
+  },
+  plusButtonHover: {
+    backgroundColor: '#4caf50',
+    color: '#ffffff',
+  },
+  plusButtonDisabled: {
+    border: '1px solid #ccc',
+    color: '#ccc',
+    cursor: 'not-allowed',
+  },
   // Footer with buttons
   footer: {
     padding: '10px 12px',
@@ -272,9 +322,15 @@ export default function TodoEditDialog({
   onClose,
   onSave,
   onDelete,
+  onCreateFromPicker,
 }: TodoEditDialogProps) {
   // Form state
   const [priority, setPriority] = useState<number | ''>(todo.priority)
+  
+  // Picker dialog state
+  const [pickerType, setPickerType] = useState<PickerType | null>(null)
+  const [pickerParentId, setPickerParentId] = useState<number | null>(null)
+  const [hoveredPlusButton, setHoveredPlusButton] = useState<string | null>(null)
   const [todoType, setTodoType] = useState<TodoType>(todo.todo_type)
   const [ganttType, setGanttType] = useState<'task' | 'project' | 'milestone'>(
     initialGanttType || (todo.todo_type.startsWith('container') ? 'project' : 'task')
@@ -368,11 +424,19 @@ export default function TodoEditDialog({
     setError(null)
     
     try {
+      // Format planned_start correctly for backend
+      let formattedPlannedStart: string | undefined = undefined
+      if (plannedStart) {
+        // plannedStart is already in ISO format (YYYY-MM-DDTHH:MM:SS)
+        // Backend expects YYYY-MM-DD HH:MM:SS format
+        formattedPlannedStart = plannedStart.replace('T', ' ')
+      }
+      
       const updateData: PPSTodoUpdate = {
         description: description.trim() || undefined,
         status,
         priority: typeof priority === 'number' ? priority : 50,  // Ensure number before sending
-        planned_start: plannedStart ? `${plannedStart}:00` : undefined,
+        planned_start: formattedPlannedStart,
         total_duration_minutes: totalDurationMinutes,
         assigned_department_id: assignedDepartmentId || undefined,
         assigned_machine_id: assignedMachineId || undefined,
@@ -561,33 +625,103 @@ export default function TodoEditDialog({
             />
           </div>
 
-          {/* ERP Reference Fields (read-only) - only shown if data exists */}
-          {hasErpData && (
+          {/* ERP Reference Fields - always show hierarchy with "+" buttons for creating sub-todos */}
+          {(hasErpData || todo.erp_order_id) && (
             <div style={styles.erpSection}>
-              {todo.order_name && (
-                <div style={styles.erpRow}>
-                  <span style={styles.erpLabel}>Auftrag:</span>
-                  <span style={styles.erpValue}>{todo.order_name}</span>
-                </div>
-              )}
-              {todo.order_article_number && (
-                <div style={styles.erpRow}>
-                  <span style={styles.erpLabel}>Auftragsartikel:</span>
-                  <span style={styles.erpValue}>{todo.order_article_number}</span>
-                </div>
-              )}
-              {todo.bom_article_number && (
-                <div style={styles.erpRow}>
-                  <span style={styles.erpLabel}>Stücklistenartikel:</span>
-                  <span style={styles.erpValue}>{todo.bom_article_number}</span>
-                </div>
-              )}
-              {todo.workstep_name && (
-                <div style={styles.erpRow}>
-                  <span style={styles.erpLabel}>Arbeitsgang:</span>
-                  <span style={styles.erpValue}>{todo.workstep_name}</span>
-                </div>
-              )}
+              {/* Auftrag - always shown if erp_order_id exists, no "+" button */}
+              <div style={styles.erpRow}>
+                <span style={styles.erpLabel}>Auftrag:</span>
+                <span style={todo.order_name ? styles.erpValue : styles.erpValueEmpty}>
+                  {todo.order_name || '-'}
+                </span>
+              </div>
+              
+              {/* Auftragsartikel - with "+" button to create from order articles */}
+              <div style={styles.erpRow}>
+                {todo.erp_order_id && onCreateFromPicker && (
+                  <button
+                    style={{
+                      ...styles.plusButton,
+                      ...(hoveredPlusButton === 'article' ? styles.plusButtonHover : {}),
+                      ...(todo.order_article_number ? styles.plusButtonDisabled : {}),
+                    }}
+                    onClick={() => {
+                      if (!todo.order_article_number && todo.erp_order_id) {
+                        setPickerType('article')
+                        setPickerParentId(todo.erp_order_id)
+                      }
+                    }}
+                    onMouseEnter={() => setHoveredPlusButton('article')}
+                    onMouseLeave={() => setHoveredPlusButton(null)}
+                    disabled={!!todo.order_article_number}
+                    title={todo.order_article_number ? 'Auftragsartikel bereits vorhanden' : 'Auftragsartikel auswählen'}
+                  >
+                    +
+                  </button>
+                )}
+                <span style={styles.erpLabel}>Auftragsartikel:</span>
+                <span style={todo.order_article_number ? styles.erpValue : styles.erpValueEmpty}>
+                  {todo.order_article_number || '-'}
+                </span>
+              </div>
+              
+              {/* Stücklistenartikel - with "+" button to create from BOM items */}
+              <div style={styles.erpRow}>
+                {todo.erp_order_article_id && onCreateFromPicker && (
+                  <button
+                    style={{
+                      ...styles.plusButton,
+                      ...(hoveredPlusButton === 'bom' ? styles.plusButtonHover : {}),
+                      ...(todo.bom_article_number ? styles.plusButtonDisabled : {}),
+                    }}
+                    onClick={() => {
+                      if (!todo.bom_article_number && todo.erp_order_article_id) {
+                        setPickerType('bom')
+                        setPickerParentId(todo.erp_order_article_id)
+                      }
+                    }}
+                    onMouseEnter={() => setHoveredPlusButton('bom')}
+                    onMouseLeave={() => setHoveredPlusButton(null)}
+                    disabled={!!todo.bom_article_number}
+                    title={todo.bom_article_number ? 'Stücklistenartikel bereits vorhanden' : 'Stücklistenartikel auswählen'}
+                  >
+                    +
+                  </button>
+                )}
+                <span style={styles.erpLabel}>Stücklistenartikel:</span>
+                <span style={todo.bom_article_number ? styles.erpValue : styles.erpValueEmpty}>
+                  {todo.bom_article_number || '-'}
+                </span>
+              </div>
+              
+              {/* Arbeitsgang - with "+" button to create from worksteps */}
+              <div style={styles.erpRow}>
+                {todo.erp_packingnote_details_id && onCreateFromPicker && (
+                  <button
+                    style={{
+                      ...styles.plusButton,
+                      ...(hoveredPlusButton === 'workstep' ? styles.plusButtonHover : {}),
+                      ...(todo.workstep_name ? styles.plusButtonDisabled : {}),
+                    }}
+                    onClick={() => {
+                      if (!todo.workstep_name && todo.erp_packingnote_details_id) {
+                        setPickerType('workstep')
+                        setPickerParentId(todo.erp_packingnote_details_id)
+                      }
+                    }}
+                    onMouseEnter={() => setHoveredPlusButton('workstep')}
+                    onMouseLeave={() => setHoveredPlusButton(null)}
+                    disabled={!!todo.workstep_name}
+                    title={todo.workstep_name ? 'Arbeitsgang bereits vorhanden' : 'Arbeitsgang auswählen'}
+                  >
+                    +
+                  </button>
+                )}
+                <span style={styles.erpLabel}>Arbeitsgang:</span>
+                <span style={todo.workstep_name ? styles.erpValue : styles.erpValueEmpty}>
+                  {todo.workstep_name || '-'}
+                </span>
+              </div>
             </div>
           )}
 
@@ -659,7 +793,7 @@ export default function TodoEditDialog({
                 if (plannedStart) {
                   const d = new Date(plannedStart)
                   d.setDate(parseInt(e.target.value))
-                  setPlannedStart(d.toISOString().slice(0, 16))
+                  setPlannedStart(d.toISOString().slice(0, 19))
                 }
               }}
               style={{ ...styles.select, width: '50px' }}
@@ -670,19 +804,35 @@ export default function TodoEditDialog({
             </select>
             
             <select
-              value={plannedStart ? new Date(plannedStart).toLocaleString('de-DE', { month: 'long' }) : ''}
+              value={plannedStart ? new Date(plannedStart).getMonth() : 0}
+              onChange={e => {
+                if (plannedStart) {
+                  const d = new Date(plannedStart)
+                  d.setMonth(parseInt(e.target.value))
+                  setPlannedStart(d.toISOString().slice(0, 19))
+                }
+              }}
               style={{ ...styles.select, width: '100px' }}
-              disabled
             >
-              <option>{plannedStart ? new Date(plannedStart).toLocaleString('de-DE', { month: 'long' }) : 'Januar'}</option>
+              {['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'].map((month, i) => (
+                <option key={i} value={i}>{month}</option>
+              ))}
             </select>
             
             <select
               value={plannedStart ? new Date(plannedStart).getFullYear() : 2026}
+              onChange={e => {
+                if (plannedStart) {
+                  const d = new Date(plannedStart)
+                  d.setFullYear(parseInt(e.target.value))
+                  setPlannedStart(d.toISOString().slice(0, 19))
+                }
+              }}
               style={{ ...styles.select, width: '70px' }}
-              disabled
             >
-              <option>{plannedStart ? new Date(plannedStart).getFullYear() : 2026}</option>
+              {Array.from({ length: 10 }, (_, i) => 2024 + i).map(year => (
+                <option key={year} value={year}>{year}</option>
+              ))}
             </select>
             
             <select
@@ -691,8 +841,8 @@ export default function TodoEditDialog({
                 if (plannedStart) {
                   const [hours, minutes] = e.target.value.split(':')
                   const d = new Date(plannedStart)
-                  d.setHours(parseInt(hours), parseInt(minutes))
-                  setPlannedStart(d.toISOString().slice(0, 16))
+                  d.setHours(parseInt(hours), parseInt(minutes), 0, 0)
+                  setPlannedStart(d.toISOString().slice(0, 19))
                 }
               }}
               style={{ ...styles.select, width: '70px' }}
@@ -824,6 +974,28 @@ export default function TodoEditDialog({
           </div>
         </div>
       </div>
+
+      {/* ERP Picker Dialog */}
+      {pickerType && pickerParentId && (
+        <ErpPickerDialog
+          type={pickerType}
+          parentId={pickerParentId}
+          onClose={() => {
+            setPickerType(null)
+            setPickerParentId(null)
+          }}
+          onSelect={(selectedIds, selectedItems) => {
+            // Close picker
+            setPickerType(null)
+            setPickerParentId(null)
+            
+            // Notify parent to create new todos
+            if (onCreateFromPicker && selectedItems.length > 0) {
+              onCreateFromPicker(selectedItems, pickerType)
+            }
+          }}
+        />
+      )}
     </div>
   )
 }

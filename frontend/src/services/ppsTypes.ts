@@ -310,3 +310,33 @@ export interface AuditLogEntry {
   new_values?: Record<string, unknown>
   created_at?: string
 }
+
+// ============== Picker Types (for Todo creation from ERP hierarchy) ==============
+
+export interface OrderArticleOption {
+  id: number  // order_article.id
+  position?: string
+  articlenumber: string
+  description?: string
+  quantity?: number
+  has_todo: boolean
+}
+
+export interface BomItemOption {
+  id: number  // packingnote_details.id
+  position?: string
+  articlenumber: string
+  description?: string
+  quantity?: number
+  has_todo: boolean
+}
+
+export interface WorkstepOption {
+  id: number  // workplan_details.id
+  position?: string
+  name: string
+  machine_name?: string
+  setuptime?: number
+  unittime?: number
+  has_todo: boolean
+}
