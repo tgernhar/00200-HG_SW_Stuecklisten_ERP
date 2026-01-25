@@ -13,6 +13,7 @@ import ResourcePanel from '../components/pps/ResourcePanel'
 import ConflictPanel from '../components/pps/ConflictPanel'
 import TodoGeneratorModal from '../components/pps/TodoGeneratorModal'
 import TodoEditDialog from '../components/pps/TodoEditDialog'
+import ShiftTasksModal from '../components/pps/ShiftTasksModal'
 import {
   getGanttData,
   syncGanttData,
@@ -23,7 +24,10 @@ import {
   getWorkingHours,
   getTodoWithERPDetails,
   createTodo,
+  batchUpdateTodos,
+  shiftAllTodos,
   WorkingHours,
+  BatchUpdateItem,
 } from '../services/ppsApi'
 import {
   GanttData,
@@ -37,6 +41,7 @@ import {
   OrderArticleOption,
   BomItemOption,
   WorkstepOption,
+  AllWorkstepOption,
 } from '../services/ppsTypes'
 import { PickerType } from '../components/pps/ErpPickerDialog'
 
@@ -195,6 +200,7 @@ export default function ProductionPlanningPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showGeneratorModal, setShowGeneratorModal] = useState(false)
+  const [showShiftModal, setShowShiftModal] = useState(false)
   const [isSyncing, setIsSyncing] = useState(false)
   const [zoomLevel, setZoomLevel] = useState<'hour' | 'day' | 'week'>('day')
   const [showResourcePanel, setShowResourcePanel] = useState(true)
@@ -202,9 +208,17 @@ export default function ProductionPlanningPage() {
   // Edit dialog state
   const [editingTodo, setEditingTodo] = useState<PPSTodoWithERPDetails | null>(null)
   
-  // Date filter state
-  const [dateFrom, setDateFrom] = useState<string>('')
-  const [dateTo, setDateTo] = useState<string>('')
+  // Date filter state - initialize with default range (today -3 to today +7 days)
+  const [dateFrom, setDateFrom] = useState<string>(() => {
+    const d = new Date()
+    d.setDate(d.getDate() - 3)
+    return d.toISOString().slice(0, 10)
+  })
+  const [dateTo, setDateTo] = useState<string>(() => {
+    const d = new Date()
+    d.setDate(d.getDate() + 7)
+    return d.toISOString().slice(0, 10)
+  })
   
   // Track pending changes for sync before filter change
   const pendingChangesRef = useRef<GanttSyncRequest | null>(null)
@@ -282,10 +296,6 @@ export default function ProductionPlanningPage() {
 
   // Handle task update from Gantt - immediately sync to server
   const handleTaskUpdate = useCallback(async (taskId: number, task: Partial<GanttTask>) => {
-    // #region agent log
-    fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ProductionPlanningPage:handleTaskUpdate',message:'Task update triggered',data:{taskId,task:{start_date:task.start_date,end_date:task.end_date,duration:task.duration}},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
-    // #endregion
-    
     try {
       const syncRequest: GanttSyncRequest = {
         updated_tasks: [{ id: taskId, ...task }],
@@ -296,21 +306,12 @@ export default function ProductionPlanningPage() {
         deleted_link_ids: [],
       }
       
-      // #region agent log
-      fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ProductionPlanningPage:handleTaskUpdate:beforeSync',message:'About to sync',data:{syncRequest:syncRequest.updated_tasks[0]},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
-      // #endregion
-      
       // Store as pending and sync immediately
       pendingChangesRef.current = syncRequest
       await syncGanttData(syncRequest)
       pendingChangesRef.current = null
       
-      // #region agent log
-      fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ProductionPlanningPage:handleTaskUpdate:afterSync',message:'Sync completed, reloading data',data:{},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3'})}).catch(()=>{});
-      // #endregion
-      
-      // Reload gantt data to get updated end_date from backend
-      await loadData()
+      // DO NOT reload - Gantt already updated visually, sync is enough
       
     } catch (err) {
       console.error('Error updating task:', err)
@@ -374,6 +375,36 @@ export default function ProductionPlanningPage() {
       console.error('Error deleting link:', err)
     }
   }, [])
+
+  // Handle batch update (for auto-scheduling linked tasks)
+  const handleBatchUpdate = useCallback(async (updates: BatchUpdateItem[]) => {
+    try {
+      await batchUpdateTodos(updates)
+      // No need to reload - Gantt already updated visually
+    } catch (err) {
+      console.error('Error batch updating tasks:', err)
+    }
+  }, [])
+
+  // Handle shift all tasks
+  const handleShiftAllTasks = useCallback(async (shiftMinutes: number, dateFrom?: string, departmentId?: number) => {
+    try {
+      setIsSyncing(true)
+      const result = await shiftAllTodos({
+        shift_minutes: shiftMinutes,
+        date_from: dateFrom,
+        department_id: departmentId,
+      })
+      console.log(`Shifted ${result.shifted_count} tasks`)
+      setShowShiftModal(false)
+      await loadData()
+    } catch (err) {
+      console.error('Error shifting tasks:', err)
+      setError('Fehler beim Verschieben der Tasks')
+    } finally {
+      setIsSyncing(false)
+    }
+  }, [loadData])
 
   // Sync resources
   const handleSyncResources = useCallback(async () => {
@@ -510,6 +541,22 @@ export default function ProductionPlanningPage() {
             }
             break
           }
+          case 'generic_workstep': {
+            // Generic workstep from workstep table (not from workplan)
+            const genericWorkstep = item as AllWorkstepOption
+            newTodo = {
+              todo_type: 'operation',
+              title: `AG: ${genericWorkstep.name}`.slice(0, 255),
+              erp_order_id: editingTodo.erp_order_id,
+              erp_order_article_id: editingTodo.erp_order_article_id,
+              parent_todo_id: editingTodo.id,
+              total_duration_minutes: 60,  // Default duration for generic workstep
+              priority: 50,
+              status: 'new',
+              planned_start: parentPlannedStart,
+            }
+            break
+          }
         }
         
         await createTodo(newTodo)
@@ -563,6 +610,15 @@ export default function ProductionPlanningPage() {
           disabled={isSyncing}
         >
           Konflikte prüfen
+        </button>
+        
+        <button
+          style={styles.toolbarButton}
+          onClick={() => setShowShiftModal(true)}
+          disabled={isSyncing}
+          title="Alle Tasks um einen Zeitraum verschieben"
+        >
+          Tasks verschieben
         </button>
         
         <div style={styles.toolbarSeparator} />
@@ -714,6 +770,7 @@ export default function ProductionPlanningPage() {
               onTaskEdit={handleTaskEdit}
               onLinkCreate={handleLinkCreate}
               onLinkDelete={handleLinkDelete}
+              onBatchUpdate={handleBatchUpdate}
               onSelectionChange={setSelectedTaskIds}
               workingHours={workingHours}
               dateFrom={dateFrom}
@@ -768,6 +825,16 @@ export default function ProductionPlanningPage() {
           onSave={handleEditSave}
           onDelete={handleDeleteFromDialog}
           onCreateFromPicker={handleCreateFromPicker}
+        />
+      )}
+
+      {/* Shift Tasks Modal */}
+      {showShiftModal && (
+        <ShiftTasksModal
+          onClose={() => setShowShiftModal(false)}
+          onShift={handleShiftAllTasks}
+          departments={resources.filter(r => r.resource_type === 'department').map(r => ({ id: r.id, name: r.name }))}
+          currentDateFrom={dateFrom}
         />
       )}
     </div>

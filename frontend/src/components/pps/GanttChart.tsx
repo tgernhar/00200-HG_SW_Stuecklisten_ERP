@@ -14,6 +14,12 @@ import 'dhtmlx-gantt/codebase/dhtmlxgantt.css'
 import { GanttTask, GanttLink, GanttData } from '../../services/ppsTypes'
 import { WorkingHours } from '../../services/ppsApi'
 
+interface BatchUpdateItem {
+  id: number
+  start_date: string
+  duration: number
+}
+
 interface GanttChartProps {
   data: GanttData
   onTaskUpdate?: (taskId: number, task: Partial<GanttTask>) => void
@@ -24,6 +30,7 @@ interface GanttChartProps {
   onLinkDelete?: (linkId: number) => void
   onSelectionChange?: (selectedIds: number[]) => void
   onDateSelect?: (date: Date) => void
+  onBatchUpdate?: (updates: BatchUpdateItem[]) => void  // For auto-scheduling linked tasks
   readOnly?: boolean
   height?: string
   workingHours?: WorkingHours[]
@@ -53,6 +60,7 @@ export default function GanttChart({
   onLinkDelete,
   onSelectionChange,
   onDateSelect,
+  onBatchUpdate,
   readOnly = false,
   height = '100%',
   workingHours,
@@ -63,6 +71,7 @@ export default function GanttChart({
   const initialized = useRef(false)
   const onTaskUpdateRef = useRef(onTaskUpdate)
   const onTaskEditRef = useRef(onTaskEdit)
+  const onBatchUpdateRef = useRef(onBatchUpdate)
   const workingHoursRef = useRef(workingHours)
   
   // Update workingHours ref when it changes
@@ -79,13 +88,21 @@ export default function GanttChart({
     onTaskEditRef.current = onTaskEdit
   }, [onTaskEdit])
 
+  useEffect(() => {
+    onBatchUpdateRef.current = onBatchUpdate
+  }, [onBatchUpdate])
+
   // Configure Gantt
   const configureGantt = useCallback(() => {
     // Basic settings
     gantt.config.date_format = '%Y-%m-%d %H:%i'
     gantt.config.fit_tasks = true
-    gantt.config.auto_scheduling = false
-    gantt.config.auto_scheduling_strict = false
+    
+    // Auto-scheduling: move linked tasks together
+    // Note: Full auto_scheduling is a Pro feature, but we handle it manually
+    gantt.config.auto_scheduling = true
+    gantt.config.auto_scheduling_strict = true
+    gantt.config.auto_scheduling_compatibility = true
     
     // 15-minute time step (REQ-TODO-010, REQ-CAL-001)
     gantt.config.time_step = 15
@@ -121,19 +138,45 @@ export default function GanttChart({
     gantt.config.readonly = readOnly
     gantt.config.drag_move = !readOnly
     gantt.config.drag_resize = !readOnly
-    gantt.config.drag_progress = false
+    gantt.config.drag_progress = !readOnly  // Allow dragging progress bar
     gantt.config.drag_links = !readOnly
     
     // Task appearance
     gantt.config.row_height = 35
     gantt.config.task_height = 24
     
-    // Grid columns with priority
+    // Disable vertical movement between rows - only horizontal drag allowed
+    gantt.config.order_branch = false
+    gantt.config.order_branch_free = false
+    
+    // Grid columns with priority - duration in hours
     gantt.config.columns = [
       { name: 'text', label: 'Aufgabe', tree: true, width: 200, resize: true },
       { name: 'priority', label: 'Prio', align: 'center', width: 50 },
       { name: 'start_date', label: 'Start', align: 'center', width: 90 },
-      { name: 'duration', label: 'Dauer (Min)', align: 'center', width: 70 },
+      { 
+        name: 'duration', 
+        label: 'Dauer (h)', 
+        align: 'center', 
+        width: 70,
+        template: (task: GanttTask) => {
+          // Display duration in hours (X,X h format)
+          if (!task.duration) return '-'
+          const hours = task.duration / 60
+          return hours.toFixed(1).replace('.', ',') + ' h'
+        }
+      },
+      {
+        name: 'progress',
+        label: '%',
+        align: 'center',
+        width: 50,
+        template: (task: GanttTask) => {
+          // Display progress as percentage
+          if (task.progress === undefined || task.progress === null) return '-'
+          return Math.round(task.progress * 100) + '%'
+        }
+      },
       { name: 'resource_name', label: 'Ressource', width: 100, resize: true },
     ]
     
@@ -154,8 +197,11 @@ export default function GanttChart({
       return task.text
     }
     
-    // Progress bar (disabled for now)
-    gantt.templates.progress_text = () => ''
+    // Progress bar text template
+    gantt.templates.progress_text = (start: Date, end: Date, task: GanttTask) => {
+      if (!task.progress || task.progress === 0) return ''
+      return Math.round(task.progress * 100) + '%'
+    }
     
     // Tooltip
     gantt.templates.tooltip_text = (start: Date, end: Date, task: GanttTask) => {
@@ -401,6 +447,16 @@ export default function GanttChart({
       return true  // Allow native lightbox if no custom handler
     })
     
+    // Prevent vertical movement between rows - only allow horizontal drag
+    const onBeforeTaskMove = gantt.attachEvent('onBeforeTaskMove', (id: number, parent: number, tindex: number) => {
+      const task = gantt.getTask(id)
+      // Block if trying to move to a different parent (vertical movement)
+      if (task.parent !== parent) {
+        return false
+      }
+      return true
+    })
+    
     // Track drag mode to distinguish from resize
     let isDragging = false
     const onBeforeTaskDrag = gantt.attachEvent('onBeforeTaskDrag', (id: number, mode: string) => {
@@ -408,7 +464,7 @@ export default function GanttChart({
       return true
     })
     
-    // Task updated (drag/resize)
+    // Task updated (drag/resize) with auto-scheduling of linked tasks
     const onAfterTaskUpdate = gantt.attachEvent('onAfterTaskUpdate', (id: number, task: GanttTask) => {
       if (onTaskUpdate && !readOnly) {
         // If it was a drag (not resize), preserve original duration from database
@@ -416,6 +472,7 @@ export default function GanttChart({
         const duration = isDragging && originalDuration ? originalDuration : task.duration
         
         // Reset drag flag
+        const wasDragging = isDragging
         isDragging = false
         
         const updateData = {
@@ -425,8 +482,47 @@ export default function GanttChart({
           parent: task.parent,
           priority: typeof task.priority === 'string' ? parseInt(task.priority) || 50 : task.priority,
           type: task.type,
+          progress: task.progress,  // Include progress in update
         };
         onTaskUpdate(id, updateData);
+        
+        // Auto-scheduling: find and update linked successors
+        if (wasDragging && onBatchUpdateRef.current) {
+          const batchUpdates: BatchUpdateItem[] = []
+          const links = gantt.getLinks()
+          
+          // Find all links where this task is the source (predecessor)
+          const successorLinks = links.filter((link: GanttLink) => link.source === id)
+          
+          for (const link of successorLinks) {
+            const successorTask = gantt.getTask(link.target)
+            if (successorTask) {
+              // Calculate new start for successor based on this task's end
+              const thisTaskEnd = gantt.calculateEndDate({
+                start_date: task.start_date,
+                duration: duration,
+                task: task
+              })
+              
+              // Only update if successor starts before this task ends
+              if (successorTask.start_date < thisTaskEnd) {
+                successorTask.start_date = thisTaskEnd
+                gantt.updateTask(link.target)
+                
+                batchUpdates.push({
+                  id: link.target as number,
+                  start_date: gantt.templates.format_date(thisTaskEnd),
+                  duration: successorTask.duration as number
+                })
+              }
+            }
+          }
+          
+          // Send batch update to backend
+          if (batchUpdates.length > 0) {
+            onBatchUpdateRef.current(batchUpdates)
+          }
+        }
       }
     })
     
@@ -487,6 +583,7 @@ export default function GanttChart({
     
     return () => {
       gantt.detachEvent(onBeforeLightbox)
+      gantt.detachEvent(onBeforeTaskMove)
       gantt.detachEvent(onBeforeTaskDrag)
       gantt.detachEvent(onAfterTaskUpdate)
       gantt.detachEvent(onAfterTaskAdd)

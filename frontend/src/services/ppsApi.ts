@@ -31,6 +31,8 @@ import {
   OrderArticleOption,
   BomItemOption,
   WorkstepOption,
+  AllWorkstepOption,
+  MachineOption,
 } from './ppsTypes'
 
 const BASE_URL = '/pps'
@@ -264,6 +266,61 @@ export async function getBomWorksteps(bomId: number): Promise<WorkstepOption[]> 
   return response.data
 }
 
+// ============== All Worksteps (from workstep table) ==============
+
+export async function getAllWorksteps(): Promise<AllWorkstepOption[]> {
+  const response = await api.get(`${BASE_URL}/all-worksteps`)
+  return response.data
+}
+
+export async function getWorkstepMachines(workstepId: number): Promise<MachineOption[]> {
+  const response = await api.get(`${BASE_URL}/worksteps/${workstepId}/machines`)
+  return response.data
+}
+
+// ============== Batch Operations ==============
+
+export interface BatchUpdateItem {
+  id: number
+  start_date?: string  // "YYYY-MM-DD HH:MM"
+  duration?: number    // in 15-minute units (as from Gantt)
+  progress?: number    // 0.0 - 1.0
+}
+
+export interface BatchUpdateResponse {
+  updated: number[]
+}
+
+export interface ShiftTodosRequest {
+  shift_minutes: number  // Positive = forward, negative = backward
+  date_from?: string     // "YYYY-MM-DD"
+  department_id?: number
+}
+
+export interface ShiftTodosResponse {
+  shifted_count: number
+}
+
+export interface TodoDependenciesResponse {
+  predecessors: PPSTodo[]
+  successors: PPSTodo[]
+}
+
+export async function batchUpdateTodos(updates: BatchUpdateItem[]): Promise<BatchUpdateResponse> {
+  const response = await api.post(`${BASE_URL}/todos/batch-update`, { updates })
+  return response.data
+}
+
+export async function shiftAllTodos(request: ShiftTodosRequest): Promise<ShiftTodosResponse> {
+  const response = await api.post(`${BASE_URL}/todos/shift-all`, request)
+  return response.data
+}
+
+export async function getTodoDependencies(todoId: number): Promise<TodoDependenciesResponse> {
+  const response = await api.get(`${BASE_URL}/todos/${todoId}/dependencies`)
+  return response.data
+}
+
 // Export all functions as a single object for convenience
 export const ppsApi = {
   getTodos,
@@ -292,6 +349,12 @@ export const ppsApi = {
   getOrderArticles,
   getArticleBomItems,
   getBomWorksteps,
+  getAllWorksteps,
+  getWorkstepMachines,
+  // Batch operations
+  batchUpdateTodos,
+  shiftAllTodos,
+  getTodoDependencies,
 }
 
 export default ppsApi

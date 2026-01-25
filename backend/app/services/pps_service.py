@@ -22,23 +22,32 @@ def round_to_15_minutes(minutes: float) -> int:
     """
     Round duration to 15-minute intervals (REQ-TODO-010, REQ-CAL-001).
     
+    Uses standard rounding with 7.5-minute threshold:
+    - < 7.5 minutes remainder -> round down
+    - >= 7.5 minutes remainder -> round up
+    
     Args:
         minutes: Duration in minutes (can be float)
     
     Returns:
-        Rounded duration in minutes (always multiple of 15)
+        Rounded duration in minutes (always multiple of 15, minimum 15)
     
     Examples:
-        1-7 minutes -> 15 minutes
-        8-22 minutes -> 15 minutes
-        23-37 minutes -> 30 minutes
-        67 minutes -> 75 minutes
+        0-7.4 minutes -> 15 minutes (minimum)
+        7.5-22.4 minutes -> 15 minutes
+        22.5-37.4 minutes -> 30 minutes
+        37.5-52.4 minutes -> 45 minutes
+        67 minutes -> 60 minutes (67 % 15 = 7 < 7.5, round down)
+        68 minutes -> 75 minutes (68 % 15 = 8 >= 7.5, round up)
     """
     if minutes <= 0:
         return 15  # Minimum 15 minutes
     
-    # Round up to next 15-minute interval
-    return int(((minutes + 14) // 15) * 15)
+    # Standard rounding: < 7.5 remainder -> down, >= 7.5 remainder -> up
+    rounded = int(round(minutes / 15) * 15)
+    
+    # Ensure minimum of 15 minutes
+    return max(15, rounded)
 
 
 def resolve_erp_details_for_todos(todos: List[PPSTodo]) -> List[Dict[str, Any]]:
@@ -48,7 +57,9 @@ def resolve_erp_details_for_todos(todos: List[PPSTodo]) -> List[Dict[str, Any]]:
     Returns todo data enriched with:
     - order_name (from ordertable.name)
     - order_article_number (from article.articlenumber via order_article)
+    - order_article_path (from article.customtext7 via order_article)
     - bom_article_number (from article.articlenumber via packingnote_details)
+    - bom_article_path (from article.customtext7 via packingnote_details)
     - workstep_name (from qualificationitem.name via workplan_details)
     """
     if not todos:
@@ -70,10 +81,12 @@ def resolve_erp_details_for_todos(todos: List[PPSTodo]) -> List[Dict[str, Any]]:
         if todo.erp_workplan_detail_id:
             workplan_detail_ids.add(todo.erp_workplan_detail_id)
     
-    # Query HUGWAWI for names
+    # Query HUGWAWI for names and paths
     order_names: Dict[int, str] = {}
     order_article_numbers: Dict[int, str] = {}
+    order_article_paths: Dict[int, str] = {}
     bom_article_numbers: Dict[int, str] = {}
+    bom_article_paths: Dict[int, str] = {}
     workstep_names: Dict[int, str] = {}
     
     erp_conn = None
@@ -90,23 +103,25 @@ def resolve_erp_details_for_todos(todos: List[PPSTodo]) -> List[Dict[str, Any]]:
             for row in cursor.fetchall():
                 order_names[row['id']] = row['name']
         
-        # Get order article numbers (via article table)
+        # Get order article numbers and folder paths (via article table)
         if order_article_ids:
             placeholders = ','.join(['%s'] * len(order_article_ids))
             cursor.execute(f"""
-                SELECT oa.id, art.articlenumber
+                SELECT oa.id, art.articlenumber, art.customtext7 as folder_path
                 FROM order_article oa
                 JOIN article art ON oa.articleid = art.id
                 WHERE oa.id IN ({placeholders})
             """, tuple(order_article_ids))
             for row in cursor.fetchall():
                 order_article_numbers[row['id']] = row['articlenumber']
+                if row['folder_path']:
+                    order_article_paths[row['id']] = row['folder_path']
         
-        # Get BOM article numbers (via packingnote_details -> article)
+        # Get BOM article numbers and folder paths (via packingnote_details -> article)
         if packingnote_details_ids:
             placeholders = ','.join(['%s'] * len(packingnote_details_ids))
             cursor.execute(f"""
-                SELECT pd.id, art.articlenumber
+                SELECT pd.id, art.articlenumber, art.customtext7 as folder_path
                 FROM packingnote_details pd
                 LEFT JOIN article art ON art.id = pd.article
                 WHERE pd.id IN ({placeholders})
@@ -114,6 +129,8 @@ def resolve_erp_details_for_todos(todos: List[PPSTodo]) -> List[Dict[str, Any]]:
             for row in cursor.fetchall():
                 if row['articlenumber']:
                     bom_article_numbers[row['id']] = row['articlenumber']
+                if row['folder_path']:
+                    bom_article_paths[row['id']] = row['folder_path']
         
         # Get workstep names (via workplan_details -> qualificationitem)
         if workplan_detail_ids:
@@ -175,7 +192,9 @@ def resolve_erp_details_for_todos(todos: List[PPSTodo]) -> List[Dict[str, Any]]:
             # ERP resolved names
             'order_name': order_names.get(todo.erp_order_id) if todo.erp_order_id else None,
             'order_article_number': order_article_numbers.get(todo.erp_order_article_id) if todo.erp_order_article_id else None,
+            'order_article_path': order_article_paths.get(todo.erp_order_article_id) if todo.erp_order_article_id else None,
             'bom_article_number': bom_article_numbers.get(todo.erp_packingnote_details_id) if todo.erp_packingnote_details_id else None,
+            'bom_article_path': bom_article_paths.get(todo.erp_packingnote_details_id) if todo.erp_packingnote_details_id else None,
             'workstep_name': workstep_names.get(todo.erp_workplan_detail_id) if todo.erp_workplan_detail_id else None,
         }
         result.append(todo_dict)
@@ -311,18 +330,21 @@ def generate_todos_from_order(
     db: Session,
     erp_order_id: int,
     erp_order_article_ids: Optional[List[int]] = None,
-    include_workplan: bool = True,
+    include_workplan: bool = False,
+    include_bom_items: bool = False,
 ) -> GenerateTodosResponse:
     """
     Generate todos from an ERP order.
     
     Creates:
-    1. Order todo:
-       - Type 'task' if no order articles exist
-       - Type 'project' if order articles exist
+    1. Order todo (type 'task')
     2. Order article todos (type 'task') for each article
-    3. Operation todos from workplan (if include_workplan=True)
-    4. Dependencies based on workplan sequence
+    3. BOM item todos (if include_bom_items=True) - parallel start
+    4. Operation todos from workplan (if include_workplan=True) - sequential start
+    5. Dependencies based on workplan sequence
+    
+    IMPORTANT: Duration is ALWAYS calculated from workplans, even if include_workplan=False.
+    The include_workplan flag only controls whether operation todos are created.
     """
     erp_conn = None
     created_todos = 0
@@ -354,8 +376,9 @@ def generate_todos_from_order(
         order_name = order_row['name']
         delivery_date = order_row['delivery_date']
         customer = order_row['customer'] or ''
+        order_start = datetime.now().replace(second=0, microsecond=0)
         
-        # 2. Get order articles first to determine order type (including department from article)
+        # 2. Get order articles (including department from article)
         article_query = """
             SELECT 
                 oa.id as order_article_id,
@@ -364,6 +387,7 @@ def generate_todos_from_order(
                 art.articlenumber,
                 art.description,
                 art.department as department_id,
+                art.customtext7 as folder_path,
                 COALESCE(oar.batchsize, 1) as quantity
             FROM order_article_ref oar
             JOIN order_article oa ON oar.orderArticleId = oa.id
@@ -382,25 +406,25 @@ def generate_todos_from_order(
         cursor.execute(article_query, params)
         article_rows = cursor.fetchall()
         
-        # All orders are 'task' type, but we'll set gantt_type differently
-        # Orders with articles will have gantt_type='project' for visual grouping
-        has_articles = len(article_rows) > 0
         order_type = 'task'  # Always 'task' for todo_type
+        
+        # Calculate total order duration from ALL workplans (ALWAYS, regardless of include_workplan)
+        total_order_duration = 0
         
         # Check if order todo already exists
         existing_order = db.query(PPSTodo).filter(
             PPSTodo.erp_order_id == erp_order_id,
             PPSTodo.todo_type.in_(['container_order', 'project', 'task']),
+            PPSTodo.parent_todo_id.is_(None),  # Only top-level order todo
         ).first()
         
         if existing_order:
             order_container_id = existing_order.id
-            # Update type if needed
             if existing_order.todo_type != order_type:
                 existing_order.todo_type = order_type
                 existing_order.updated_at = datetime.utcnow()
         else:
-            # Create order todo with appropriate type
+            # Create order todo (duration will be updated later)
             order_container = PPSTodo(
                 erp_order_id=erp_order_id,
                 todo_type=order_type,
@@ -409,16 +433,11 @@ def generate_todos_from_order(
                 quantity=1,
                 status='new',
                 delivery_date=delivery_date,
-                planned_start=datetime.now().replace(second=0, microsecond=0),
+                planned_start=order_start,
                 version=1,
                 created_at=datetime.utcnow(),
                 updated_at=datetime.utcnow(),
             )
-            # Calculate planned_end from planned_start + duration
-            if order_container.planned_start:
-                duration = order_container.total_duration_minutes or 60
-                order_container.planned_end = order_container.planned_start + timedelta(minutes=duration)
-            
             db.add(order_container)
             db.flush()
             order_container_id = order_container.id
@@ -426,8 +445,9 @@ def generate_todos_from_order(
         
         for article_row in article_rows:
             order_article_id = article_row['order_article_id']
+            packingnoteid = article_row['packingnoteid']
             
-            # Get department resource from cache (based on article.department)
+            # Get department resource from cache
             department_resource_id = None
             department_id = article_row.get('department_id')
             if department_id:
@@ -438,58 +458,11 @@ def generate_todos_from_order(
                 if dep_resource:
                     department_resource_id = dep_resource.id
             
-            # Check if article todo already exists
-            existing_article = db.query(PPSTodo).filter(
-                PPSTodo.erp_order_article_id == order_article_id,
-                PPSTodo.todo_type.in_(['container_article', 'task']),
-            ).first()
+            # ALWAYS query workplan to calculate duration (regardless of include_workplan flag)
+            workplan_rows = []
+            total_article_duration = 0
             
-            if existing_article:
-                article_container_id = existing_article.id
-                # Update type to 'task' if needed
-                if existing_article.todo_type != 'task':
-                    existing_article.todo_type = 'task'
-                    existing_article.updated_at = datetime.utcnow()
-                # Update department if not set
-                if not existing_article.assigned_department_id and department_resource_id:
-                    existing_article.assigned_department_id = department_resource_id
-                    existing_article.updated_at = datetime.utcnow()
-            else:
-                # Create article todo as 'task'
-                article_title = f"Pos {article_row['position']}: {article_row['articlenumber']} - {article_row['description']}"
-                article_container = PPSTodo(
-                    erp_order_id=erp_order_id,
-                    erp_order_article_id=order_article_id,
-                    parent_todo_id=order_container_id,
-                    todo_type='task',
-                    title=article_title[:255],
-                    quantity=article_row['quantity'] or 1,
-                    status='new',
-                    delivery_date=delivery_date,
-                    assigned_department_id=department_resource_id,
-                    planned_start=datetime.now().replace(second=0, microsecond=0),
-                    version=1,
-                    created_at=datetime.utcnow(),
-                    updated_at=datetime.utcnow(),
-                )
-                # Calculate planned_end from planned_start + duration
-                if article_container.planned_start:
-                    duration = article_container.total_duration_minutes or 60
-                    article_container.planned_end = article_container.planned_start + timedelta(minutes=duration)
-                
-                db.add(article_container)
-                db.flush()
-                article_container_id = article_container.id
-                created_todos += 1
-            
-            # 3. Get workplan for this article (if requested)
-            if include_workplan and article_row['packingnoteid']:
-                packingnoteid = article_row['packingnoteid']
-                
-                # Get workplan details with time values (setuptime, unittime)
-                # IMPORTANT: workplan.packingnoteid references packingnote_details.id (BOM item), 
-                # NOT order_article.packingnoteid (which is the packingnote header ID)
-                # We need to go through packingnote_relation to get all BOM items
+            if packingnoteid:
                 cursor.execute("""
                     SELECT 
                         wpd.id as detail_id,
@@ -501,12 +474,15 @@ def generate_todos_from_order(
                         qi.id as machine_id,
                         qi.name as machine_name,
                         pd.id as packingnote_details_id,
-                        pd.quantity as bom_quantity
+                        pd.quantity as bom_quantity,
+                        art.articlenumber as bom_articlenumber,
+                        art.customtext7 as bom_folder_path
                     FROM packingnote_relation pnr
                     JOIN packingnote_details pd ON pd.id = pnr.detail
                     JOIN workplan wp ON wp.packingnoteid = pd.id
                     JOIN workplan_relation wpr ON wpr.workplanId = wp.id
                     JOIN workplan_details wpd ON wpd.id = wpr.detail
+                    LEFT JOIN article art ON art.id = pd.article
                     LEFT JOIN qualificationitem qi ON qi.id = wpd.qualificationitem
                     LEFT JOIN qualificationitem_workstep qiws ON qiws.item = qi.id
                     LEFT JOIN workstep ws ON ws.id = qiws.workstep
@@ -515,8 +491,78 @@ def generate_todos_from_order(
                 """, (packingnoteid,))
                 
                 workplan_rows = cursor.fetchall()
-                prev_operation_id = None
                 
+                # Calculate total duration from workplan
+                for wp_row in workplan_rows:
+                    setup_time_seconds = wp_row.get('setuptime') or 0
+                    unit_time_seconds = wp_row.get('unittime') or 0
+                    setup_time = setup_time_seconds / 60  # Seconds to minutes
+                    unit_time = unit_time_seconds / 60
+                    quantity = wp_row.get('bom_quantity') or article_row['quantity'] or 1
+                    
+                    # Duration formula: setup + (unit_time * quantity)
+                    raw_duration = setup_time + (unit_time * quantity)
+                    total_article_duration += raw_duration
+            
+            # Round the total article duration
+            if total_article_duration > 0:
+                total_article_duration = round_to_15_minutes(total_article_duration)
+            else:
+                total_article_duration = 60  # Default fallback
+            
+            total_order_duration += total_article_duration
+            
+            # Check if article todo already exists
+            existing_article = db.query(PPSTodo).filter(
+                PPSTodo.erp_order_article_id == order_article_id,
+                PPSTodo.todo_type.in_(['container_article', 'task']),
+            ).first()
+            
+            if existing_article:
+                article_container_id = existing_article.id
+                # Update duration from workplan calculation
+                if not existing_article.is_duration_manual:
+                    existing_article.total_duration_minutes = total_article_duration
+                    existing_article.updated_at = datetime.utcnow()
+                if existing_article.todo_type != 'task':
+                    existing_article.todo_type = 'task'
+                    existing_article.updated_at = datetime.utcnow()
+                if not existing_article.assigned_department_id and department_resource_id:
+                    existing_article.assigned_department_id = department_resource_id
+                    existing_article.updated_at = datetime.utcnow()
+            else:
+                # Create article todo with calculated duration
+                article_title = f"Pos {article_row['position']}: {article_row['articlenumber']} - {article_row['description']}"
+                article_container = PPSTodo(
+                    erp_order_id=erp_order_id,
+                    erp_order_article_id=order_article_id,
+                    parent_todo_id=order_container_id,
+                    todo_type='task',
+                    title=article_title[:255],
+                    quantity=article_row['quantity'] or 1,
+                    total_duration_minutes=total_article_duration,  # Duration from workplan
+                    is_duration_manual=False,
+                    status='new',
+                    delivery_date=delivery_date,
+                    assigned_department_id=department_resource_id,
+                    planned_start=order_start,
+                    version=1,
+                    created_at=datetime.utcnow(),
+                    updated_at=datetime.utcnow(),
+                )
+                article_container.planned_end = article_container.planned_start + timedelta(minutes=total_article_duration)
+                
+                db.add(article_container)
+                db.flush()
+                article_container_id = article_container.id
+                created_todos += 1
+            
+            # Track previous operation end time for sequential scheduling
+            prev_operation_end = order_start
+            prev_operation_id = None
+            
+            # Create operation todos ONLY if include_workplan=True
+            if include_workplan and workplan_rows:
                 for wp_row in workplan_rows:
                     detail_id = wp_row['detail_id']
                     
@@ -528,7 +574,7 @@ def generate_todos_from_order(
                     
                     if existing_op:
                         operation_id = existing_op.id
-                        # Update department if not set
+                        prev_operation_end = existing_op.planned_end or prev_operation_end
                         if not existing_op.assigned_department_id and department_resource_id:
                             existing_op.assigned_department_id = department_resource_id
                             existing_op.updated_at = datetime.utcnow()
@@ -538,28 +584,22 @@ def generate_todos_from_order(
                         if wp_row['machine_name']:
                             op_title += f" ({wp_row['machine_name']})"
                         
-                        # Get time values from HUGWAWI workplan_details
-                        # CRITICAL: setuptime and unittime are in SECONDS, convert to minutes
+                        # Calculate duration
                         setup_time_seconds = wp_row.get('setuptime') or 0
                         unit_time_seconds = wp_row.get('unittime') or 0
-                        setup_time = setup_time_seconds / 60  # Convert seconds to minutes
-                        unit_time = unit_time_seconds / 60  # Convert seconds to minutes
-                        # Use BOM quantity from packingnote_details, not order article quantity
+                        setup_time = setup_time_seconds / 60
+                        unit_time = unit_time_seconds / 60
                         quantity = wp_row.get('bom_quantity') or article_row['quantity'] or 1
                         
-                        # Calculate total duration: setup + (unit_time * quantity)
-                        # If no time data available, use default of 15 minutes (rounded)
                         if setup_time == 0 and unit_time == 0:
-                            total_duration = 15  # Default fallback (rounded to 15-min)
-                            setup_time = 0
+                            total_duration = 15
                             exec_time = 15
                         else:
                             exec_time = unit_time
-                            # Calculate raw duration and round to 15-minute intervals (REQ-TODO-010)
                             raw_duration = setup_time + (unit_time * quantity)
                             total_duration = round_to_15_minutes(raw_duration)
                         
-                        # Find or create machine resource
+                        # Find machine resource
                         machine_resource_id = None
                         if wp_row['machine_id']:
                             machine = db.query(PPSResourceCache).filter(
@@ -569,8 +609,11 @@ def generate_todos_from_order(
                             if machine:
                                 machine_resource_id = machine.id
                         
-                        # Get packingnote_details_id (BOM item) from workplan
                         packingnote_details_id = wp_row.get('packingnote_details_id')
+                        
+                        # SEQUENTIAL: Start at previous operation's end time
+                        operation_start = prev_operation_end
+                        operation_end = operation_start + timedelta(minutes=total_duration)
                         
                         operation = PPSTodo(
                             erp_order_id=erp_order_id,
@@ -580,32 +623,32 @@ def generate_todos_from_order(
                             parent_todo_id=article_container_id,
                             todo_type='operation',
                             title=op_title[:255],
-                            quantity=quantity,  # Store actual BOM quantity for transparency
-                            setup_time_minutes=setup_time,  # Store setup time as-is
-                            run_time_minutes=exec_time,  # Store unit time (NOT multiplied)
-                            total_duration_minutes=total_duration,  # Store final calculated duration
-                            is_duration_manual=True,  # CRITICAL: Prevent calculate_duration() from recalculating
+                            quantity=quantity,
+                            setup_time_minutes=setup_time,
+                            run_time_minutes=exec_time,
+                            total_duration_minutes=total_duration,
+                            is_duration_manual=True,
                             status='new',
                             delivery_date=delivery_date,
                             assigned_department_id=department_resource_id,
                             assigned_machine_id=machine_resource_id,
-                            planned_start=datetime.now().replace(second=0, microsecond=0),
+                            planned_start=operation_start,
+                            planned_end=operation_end,
                             version=1,
                             created_at=datetime.utcnow(),
                             updated_at=datetime.utcnow(),
                         )
-                        # Calculate planned_end from planned_start + duration
-                        if operation.planned_start and operation.total_duration_minutes:
-                            operation.planned_end = operation.planned_start + timedelta(minutes=operation.total_duration_minutes)
                         
                         db.add(operation)
                         db.flush()
                         operation_id = operation.id
                         created_todos += 1
+                        
+                        # Update for next operation
+                        prev_operation_end = operation_end
                     
-                    # Create dependency to previous operation
+                    # Create finish-to-start dependency to previous operation
                     if prev_operation_id:
-                        # Check if dependency exists
                         existing_dep = db.query(PPSTodoDependency).filter(
                             PPSTodoDependency.predecessor_id == prev_operation_id,
                             PPSTodoDependency.successor_id == operation_id,
@@ -624,11 +667,76 @@ def generate_todos_from_order(
                             created_dependencies += 1
                     
                     prev_operation_id = operation_id
+            
+            # Create BOM item todos if include_bom_items=True (PARALLEL start)
+            if include_bom_items and packingnoteid:
+                # Get BOM items from packingnote_details
+                cursor.execute("""
+                    SELECT DISTINCT
+                        pd.id as bom_item_id,
+                        pd.pos,
+                        pd.quantity,
+                        art.articlenumber,
+                        art.description,
+                        art.customtext7 as folder_path
+                    FROM packingnote_relation pnr
+                    JOIN packingnote_details pd ON pd.id = pnr.detail
+                    LEFT JOIN article art ON art.id = pd.article
+                    WHERE pnr.packingNoteId = %s
+                    ORDER BY pd.pos
+                """, (packingnoteid,))
+                
+                bom_items = cursor.fetchall()
+                
+                for bom_item in bom_items:
+                    bom_item_id = bom_item['bom_item_id']
+                    
+                    # Check if BOM item todo already exists
+                    existing_bom = db.query(PPSTodo).filter(
+                        PPSTodo.erp_packingnote_details_id == bom_item_id,
+                        PPSTodo.todo_type == 'task',
+                        PPSTodo.erp_workplan_detail_id.is_(None),  # Not an operation
+                    ).first()
+                    
+                    if not existing_bom:
+                        bom_title = f"BOM {bom_item['pos']}: {bom_item['articlenumber'] or 'Artikel'}"
+                        if bom_item['description']:
+                            bom_title += f" - {bom_item['description']}"
+                        
+                        # BOM items start PARALLEL at order start (no sequential dependencies)
+                        bom_todo = PPSTodo(
+                            erp_order_id=erp_order_id,
+                            erp_order_article_id=order_article_id,
+                            erp_packingnote_details_id=bom_item_id,
+                            parent_todo_id=article_container_id,
+                            todo_type='task',
+                            title=bom_title[:255],
+                            quantity=bom_item['quantity'] or 1,
+                            total_duration_minutes=60,  # Default for BOM items
+                            is_duration_manual=False,
+                            status='new',
+                            delivery_date=delivery_date,
+                            assigned_department_id=department_resource_id,
+                            planned_start=order_start,  # PARALLEL: All start at same time
+                            version=1,
+                            created_at=datetime.utcnow(),
+                            updated_at=datetime.utcnow(),
+                        )
+                        bom_todo.planned_end = bom_todo.planned_start + timedelta(minutes=60)
+                        
+                        db.add(bom_todo)
+                        db.flush()
+                        created_todos += 1
         
         cursor.close()
         
-        # Update container durations (aggregated from children)
-        _update_container_durations(db, order_container_id)
+        # Update order container duration
+        if total_order_duration > 0:
+            order_todo = db.query(PPSTodo).filter(PPSTodo.id == order_container_id).first()
+            if order_todo and not order_todo.is_duration_manual:
+                order_todo.total_duration_minutes = round_to_15_minutes(total_order_duration)
+                order_todo.planned_end = order_todo.planned_start + timedelta(minutes=order_todo.total_duration_minutes)
+                order_todo.updated_at = datetime.utcnow()
         
         db.commit()
         

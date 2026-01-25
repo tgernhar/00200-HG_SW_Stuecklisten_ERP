@@ -205,7 +205,8 @@ export default function TodoGeneratorModal({
   const [search, setSearch] = useState('')
   const [showOnlyNew, setShowOnlyNew] = useState(true)
   const [selectedOrderIds, setSelectedOrderIds] = useState<Set<number>>(new Set())
-  const [includeWorkplan, setIncludeWorkplan] = useState(true)
+  const [includeWorkplan, setIncludeWorkplan] = useState(false)  // Default: off
+  const [includeBomItems, setIncludeBomItems] = useState(false)  // Default: off
   const [hoveredOrderId, setHoveredOrderId] = useState<number | null>(null)
 
   // Toggle order selection
@@ -275,6 +276,7 @@ export default function TodoGeneratorModal({
           const result = await generateTodos({
             erp_order_id: orderId,
             include_workplan: includeWorkplan,
+            include_bom_items: includeBomItems,
           })
           
           if (result.success) {
@@ -438,10 +440,18 @@ export default function TodoGeneratorModal({
               <label style={styles.optionLabel}>
                 <input
                   type="checkbox"
+                  checked={includeBomItems}
+                  onChange={e => setIncludeBomItems(e.target.checked)}
+                />
+                Stücklistenartikel einbeziehen (parallel starten)
+              </label>
+              <label style={{ ...styles.optionLabel, marginTop: '8px' }}>
+                <input
+                  type="checkbox"
                   checked={includeWorkplan}
                   onChange={e => setIncludeWorkplan(e.target.checked)}
                 />
-                Arbeitspläne einbeziehen (Arbeitsgänge als ToDos)
+                Arbeitspläne einbeziehen (Arbeitsgänge sequentiell als ToDos)
               </label>
             </div>
           )}

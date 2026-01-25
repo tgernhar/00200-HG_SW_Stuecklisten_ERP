@@ -114,6 +114,9 @@ class PPSTodo(Base):
     # Optimistic locking
     version = Column(Integer, nullable=False, default=1)
     
+    # Progress tracking (0.0 - 1.0)
+    progress = Column(Float, nullable=False, default=0.0)
+    
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

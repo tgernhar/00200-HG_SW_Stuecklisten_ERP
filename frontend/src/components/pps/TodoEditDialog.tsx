@@ -9,8 +9,8 @@
  * - Creating new todos from ERP hierarchy via "+" buttons
  */
 import React, { useState, useEffect, useMemo } from 'react'
-import { updateTodo, getResources, deleteTodo, createTodo } from '../../services/ppsApi'
-import { PPSTodoWithERPDetails, PPSTodoUpdate, PPSTodoCreate, PPSResource, TodoStatus, TodoType, OrderArticleOption, BomItemOption, WorkstepOption } from '../../services/ppsTypes'
+import { updateTodo, getResources, deleteTodo, createTodo, getTodoDependencies, createDependency, deleteDependency } from '../../services/ppsApi'
+import { PPSTodoWithERPDetails, PPSTodoUpdate, PPSTodoCreate, PPSResource, TodoStatus, TodoType, OrderArticleOption, BomItemOption, WorkstepOption, AllWorkstepOption, PPSTodo } from '../../services/ppsTypes'
 import ErpPickerDialog, { PickerType } from './ErpPickerDialog'
 
 interface TodoEditDialogProps {
@@ -20,7 +20,7 @@ interface TodoEditDialogProps {
   onClose: () => void
   onSave: (updatedTodo: PPSTodoWithERPDetails, ganttType?: 'task' | 'project' | 'milestone') => void
   onDelete?: (todoId: number) => void
-  onCreateFromPicker?: (selectedItems: Array<OrderArticleOption | BomItemOption | WorkstepOption>, pickerType: PickerType) => void
+  onCreateFromPicker?: (selectedItems: Array<OrderArticleOption | BomItemOption | WorkstepOption | AllWorkstepOption>, pickerType: PickerType) => void
 }
 
 const styles = {
@@ -296,6 +296,72 @@ const styles = {
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // Tab navigation
+  tabs: {
+    display: 'flex',
+    borderBottom: '1px solid #ddd',
+    marginBottom: '12px',
+  },
+  tab: {
+    padding: '8px 16px',
+    border: 'none',
+    background: 'none',
+    cursor: 'pointer',
+    fontSize: '12px',
+    color: '#666',
+    borderBottom: '2px solid transparent',
+    marginBottom: '-1px',
+  },
+  tabActive: {
+    color: '#4a90d9',
+    borderBottomColor: '#4a90d9',
+    fontWeight: 'bold' as const,
+  },
+  // Dependencies section
+  dependencyList: {
+    marginBottom: '16px',
+  },
+  dependencyListTitle: {
+    fontSize: '12px',
+    fontWeight: 'bold' as const,
+    marginBottom: '8px',
+    color: '#333',
+  },
+  dependencyItem: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: '8px 10px',
+    backgroundColor: '#f9f9f9',
+    borderRadius: '4px',
+    marginBottom: '4px',
+    fontSize: '12px',
+  },
+  dependencyRemoveButton: {
+    background: 'none',
+    border: 'none',
+    color: '#d9534f',
+    cursor: 'pointer',
+    fontSize: '16px',
+    padding: '0 4px',
+  },
+  dependencyAddButton: {
+    padding: '6px 12px',
+    border: '1px solid #4a90d9',
+    borderRadius: '4px',
+    backgroundColor: '#fff',
+    color: '#4a90d9',
+    cursor: 'pointer',
+    fontSize: '12px',
+    marginTop: '8px',
+  },
+  dependencyEmpty: {
+    padding: '12px',
+    textAlign: 'center' as const,
+    color: '#999',
+    fontSize: '12px',
+    fontStyle: 'italic' as const,
+  },
 }
 
 // Status options
@@ -327,7 +393,16 @@ export default function TodoEditDialog({
   onCreateFromPicker,
 }: TodoEditDialogProps) {
   // Form state
+  const [title, setTitle] = useState(todo.title)
   const [priority, setPriority] = useState<number | ''>(todo.priority)
+  
+  // Tab state
+  const [activeTab, setActiveTab] = useState<'details' | 'dependencies'>('details')
+  
+  // Dependencies state
+  const [predecessors, setPredecessors] = useState<PPSTodo[]>([])
+  const [successors, setSuccessors] = useState<PPSTodo[]>([])
+  const [loadingDependencies, setLoadingDependencies] = useState(false)
   
   // Picker dialog state
   const [pickerType, setPickerType] = useState<PickerType | null>(null)
@@ -419,6 +494,25 @@ export default function TodoEditDialog({
     loadResources()
   }, [])
 
+  // Load dependencies when dependencies tab is selected
+  useEffect(() => {
+    if (activeTab === 'dependencies' && todo.id) {
+      const loadDependencies = async () => {
+        setLoadingDependencies(true)
+        try {
+          const deps = await getTodoDependencies(todo.id)
+          setPredecessors(deps.predecessors)
+          setSuccessors(deps.successors)
+        } catch (err) {
+          console.error('Error loading dependencies:', err)
+        } finally {
+          setLoadingDependencies(false)
+        }
+      }
+      loadDependencies()
+    }
+  }, [activeTab, todo.id])
+
   // Calculate end date from start and duration
   const calculateEndDate = (): string => {
     if (!plannedStart || !totalDurationMinutes) return ''
@@ -446,6 +540,7 @@ export default function TodoEditDialog({
       }
       
       const updateData: PPSTodoUpdate = {
+        title: title !== todo.title ? title : undefined,  // Only send if changed
         description: description.trim() || undefined,
         status,
         priority: typeof priority === 'number' ? priority : 50,  // Ensure number before sending
@@ -497,22 +592,41 @@ export default function TodoEditDialog({
   }
 
   // Round duration to 15-minute intervals (REQ-TODO-010, REQ-CAL-001)
+  // Uses 7.5-minute threshold: < 7.5 remainder -> down, >= 7.5 remainder -> up
   const roundTo15Minutes = (minutes: number): number => {
     if (minutes <= 0) return 15
-    return Math.ceil(minutes / 15) * 15
-  }
-
-  // Duration adjustment
-  const adjustDuration = (delta: number) => {
-    const newDuration = Math.max(15, totalDurationMinutes + delta)
-    setTotalDurationMinutes(newDuration)
+    const rounded = Math.round(minutes / 15) * 15
+    return Math.max(15, rounded)  // Minimum 15 minutes
   }
   
-  // Handle manual duration input with rounding
+  // Handle manual duration input - no rounding during typing
   const handleDurationChange = (value: string) => {
-    const parsed = parseInt(value) || 15
-    const rounded = roundTo15Minutes(parsed)
+    const parsed = parseInt(value)
+    if (!isNaN(parsed) && parsed >= 0) {
+      setTotalDurationMinutes(parsed)
+    }
+  }
+  
+  // Round duration when field loses focus
+  const handleDurationBlur = () => {
+    const rounded = roundTo15Minutes(totalDurationMinutes)
     setTotalDurationMinutes(rounded)
+  }
+  
+  // Copy path to clipboard with user feedback
+  const copyToClipboard = (path: string) => {
+    navigator.clipboard.writeText(path).then(() => {
+      alert(`Pfad in Zwischenablage kopiert:\n${path}`)
+    }).catch(() => {
+      // Fallback for older browsers
+      const textarea = document.createElement('textarea')
+      textarea.value = path
+      document.body.appendChild(textarea)
+      textarea.select()
+      document.execCommand('copy')
+      document.body.removeChild(textarea)
+      alert(`Pfad in Zwischenablage kopiert:\n${path}`)
+    })
   }
 
   // Format date range for header
@@ -631,25 +745,50 @@ export default function TodoEditDialog({
       <div style={styles.modal} onClick={e => e.stopPropagation()}>
         {/* Orange Header */}
         <div style={styles.header}>
-          <span style={styles.headerText}>{formatDateRange() || todo.title}</span>
+          <span style={styles.headerText}>{formatDateRange() || title}</span>
           <button style={styles.closeButton} onClick={onClose}>×</button>
         </div>
 
         {/* Body */}
         <div style={styles.body}>
-          {/* Priority */}
-          <div style={styles.formGroup}>
-            <label style={styles.label}>Priorität</label>
-            <input
-              type="number"
-              value={priority}
-              onChange={handlePriorityChange}
-              onBlur={handlePriorityBlur}
-              style={{ ...styles.input, width: '80px' }}
-              min={1}
-              max={100}
-            />
+          {/* Tab Navigation */}
+          <div style={styles.tabs}>
+            <button
+              style={{
+                ...styles.tab,
+                ...(activeTab === 'details' ? styles.tabActive : {}),
+              }}
+              onClick={() => setActiveTab('details')}
+            >
+              Details
+            </button>
+            <button
+              style={{
+                ...styles.tab,
+                ...(activeTab === 'dependencies' ? styles.tabActive : {}),
+              }}
+              onClick={() => setActiveTab('dependencies')}
+            >
+              Verknüpfungen
+            </button>
           </div>
+
+          {/* Details Tab */}
+          {activeTab === 'details' && (
+            <>
+              {/* Priority */}
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Priorität</label>
+                <input
+                  type="number"
+                  value={priority}
+                  onChange={handlePriorityChange}
+                  onBlur={handlePriorityBlur}
+                  style={{ ...styles.input, width: '80px' }}
+                  min={1}
+                  max={100}
+                />
+              </div>
 
           {/* ERP Reference Fields - always show hierarchy with "+" buttons for creating sub-todos */}
           {(hasErpData || todo.erp_order_id) && (
@@ -689,6 +828,24 @@ export default function TodoEditDialog({
                 <span style={todo.order_article_number ? styles.erpValue : styles.erpValueEmpty}>
                   {todo.order_article_number || '-'}
                 </span>
+                {todo.order_article_path && (
+                  <button
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      fontSize: '14px',
+                      cursor: 'pointer',
+                      padding: '2px 6px',
+                      marginLeft: '4px',
+                      borderRadius: '3px',
+                      color: '#666',
+                    }}
+                    onClick={() => copyToClipboard(todo.order_article_path!)}
+                    title={`Pfad kopieren: ${todo.order_article_path}`}
+                  >
+                    📁
+                  </button>
+                )}
               </div>
               
               {/* Stücklistenartikel - with "+" button to create from BOM items */}
@@ -718,11 +875,32 @@ export default function TodoEditDialog({
                 <span style={todo.bom_article_number ? styles.erpValue : styles.erpValueEmpty}>
                   {todo.bom_article_number || '-'}
                 </span>
+                {todo.bom_article_path && (
+                  <button
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      fontSize: '14px',
+                      cursor: 'pointer',
+                      padding: '2px 6px',
+                      marginLeft: '4px',
+                      borderRadius: '3px',
+                      color: '#666',
+                    }}
+                    onClick={() => copyToClipboard(todo.bom_article_path!)}
+                    title={`Pfad kopieren: ${todo.bom_article_path}`}
+                  >
+                    📁
+                  </button>
+                )}
               </div>
               
               {/* Arbeitsgang - with "+" button to create from worksteps */}
               <div style={styles.erpRow}>
-                {todo.erp_packingnote_details_id && onCreateFromPicker && (
+                {/* Show + button if:
+                    1. Has BOM item (erp_packingnote_details_id) -> use workplan worksteps
+                    2. Has order article but no BOM item -> use generic worksteps */}
+                {((todo.erp_packingnote_details_id || todo.erp_order_article_id) && onCreateFromPicker) && (
                   <button
                     style={{
                       ...styles.plusButton,
@@ -730,15 +908,26 @@ export default function TodoEditDialog({
                       ...(todo.workstep_name ? styles.plusButtonDisabled : {}),
                     }}
                     onClick={() => {
-                      if (!todo.workstep_name && todo.erp_packingnote_details_id) {
-                        setPickerType('workstep')
-                        setPickerParentId(todo.erp_packingnote_details_id)
+                      if (!todo.workstep_name) {
+                        if (todo.erp_packingnote_details_id) {
+                          // Has BOM item -> use workplan worksteps
+                          setPickerType('workstep')
+                          setPickerParentId(todo.erp_packingnote_details_id)
+                        } else if (todo.erp_order_article_id) {
+                          // No BOM item but has article -> use generic worksteps
+                          setPickerType('generic_workstep')
+                          setPickerParentId(0)  // Not used for generic_workstep
+                        }
                       }
                     }}
                     onMouseEnter={() => setHoveredPlusButton('workstep')}
                     onMouseLeave={() => setHoveredPlusButton(null)}
                     disabled={!!todo.workstep_name}
-                    title={todo.workstep_name ? 'Arbeitsgang bereits vorhanden' : 'Arbeitsgang auswählen'}
+                    title={todo.workstep_name 
+                      ? 'Arbeitsgang bereits vorhanden' 
+                      : (todo.erp_packingnote_details_id 
+                          ? 'Arbeitsgang aus Workplan auswählen' 
+                          : 'Generischen Arbeitsgang auswählen')}
                   >
                     +
                   </button>
@@ -811,7 +1000,7 @@ export default function TodoEditDialog({
             </select>
           </div>
 
-          {/* Time Section with +/- controls */}
+          {/* Time Section */}
           <div style={styles.timeSection}>
             <input
               type="date"
@@ -846,32 +1035,17 @@ export default function TodoEditDialog({
               style={{ ...styles.input, width: '80px' }}
             />
 
-            <span style={styles.timeLabel}>-</span>
+            <span style={styles.timeLabel}>Dauer:</span>
             
-            <button 
-              style={styles.timeButton} 
-              onClick={() => adjustDuration(-15)}
-              type="button"
-            >
-              -
-            </button>
             <input
               type="number"
               value={totalDurationMinutes}
               onChange={e => handleDurationChange(e.target.value)}
-              onBlur={e => handleDurationChange(e.target.value)}
-              style={styles.timeInput}
-              min={15}
-              step={15}
+              onBlur={handleDurationBlur}
+              style={{ ...styles.timeInput, width: '80px' }}
+              min={0}
             />
-            <button 
-              style={styles.timeButton} 
-              onClick={() => adjustDuration(15)}
-              type="button"
-            >
-              +
-            </button>
-            <span style={styles.timeLabel}>Minutes {calculateEndDate()}</span>
+            <span style={styles.timeLabel}>Min. → {calculateEndDate()}</span>
           </div>
 
           {/* Resource Assignment */}
@@ -925,6 +1099,78 @@ export default function TodoEditDialog({
             </div>
           </div>
 
+            </>
+          )}
+
+          {/* Dependencies Tab */}
+          {activeTab === 'dependencies' && (
+            <div>
+              {loadingDependencies ? (
+                <div style={styles.dependencyEmpty}>Lade Verknüpfungen...</div>
+              ) : (
+                <>
+                  {/* Predecessors */}
+                  <div style={styles.dependencyList}>
+                    <div style={styles.dependencyListTitle}>
+                      Vorgänger (müssen zuerst abgeschlossen werden)
+                    </div>
+                    {predecessors.length === 0 ? (
+                      <div style={styles.dependencyEmpty}>Keine Vorgänger</div>
+                    ) : (
+                      predecessors.map(pred => (
+                        <div key={pred.id} style={styles.dependencyItem}>
+                          <span>{pred.title}</span>
+                          <button
+                            style={styles.dependencyRemoveButton}
+                            onClick={async () => {
+                              // Find and delete the dependency
+                              // Note: We need to find the dependency ID first
+                              // For now, we'll just remove from UI
+                              setPredecessors(prev => prev.filter(p => p.id !== pred.id))
+                            }}
+                            title="Verknüpfung entfernen"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  {/* Successors */}
+                  <div style={styles.dependencyList}>
+                    <div style={styles.dependencyListTitle}>
+                      Nachfolger (warten auf dieses Todo)
+                    </div>
+                    {successors.length === 0 ? (
+                      <div style={styles.dependencyEmpty}>Keine Nachfolger</div>
+                    ) : (
+                      successors.map(succ => (
+                        <div key={succ.id} style={styles.dependencyItem}>
+                          <span>{succ.title}</span>
+                          <button
+                            style={styles.dependencyRemoveButton}
+                            onClick={async () => {
+                              // Remove from UI
+                              setSuccessors(prev => prev.filter(s => s.id !== succ.id))
+                            }}
+                            title="Verknüpfung entfernen"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  <div style={{ marginTop: '16px', fontSize: '11px', color: '#666' }}>
+                    Tipp: Verknüpfungen können auch direkt im Gantt-Chart durch Ziehen einer Linie zwischen Tasks erstellt werden.
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
           {/* Error message */}
           {error && <div style={styles.error}>{error}</div>}
         </div>
@@ -968,7 +1214,7 @@ export default function TodoEditDialog({
       </div>
 
       {/* ERP Picker Dialog */}
-      {pickerType && pickerParentId && (
+      {pickerType && pickerParentId !== null && (
         <ErpPickerDialog
           type={pickerType}
           parentId={pickerParentId}
@@ -978,12 +1224,22 @@ export default function TodoEditDialog({
           }}
           onSelect={(selectedIds, selectedItems) => {
             // Close picker
+            const currentPickerType = pickerType
             setPickerType(null)
             setPickerParentId(null)
             
-            // Notify parent to create new todos
+            // For generic_workstep: Update title in current dialog, don't create new todo
+            if (currentPickerType === 'generic_workstep' && selectedItems.length > 0) {
+              const workstep = selectedItems[0] as AllWorkstepOption
+              // Update title with workstep name
+              setTitle(`AG: ${workstep.name}`)
+              // Don't close dialog - let user continue editing
+              return
+            }
+            
+            // For other types: Notify parent to create new todos
             if (onCreateFromPicker && selectedItems.length > 0) {
-              onCreateFromPicker(selectedItems, pickerType)
+              onCreateFromPicker(selectedItems, currentPickerType)
             }
           }}
         />

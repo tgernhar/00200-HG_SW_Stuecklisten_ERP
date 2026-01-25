@@ -103,6 +103,7 @@ class TodoBase(BaseModel):
     block_reason: Optional[str] = None
     priority: int = 0
     delivery_date: Optional[date] = None
+    progress: float = 0.0  # 0.0 - 1.0
 
 
 class TodoCreate(TodoBase):
@@ -136,6 +137,7 @@ class TodoUpdate(BaseModel):
     assigned_machine_id: Optional[int] = None
     assigned_employee_id: Optional[int] = None
     gantt_display_type: Optional[str] = None  # 'task', 'project', 'milestone'
+    progress: Optional[float] = None  # 0.0 - 1.0
     # For optimistic locking
     version: Optional[int] = None
 
@@ -169,7 +171,9 @@ class TodoWithERPDetails(Todo):
     # ERP-resolved names (from HUGWAWI lookups)
     order_name: Optional[str] = None  # ordertable.name
     order_article_number: Optional[str] = None  # article.articlenumber via order_article
+    order_article_path: Optional[str] = None  # article.customtext7 via order_article (folder path)
     bom_article_number: Optional[str] = None  # article.articlenumber via packingnote_details
+    bom_article_path: Optional[str] = None  # article.customtext7 via packingnote_details (folder path)
     workstep_name: Optional[str] = None  # qualificationitem.name via workplan_details
 
 
@@ -387,7 +391,8 @@ class GenerateTodosRequest(BaseModel):
     """Request to generate todos from ERP order/article"""
     erp_order_id: int
     erp_order_article_ids: Optional[List[int]] = None  # None = all articles
-    include_workplan: bool = True  # Generate operation todos from workplan
+    include_workplan: bool = False  # Generate operation todos from workplan (default: off)
+    include_bom_items: bool = False  # Generate BOM item todos (default: off)
 
 
 class GenerateTodosResponse(BaseModel):
@@ -489,6 +494,57 @@ class WorkstepOption(BaseModel):
     setuptime: Optional[float] = None
     unittime: Optional[float] = None
     has_todo: bool = False
+
+
+class AllWorkstepOption(BaseModel):
+    """Workstep from workstep table (not from workplan)"""
+    id: int  # workstep.id
+    name: str
+
+
+class MachineOption(BaseModel):
+    """Machine (qualificationitem) option linked to a workstep"""
+    id: int  # qualificationitem.id
+    name: str
+    description: Optional[str] = None
+
+
+# ============== Batch Operation Schemas ==============
+
+class BatchUpdateItem(BaseModel):
+    """Single item in batch update request"""
+    id: int
+    start_date: Optional[str] = None  # "YYYY-MM-DD HH:MM"
+    duration: Optional[int] = None  # in minutes
+    progress: Optional[float] = None  # 0.0 - 1.0
+
+
+class BatchUpdateRequest(BaseModel):
+    """Request to update multiple todos at once (for auto-scheduling)"""
+    updates: List[BatchUpdateItem]
+
+
+class BatchUpdateResponse(BaseModel):
+    """Response after batch update"""
+    updated: List[int]
+
+
+class ShiftTodosRequest(BaseModel):
+    """Request to shift multiple todos by X minutes"""
+    shift_minutes: int  # Positive = forward (later), negative = backward (earlier)
+    date_from: Optional[str] = None  # Only shift tasks from this date (YYYY-MM-DD)
+    department_id: Optional[int] = None  # Only shift tasks in this department
+
+
+class ShiftTodosResponse(BaseModel):
+    """Response after shifting todos"""
+    shifted_count: int
+
+
+class TodoDependenciesResponse(BaseModel):
+    """Response containing predecessors and successors of a todo"""
+    predecessors: List[Todo]
+    successors: List[Todo]
 
 
 # Forward references for self-referencing models

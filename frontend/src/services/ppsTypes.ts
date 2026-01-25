@@ -56,6 +56,7 @@ export interface PPSTodo {
   assigned_machine_id?: number
   assigned_employee_id?: number
   creator_employee_id?: number  // For "eigene" todos
+  progress: number  // 0.0 - 1.0
   version: number
   created_at?: string
   updated_at?: string
@@ -67,7 +68,9 @@ export interface PPSTodo {
 export interface PPSTodoWithERPDetails extends PPSTodo {
   order_name?: string  // ordertable.name
   order_article_number?: string  // article.articlenumber via order_article
+  order_article_path?: string  // article.customtext7 via order_article (folder path)
   bom_article_number?: string  // article.articlenumber via packingnote_details
+  bom_article_path?: string  // article.customtext7 via packingnote_details (folder path)
   workstep_name?: string  // qualificationitem.name via workplan_details
 }
 
@@ -116,6 +119,7 @@ export interface PPSTodoUpdate {
   assigned_machine_id?: number
   assigned_employee_id?: number
   gantt_display_type?: 'task' | 'project' | 'milestone'  // Gantt chart display type
+  progress?: number  // 0.0 - 1.0
   version?: number
 }
 
@@ -278,7 +282,8 @@ export interface ResourceSyncResponse {
 export interface GenerateTodosRequest {
   erp_order_id: number
   erp_order_article_ids?: number[]
-  include_workplan?: boolean
+  include_workplan?: boolean  // Generate operation todos (default: false)
+  include_bom_items?: boolean  // Generate BOM item todos (default: false)
 }
 
 export interface GenerateTodosResponse {
@@ -339,4 +344,17 @@ export interface WorkstepOption {
   setuptime?: number
   unittime?: number
   has_todo: boolean
+}
+
+// All worksteps from workstep table (for manual selection)
+export interface AllWorkstepOption {
+  id: number  // workstep.id
+  name: string
+}
+
+// Machine option linked to a workstep
+export interface MachineOption {
+  id: number  // qualificationitem.id
+  name: string
+  description?: string
 }

@@ -11,20 +11,22 @@ import {
   OrderArticleOption,
   BomItemOption,
   WorkstepOption,
+  AllWorkstepOption,
 } from '../../services/ppsTypes'
 import {
   getOrderArticles,
   getArticleBomItems,
   getBomWorksteps,
+  getAllWorksteps,
 } from '../../services/ppsApi'
 
-export type PickerType = 'article' | 'bom' | 'workstep'
+export type PickerType = 'article' | 'bom' | 'workstep' | 'generic_workstep'
 
 interface ErpPickerDialogProps {
   type: PickerType
-  parentId: number  // order_id for articles, article_id for bom, bom_id for worksteps
+  parentId: number  // order_id for articles, article_id for bom, bom_id for worksteps, 0 for generic_workstep
   onClose: () => void
-  onSelect: (selectedIds: number[], selectedItems: Array<OrderArticleOption | BomItemOption | WorkstepOption>) => void
+  onSelect: (selectedIds: number[], selectedItems: Array<OrderArticleOption | BomItemOption | WorkstepOption | AllWorkstepOption>) => void
 }
 
 const styles = {
@@ -179,11 +181,12 @@ export default function ErpPickerDialog({
   onClose,
   onSelect,
 }: ErpPickerDialogProps) {
-  const [items, setItems] = useState<Array<OrderArticleOption | BomItemOption | WorkstepOption>>([])
+  const [items, setItems] = useState<Array<OrderArticleOption | BomItemOption | WorkstepOption | AllWorkstepOption>>([])
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [hoveredId, setHoveredId] = useState<number | null>(null)
+  const [searchTerm, setSearchTerm] = useState('')
 
   // Load items based on type
   useEffect(() => {
@@ -191,7 +194,7 @@ export default function ErpPickerDialog({
       setLoading(true)
       setError(null)
       try {
-        let data: Array<OrderArticleOption | BomItemOption | WorkstepOption> = []
+        let data: Array<OrderArticleOption | BomItemOption | WorkstepOption | AllWorkstepOption> = []
         switch (type) {
           case 'article':
             data = await getOrderArticles(parentId)
@@ -201,6 +204,12 @@ export default function ErpPickerDialog({
             break
           case 'workstep':
             data = await getBomWorksteps(parentId)
+            break
+          case 'generic_workstep':
+            // Load all worksteps from workstep table (not from workplan)
+            const allWorksteps = await getAllWorksteps()
+            // Convert to format with has_todo = false (generic worksteps don't have todos)
+            data = allWorksteps.map(ws => ({ ...ws, has_todo: false }))
             break
         }
         setItems(data)
@@ -221,6 +230,8 @@ export default function ErpPickerDialog({
         return 'Stücklistenartikel auswählen'
       case 'workstep':
         return 'Arbeitsgänge auswählen'
+      case 'generic_workstep':
+        return 'Arbeitsgang auswählen (generisch)'
     }
   }
 
@@ -232,6 +243,8 @@ export default function ErpPickerDialog({
         return 'Keine Stücklistenartikel gefunden'
       case 'workstep':
         return 'Keine Arbeitsgänge gefunden'
+      case 'generic_workstep':
+        return 'Keine Arbeitsgänge verfügbar'
     }
   }
 
@@ -242,15 +255,21 @@ export default function ErpPickerDialog({
     if (newSelected.has(id)) {
       newSelected.delete(id)
     } else {
+      // For generic_workstep, only allow single selection
+      if (type === 'generic_workstep') {
+        newSelected.clear()
+      }
       newSelected.add(id)
     }
     setSelectedIds(newSelected)
   }
 
   const selectAll = () => {
+    if (type === 'generic_workstep') return  // Single selection only for generic_workstep
     const newSelected = new Set<number>()
     items.forEach(item => {
-      if (!item.has_todo) {
+      const hasTodo = 'has_todo' in item ? item.has_todo : false
+      if (!hasTodo) {
         newSelected.add(item.id)
       }
     })
@@ -266,12 +285,13 @@ export default function ErpPickerDialog({
     onSelect(Array.from(selectedIds), selectedItems)
   }
 
-  const renderItem = (item: OrderArticleOption | BomItemOption | WorkstepOption) => {
+  const renderItem = (item: OrderArticleOption | BomItemOption | WorkstepOption | AllWorkstepOption) => {
     const isSelected = selectedIds.has(item.id)
     const isHovered = hoveredId === item.id
+    const hasTodo = 'has_todo' in item ? item.has_todo : false
     
     let itemStyle = { ...styles.listItem }
-    if (item.has_todo) {
+    if (hasTodo) {
       itemStyle = { ...itemStyle, ...styles.listItemDisabled }
     } else if (isSelected) {
       itemStyle = { ...itemStyle, ...styles.listItemSelected }
@@ -291,14 +311,19 @@ export default function ErpPickerDialog({
         subtitle += subtitle ? ` | Menge: ${item.quantity}` : `Menge: ${item.quantity}`
       }
     } else if ('name' in item) {
-      // WorkstepOption
-      title = `${item.position ? `AG ${item.position}: ` : ''}${item.name}`
-      if (item.machine_name) {
-        title += ` (${item.machine_name})`
+      // WorkstepOption or AllWorkstepOption
+      const wsItem = item as WorkstepOption | AllWorkstepOption
+      if ('position' in wsItem && wsItem.position) {
+        title = `AG ${wsItem.position}: ${wsItem.name}`
+      } else {
+        title = wsItem.name
+      }
+      if ('machine_name' in wsItem && wsItem.machine_name) {
+        title += ` (${wsItem.machine_name})`
       }
       const times: string[] = []
-      if (item.setuptime) times.push(`Rüstzeit: ${item.setuptime} min`)
-      if (item.unittime) times.push(`Stückzeit: ${item.unittime} min`)
+      if ('setuptime' in wsItem && wsItem.setuptime) times.push(`Rüstzeit: ${wsItem.setuptime} min`)
+      if ('unittime' in wsItem && wsItem.unittime) times.push(`Stückzeit: ${wsItem.unittime} min`)
       subtitle = times.join(' | ')
     }
 
@@ -306,21 +331,22 @@ export default function ErpPickerDialog({
       <div
         key={item.id}
         style={itemStyle}
-        onClick={() => toggleSelection(item.id, item.has_todo)}
+        onClick={() => toggleSelection(item.id, hasTodo)}
         onMouseEnter={() => setHoveredId(item.id)}
         onMouseLeave={() => setHoveredId(null)}
       >
         <input
-          type="checkbox"
+          type={type === 'generic_workstep' ? 'radio' : 'checkbox'}
           checked={isSelected}
-          disabled={item.has_todo}
-          onChange={() => toggleSelection(item.id, item.has_todo)}
+          disabled={hasTodo}
+          onChange={() => toggleSelection(item.id, hasTodo)}
           style={styles.checkbox}
+          name={type === 'generic_workstep' ? 'workstep' : undefined}
         />
         <div style={styles.itemContent}>
           <div style={styles.itemTitle}>
             {title}
-            {item.has_todo && <span style={styles.hasTodoBadge}>Todo existiert</span>}
+            {hasTodo && <span style={styles.hasTodoBadge}>Todo existiert</span>}
           </div>
           {subtitle && <div style={styles.itemSubtitle}>{subtitle}</div>}
         </div>
@@ -328,7 +354,21 @@ export default function ErpPickerDialog({
     )
   }
 
-  const availableCount = items.filter(i => !i.has_todo).length
+  // Filter items by search term
+  const filteredItems = items.filter(item => {
+    if (!searchTerm.trim()) return true
+    const search = searchTerm.toLowerCase()
+    
+    if ('articlenumber' in item) {
+      return item.articlenumber.toLowerCase().includes(search) || 
+             (item.description?.toLowerCase().includes(search) ?? false)
+    } else if ('name' in item) {
+      return item.name.toLowerCase().includes(search)
+    }
+    return true
+  })
+
+  const availableCount = filteredItems.filter(i => !('has_todo' in i) || !i.has_todo).length
 
   return (
     <div style={styles.overlay} onClick={onClose}>
@@ -351,26 +391,53 @@ export default function ErpPickerDialog({
           
           {!loading && !error && items.length > 0 && (
             <>
-              {/* Select all / Deselect all */}
-              <div style={{ marginBottom: '8px', display: 'flex', gap: '8px' }}>
-                <button
-                  style={{ ...styles.button, ...styles.cancelButton, padding: '4px 8px', fontSize: '12px' }}
-                  onClick={selectAll}
-                  disabled={availableCount === 0}
-                >
-                  Alle auswählen
-                </button>
-                <button
-                  style={{ ...styles.button, ...styles.cancelButton, padding: '4px 8px', fontSize: '12px' }}
-                  onClick={deselectAll}
-                  disabled={selectedIds.size === 0}
-                >
-                  Auswahl aufheben
-                </button>
+              {/* Search field */}
+              <div style={{ marginBottom: '12px' }}>
+                <input
+                  type="text"
+                  placeholder="Suchen..."
+                  value={searchTerm}
+                  onChange={e => setSearchTerm(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    border: '1px solid #ddd',
+                    borderRadius: '4px',
+                    fontSize: '14px',
+                    boxSizing: 'border-box' as const,
+                  }}
+                  autoFocus
+                />
               </div>
               
+              {/* Select all / Deselect all - not for generic_workstep (single selection) */}
+              {type !== 'generic_workstep' && (
+                <div style={{ marginBottom: '8px', display: 'flex', gap: '8px' }}>
+                  <button
+                    style={{ ...styles.button, ...styles.cancelButton, padding: '4px 8px', fontSize: '12px' }}
+                    onClick={selectAll}
+                    disabled={availableCount === 0}
+                  >
+                    Alle auswählen
+                  </button>
+                  <button
+                    style={{ ...styles.button, ...styles.cancelButton, padding: '4px 8px', fontSize: '12px' }}
+                    onClick={deselectAll}
+                    disabled={selectedIds.size === 0}
+                  >
+                    Auswahl aufheben
+                  </button>
+                </div>
+              )}
+              
               <div style={styles.listContainer}>
-                {items.map(renderItem)}
+                {filteredItems.length > 0 ? (
+                  filteredItems.map(renderItem)
+                ) : (
+                  <div style={{ padding: '20px', textAlign: 'center', color: '#999' }}>
+                    Keine Treffer für "{searchTerm}"
+                  </div>
+                )}
               </div>
             </>
           )}
@@ -397,7 +464,7 @@ export default function ErpPickerDialog({
               onClick={handleConfirm}
               disabled={selectedIds.size === 0}
             >
-              Todos erstellen ({selectedIds.size})
+              {type === 'generic_workstep' ? 'Auswählen' : `Todos erstellen (${selectedIds.size})`}
             </button>
           </div>
         </div>

@@ -31,6 +31,9 @@ from app.schemas.pps import (
     ResourceSyncRequest, ResourceSyncResponse,
     TodoType, TodoStatus, ResourceType,
     OrderArticleOption, BomItemOption, WorkstepOption,
+    AllWorkstepOption, MachineOption,
+    BatchUpdateItem, BatchUpdateRequest, BatchUpdateResponse,
+    ShiftTodosRequest, ShiftTodosResponse, TodoDependenciesResponse,
 )
 from app.services.pps_sync_service import (
     get_subordinate_ids, 
@@ -72,6 +75,7 @@ def _todo_to_response(todo: PPSTodo, include_conflicts: bool = True) -> Todo:
         assigned_department_id=todo.assigned_department_id,
         assigned_machine_id=todo.assigned_machine_id,
         assigned_employee_id=todo.assigned_employee_id,
+        progress=todo.progress if hasattr(todo, 'progress') else 0.0,
         version=todo.version,
         created_at=todo.created_at,
         updated_at=todo.updated_at,
@@ -97,12 +101,14 @@ def _todo_to_gantt_task(todo: PPSTodo) -> GanttTask:
         resource_name = todo.assigned_department.name
         resource_id = todo.assigned_department_id
     
-    # Calculate progress
-    progress = 0.0
-    if todo.status == "completed":
-        progress = 1.0
-    elif todo.status == "in_progress":
-        progress = 0.5
+    # Use stored progress, or calculate from status as fallback
+    progress = todo.progress if hasattr(todo, 'progress') and todo.progress is not None else 0.0
+    # If progress is 0 but status indicates progress, use status-based calculation
+    if progress == 0.0:
+        if todo.status == "completed":
+            progress = 1.0
+        elif todo.status == "in_progress":
+            progress = 0.5
     
     # Use gantt_display_type if set, otherwise derive from todo_type
     # Determine gantt_type: use gantt_display_type if set, otherwise:
@@ -1189,6 +1195,7 @@ async def generate_todos(payload: GenerateTodosRequest, db: Session = Depends(ge
             payload.erp_order_id,
             payload.erp_order_article_ids,
             payload.include_workplan,
+            payload.include_bom_items,
         )
         return result
     except Exception as e:
@@ -1427,3 +1434,189 @@ async def get_bom_worksteps(bom_id: int, db: Session = Depends(get_db)):
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Fehler beim Laden der Arbeitsgänge: {str(e)}")
+
+
+# ============== All Worksteps (from workstep table) ==============
+
+@router.get("/all-worksteps", response_model=List[AllWorkstepOption])
+async def get_all_worksteps(db: Session = Depends(get_db)):
+    """
+    Get all available worksteps from the workstep table.
+    Used for manual workstep selection when no workplan exists.
+    """
+    from app.core.database import get_erp_db_connection
+    
+    try:
+        erp_conn = get_erp_db_connection()
+        cursor = erp_conn.cursor(dictionary=True)
+        
+        cursor.execute("""
+            SELECT id, name
+            FROM workstep
+            ORDER BY name
+        """)
+        
+        rows = cursor.fetchall()
+        cursor.close()
+        erp_conn.close()
+        
+        return [AllWorkstepOption(id=row['id'], name=row['name'] or 'Unbekannt') for row in rows]
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Fehler beim Laden der Worksteps: {str(e)}")
+
+
+@router.get("/worksteps/{workstep_id}/machines", response_model=List[MachineOption])
+async def get_workstep_machines(workstep_id: int, db: Session = Depends(get_db)):
+    """
+    Get all machines (qualificationitem) linked to a specific workstep.
+    
+    Uses the join: workstep.id → qualificationitem_workstep.workstep
+                   qualificationitem_workstep.item → qualificationitem.id
+    """
+    from app.core.database import get_erp_db_connection
+    
+    try:
+        erp_conn = get_erp_db_connection()
+        cursor = erp_conn.cursor(dictionary=True)
+        
+        cursor.execute("""
+            SELECT qi.id, qi.name, qi.description
+            FROM qualificationitem_workstep qiws
+            JOIN qualificationitem qi ON qi.id = qiws.item
+            WHERE qiws.workstep = %s
+            ORDER BY qi.name
+        """, (workstep_id,))
+        
+        rows = cursor.fetchall()
+        cursor.close()
+        erp_conn.close()
+        
+        return [MachineOption(
+            id=row['id'], 
+            name=row['name'] or 'Unbekannt',
+            description=row['description']
+        ) for row in rows]
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Fehler beim Laden der Maschinen: {str(e)}")
+
+
+# ============== Batch Operations ==============
+
+@router.post("/todos/batch-update", response_model=BatchUpdateResponse)
+async def batch_update_todos(
+    request: BatchUpdateRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Update multiple todos at once.
+    Used for auto-scheduling when moving linked tasks.
+    """
+    updated_ids = []
+    
+    for item in request.updates:
+        todo = db.query(PPSTodo).filter(PPSTodo.id == item.id).first()
+        if not todo:
+            continue
+            
+        if item.start_date:
+            try:
+                # Parse date string (format: "YYYY-MM-DD HH:MM")
+                todo.planned_start = datetime.strptime(item.start_date, "%Y-%m-%d %H:%M")
+                
+                # Update planned_end if duration is set
+                if todo.total_duration_minutes:
+                    todo.planned_end = todo.planned_start + timedelta(minutes=todo.total_duration_minutes)
+            except ValueError:
+                continue  # Skip invalid date formats
+        
+        if item.duration is not None:
+            # Duration comes from Gantt in 15-minute units, convert to minutes
+            todo.total_duration_minutes = item.duration * 15
+            
+            # Update planned_end
+            if todo.planned_start:
+                todo.planned_end = todo.planned_start + timedelta(minutes=todo.total_duration_minutes)
+        
+        if item.progress is not None:
+            todo.progress = max(0.0, min(1.0, item.progress))  # Clamp to 0-1
+        
+        todo.version += 1
+        updated_ids.append(item.id)
+    
+    db.commit()
+    return BatchUpdateResponse(updated=updated_ids)
+
+
+@router.post("/todos/shift-all", response_model=ShiftTodosResponse)
+async def shift_all_todos(
+    request: ShiftTodosRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Shift all matching todos by X minutes.
+    Positive shift_minutes = forward (later), negative = backward (earlier).
+    """
+    query = db.query(PPSTodo).filter(PPSTodo.planned_start.isnot(None))
+    
+    # Apply date filter
+    if request.date_from:
+        try:
+            date_filter = datetime.strptime(request.date_from, "%Y-%m-%d")
+            query = query.filter(PPSTodo.planned_start >= date_filter)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date_from format. Use YYYY-MM-DD")
+    
+    # Apply department filter
+    if request.department_id:
+        query = query.filter(PPSTodo.assigned_department_id == request.department_id)
+    
+    todos = query.all()
+    shift_delta = timedelta(minutes=request.shift_minutes)
+    
+    for todo in todos:
+        todo.planned_start = todo.planned_start + shift_delta
+        if todo.planned_end:
+            todo.planned_end = todo.planned_end + shift_delta
+        todo.version += 1
+    
+    db.commit()
+    return ShiftTodosResponse(shifted_count=len(todos))
+
+
+@router.get("/todos/{todo_id}/dependencies", response_model=TodoDependenciesResponse)
+async def get_todo_dependencies(
+    todo_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Get all predecessors and successors of a todo.
+    Used for the dependencies tab in the todo edit dialog.
+    """
+    todo = db.query(PPSTodo).filter(PPSTodo.id == todo_id).first()
+    if not todo:
+        raise HTTPException(status_code=404, detail="Todo not found")
+    
+    # Get predecessors (todos that must finish before this one)
+    predecessor_deps = db.query(PPSTodoDependency).filter(
+        PPSTodoDependency.successor_id == todo_id,
+        PPSTodoDependency.is_active == True
+    ).all()
+    
+    predecessor_ids = [dep.predecessor_id for dep in predecessor_deps]
+    predecessors = db.query(PPSTodo).filter(PPSTodo.id.in_(predecessor_ids)).all() if predecessor_ids else []
+    
+    # Get successors (todos that wait for this one)
+    successor_deps = db.query(PPSTodoDependency).filter(
+        PPSTodoDependency.predecessor_id == todo_id,
+        PPSTodoDependency.is_active == True
+    ).all()
+    
+    successor_ids = [dep.successor_id for dep in successor_deps]
+    successors = db.query(PPSTodo).filter(PPSTodo.id.in_(successor_ids)).all() if successor_ids else []
+    
+    return TodoDependenciesResponse(
+        predecessors=[_todo_to_response(p, include_conflicts=False) for p in predecessors],
+        successors=[_todo_to_response(s, include_conflicts=False) for s in successors]
+    )
