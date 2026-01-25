@@ -107,10 +107,17 @@ def _todo_to_gantt_task(todo: PPSTodo) -> GanttTask:
     # Use gantt_display_type if set, otherwise derive from todo_type
     gantt_type = todo.gantt_display_type or ("project" if todo.todo_type.startswith("container") else "task")
     
+    # Calculate end_date from start_date + duration
+    end_date_str = None
+    if todo.planned_start and duration:
+        end_dt = todo.planned_start + timedelta(minutes=duration)
+        end_date_str = end_dt.strftime("%Y-%m-%d %H:%M")
+    
     return GanttTask(
         id=todo.id,
         text=todo.title,
         start_date=todo.planned_start.strftime("%Y-%m-%d %H:%M") if todo.planned_start else None,
+        end_date=end_date_str,
         duration=duration,
         parent=todo.parent_todo_id or 0,
         type=gantt_type,
@@ -466,6 +473,10 @@ async def create_todo(payload: TodoCreate, db: Session = Depends(get_db)):
         created_at=datetime.utcnow(),
         updated_at=datetime.utcnow(),
     )
+    
+    # Set default planned_start to now if not provided
+    if not todo.planned_start:
+        todo.planned_start = datetime.now().replace(second=0, microsecond=0)
     
     # Calculate duration if not manual
     if not todo.is_duration_manual:

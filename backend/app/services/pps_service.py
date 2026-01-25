@@ -294,8 +294,10 @@ def generate_todos_from_order(
     Generate todos from an ERP order.
     
     Creates:
-    1. Container todo for the order
-    2. Container todos for each order article
+    1. Order todo:
+       - Type 'task' if no order articles exist
+       - Type 'project' if order articles exist
+    2. Order article todos (type 'task') for each article
     3. Operation todos from workplan (if include_workplan=True)
     4. Dependencies based on workplan sequence
     """
@@ -330,34 +332,7 @@ def generate_todos_from_order(
         delivery_date = order_row['delivery_date']
         customer = order_row['customer'] or ''
         
-        # Check if container todo already exists
-        existing_container = db.query(PPSTodo).filter(
-            PPSTodo.erp_order_id == erp_order_id,
-            PPSTodo.todo_type == 'container_order',
-        ).first()
-        
-        if existing_container:
-            order_container_id = existing_container.id
-        else:
-            # Create order container todo
-            order_container = PPSTodo(
-                erp_order_id=erp_order_id,
-                todo_type='container_order',
-                title=f"{order_name} - {customer}",
-                description=f"Auftrag {order_name}",
-                quantity=1,
-                status='new',
-                delivery_date=delivery_date,
-                version=1,
-                created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow(),
-            )
-            db.add(order_container)
-            db.flush()
-            order_container_id = order_container.id
-            created_todos += 1
-        
-        # 2. Get order articles (including department from article)
+        # 2. Get order articles first to determine order type (including department from article)
         article_query = """
             SELECT 
                 oa.id as order_article_id,
@@ -384,6 +359,47 @@ def generate_todos_from_order(
         cursor.execute(article_query, params)
         article_rows = cursor.fetchall()
         
+        # Determine order type based on article count
+        has_articles = len(article_rows) > 0
+        order_type = 'project' if has_articles else 'task'
+        
+        # Check if order todo already exists
+        existing_order = db.query(PPSTodo).filter(
+            PPSTodo.erp_order_id == erp_order_id,
+            PPSTodo.todo_type.in_(['container_order', 'project', 'task']),
+        ).first()
+        
+        if existing_order:
+            order_container_id = existing_order.id
+            # Update type if needed
+            if existing_order.todo_type != order_type:
+                existing_order.todo_type = order_type
+                existing_order.updated_at = datetime.utcnow()
+        else:
+            # Create order todo with appropriate type
+            order_container = PPSTodo(
+                erp_order_id=erp_order_id,
+                todo_type=order_type,
+                title=f"{order_name} - {customer}",
+                description=f"Auftrag {order_name}",
+                quantity=1,
+                status='new',
+                delivery_date=delivery_date,
+                planned_start=datetime.now().replace(second=0, microsecond=0),
+                version=1,
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow(),
+            )
+            # Calculate planned_end from planned_start + duration
+            if order_container.planned_start:
+                duration = order_container.total_duration_minutes or 60
+                order_container.planned_end = order_container.planned_start + timedelta(minutes=duration)
+            
+            db.add(order_container)
+            db.flush()
+            order_container_id = order_container.id
+            created_todos += 1
+        
         for article_row in article_rows:
             order_article_id = article_row['order_article_id']
             
@@ -398,35 +414,45 @@ def generate_todos_from_order(
                 if dep_resource:
                     department_resource_id = dep_resource.id
             
-            # Check if article container already exists
+            # Check if article todo already exists
             existing_article = db.query(PPSTodo).filter(
                 PPSTodo.erp_order_article_id == order_article_id,
-                PPSTodo.todo_type == 'container_article',
+                PPSTodo.todo_type.in_(['container_article', 'task']),
             ).first()
             
             if existing_article:
                 article_container_id = existing_article.id
+                # Update type to 'task' if needed
+                if existing_article.todo_type != 'task':
+                    existing_article.todo_type = 'task'
+                    existing_article.updated_at = datetime.utcnow()
                 # Update department if not set
                 if not existing_article.assigned_department_id and department_resource_id:
                     existing_article.assigned_department_id = department_resource_id
                     existing_article.updated_at = datetime.utcnow()
             else:
-                # Create article container todo
+                # Create article todo as 'task'
                 article_title = f"Pos {article_row['position']}: {article_row['articlenumber']} - {article_row['description']}"
                 article_container = PPSTodo(
                     erp_order_id=erp_order_id,
                     erp_order_article_id=order_article_id,
                     parent_todo_id=order_container_id,
-                    todo_type='container_article',
+                    todo_type='task',
                     title=article_title[:255],
                     quantity=article_row['quantity'] or 1,
                     status='new',
                     delivery_date=delivery_date,
                     assigned_department_id=department_resource_id,
+                    planned_start=datetime.now().replace(second=0, microsecond=0),
                     version=1,
                     created_at=datetime.utcnow(),
                     updated_at=datetime.utcnow(),
                 )
+                # Calculate planned_end from planned_start + duration
+                if article_container.planned_start:
+                    duration = article_container.total_duration_minutes or 60
+                    article_container.planned_end = article_container.planned_start + timedelta(minutes=duration)
+                
                 db.add(article_container)
                 db.flush()
                 article_container_id = article_container.id
@@ -529,10 +555,15 @@ def generate_todos_from_order(
                             delivery_date=delivery_date,
                             assigned_department_id=department_resource_id,
                             assigned_machine_id=machine_resource_id,
+                            planned_start=datetime.now().replace(second=0, microsecond=0),
                             version=1,
                             created_at=datetime.utcnow(),
                             updated_at=datetime.utcnow(),
                         )
+                        # Calculate planned_end from planned_start + duration
+                        if operation.planned_start and operation.total_duration_minutes:
+                            operation.planned_end = operation.planned_start + timedelta(minutes=operation.total_duration_minutes)
+                        
                         db.add(operation)
                         db.flush()
                         operation_id = operation.id

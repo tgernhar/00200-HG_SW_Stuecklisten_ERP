@@ -391,9 +391,22 @@ export default function GanttChart({
     
     // Intercept lightbox to use custom dialog
     const onBeforeLightbox = gantt.attachEvent('onBeforeLightbox', (id: number) => {
+      // #region agent log
+      fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'GanttChart:onBeforeLightbox',message:'Lightbox event triggered',data:{taskId:id,hasHandler:!!onTaskEditRef.current},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2'})}).catch(()=>{});
+      // #endregion
+      
       // If custom edit handler is provided, use it instead of native lightbox
       if (onTaskEditRef.current) {
+        // #region agent log
+        fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'GanttChart:onBeforeLightbox:calling',message:'Calling onTaskEdit handler',data:{taskId:id},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2'})}).catch(()=>{});
+        // #endregion
+        
         onTaskEditRef.current(id)
+        
+        // #region agent log
+        fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'GanttChart:onBeforeLightbox:called',message:'onTaskEdit handler called',data:{taskId:id},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2'})}).catch(()=>{});
+        // #endregion
+        
         return false  // Prevent native lightbox
       }
       return true  // Allow native lightbox if no custom handler
@@ -494,6 +507,7 @@ export default function GanttChart({
         ...task,
         // Convert string dates to Date objects
         start_date: task.start_date ? new Date(task.start_date.replace(' ', 'T')) : null,
+        end_date: task.end_date ? new Date(task.end_date.replace(' ', 'T')) : null,
       })),
       links: data.links,
     })

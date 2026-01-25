@@ -16,6 +16,8 @@ class TodoType(str, Enum):
     CONTAINER_ARTICLE = "container_article"
     OPERATION = "operation"
     EIGENE = "eigene"  # Employee-specific personal todos
+    TASK = "task"  # Generic task
+    PROJECT = "project"  # Project/container
 
 
 class TodoStatus(str, Enum):

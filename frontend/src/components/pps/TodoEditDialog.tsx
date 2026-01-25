@@ -309,10 +309,12 @@ const statusOptions: { value: TodoStatus; label: string }[] = [
 
 // Type options
 const typeOptions: { value: TodoType; label: string }[] = [
-  { value: 'container_order', label: 'Auftrag' },
-  { value: 'container_article', label: 'Artikel' },
+  { value: 'container_order', label: 'Auftrag (alt)' },
+  { value: 'container_article', label: 'Artikel (alt)' },
   { value: 'operation', label: 'Arbeitsgang' },
   { value: 'eigene', label: 'Eigene' },
+  { value: 'task', label: 'Aufgabe' },
+  { value: 'project', label: 'Projekt' },
 ]
 
 export default function TodoEditDialog({
@@ -324,6 +326,10 @@ export default function TodoEditDialog({
   onDelete,
   onCreateFromPicker,
 }: TodoEditDialogProps) {
+  // #region agent log
+  fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'TodoEditDialog:component',message:'Component function called',data:{todoId:todo.id,todoTitle:todo.title},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
+  // #endregion
+  
   // Form state
   const [priority, setPriority] = useState<number | ''>(todo.priority)
   
@@ -360,9 +366,16 @@ export default function TodoEditDialog({
     }
   }
   const [status, setStatus] = useState<TodoStatus>(todo.status)
-  const [plannedStart, setPlannedStart] = useState(
-    todo.planned_start ? todo.planned_start.replace(' ', 'T').slice(0, 19) : ''
-  )
+  const [plannedStart, setPlannedStart] = useState(() => {
+    if (!todo.planned_start) return ''
+    
+    // Handle both formats: "YYYY-MM-DD HH:MM:SS" and "YYYY-MM-DDTHH:MM:SS"
+    const normalized = todo.planned_start.includes('T') 
+      ? todo.planned_start.slice(0, 19)  // Already ISO format
+      : todo.planned_start.replace(' ', 'T').slice(0, 19)  // Convert to ISO
+    
+    return normalized
+  })
   const [totalDurationMinutes, setTotalDurationMinutes] = useState(
     todo.total_duration_minutes || 60
   )
@@ -600,8 +613,15 @@ export default function TodoEditDialog({
     setValue(newIndex === -1 ? null : options[newIndex].id)
   }
 
+  // #region agent log
+  fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'TodoEditDialog:return',message:'About to return JSX',data:{todoId:todo.id},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
+  // #endregion
+  
   return (
     <div style={styles.overlay} onClick={onClose}>
+      {/* #region agent log */}
+      {fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'TodoEditDialog:overlay',message:'Overlay div rendering',data:{overlayStyle:styles.overlay},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H5'})}).catch(()=>{}) && null}
+      {/* #endregion */}
       <div style={styles.modal} onClick={e => e.stopPropagation()}>
         {/* Orange Header */}
         <div style={styles.header}>
