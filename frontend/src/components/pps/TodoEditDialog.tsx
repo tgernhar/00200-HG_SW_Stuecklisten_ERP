@@ -326,10 +326,6 @@ export default function TodoEditDialog({
   onDelete,
   onCreateFromPicker,
 }: TodoEditDialogProps) {
-  // #region agent log
-  fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'TodoEditDialog:component',message:'Component function called',data:{todoId:todo.id,todoTitle:todo.title},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
-  // #endregion
-  
   // Form state
   const [priority, setPriority] = useState<number | ''>(todo.priority)
   
@@ -339,7 +335,11 @@ export default function TodoEditDialog({
   const [hoveredPlusButton, setHoveredPlusButton] = useState<string | null>(null)
   const [todoType, setTodoType] = useState<TodoType>(todo.todo_type)
   const [ganttType, setGanttType] = useState<'task' | 'project' | 'milestone'>(
-    initialGanttType || (todo.todo_type.startsWith('container') ? 'project' : 'task')
+    initialGanttType || (
+      todo.todo_type.startsWith('container') 
+        ? 'project' 
+        : 'task'
+    )
   )
   const [description, setDescription] = useState(todo.description || '')
   
@@ -613,15 +613,8 @@ export default function TodoEditDialog({
     setValue(newIndex === -1 ? null : options[newIndex].id)
   }
 
-  // #region agent log
-  fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'TodoEditDialog:return',message:'About to return JSX',data:{todoId:todo.id},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
-  // #endregion
-  
   return (
     <div style={styles.overlay} onClick={onClose}>
-      {/* #region agent log */}
-      {fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'TodoEditDialog:overlay',message:'Overlay div rendering',data:{overlayStyle:styles.overlay},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H5'})}).catch(()=>{}) && null}
-      {/* #endregion */}
       <div style={styles.modal} onClick={e => e.stopPropagation()}>
         {/* Orange Header */}
         <div style={styles.header}>

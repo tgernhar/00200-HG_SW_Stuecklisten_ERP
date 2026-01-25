@@ -105,7 +105,15 @@ def _todo_to_gantt_task(todo: PPSTodo) -> GanttTask:
         progress = 0.5
     
     # Use gantt_display_type if set, otherwise derive from todo_type
-    gantt_type = todo.gantt_display_type or ("project" if todo.todo_type.startswith("container") else "task")
+    # Determine gantt_type: use gantt_display_type if set, otherwise:
+    # - Default to 'task' (will be overridden to 'project' later if task has children)
+    # - Old container types still get 'project' for backwards compatibility
+    if todo.gantt_display_type:
+        gantt_type = todo.gantt_display_type
+    elif todo.todo_type.startswith("container"):
+        gantt_type = "project"
+    else:
+        gantt_type = "task"
     
     # Calculate end_date from start_date + duration
     end_date_str = None
@@ -725,6 +733,9 @@ async def get_gantt_data(
     # Update parent dates based on children
     for task in tasks:
         if task.id in parent_map:
+            # Task has children → set gantt_type to 'project' for visual grouping
+            task.type = 'project'
+            
             children = parent_map[task.id]
             # Find earliest start and latest end among children
             child_starts = [c.start_date for c in children if c.start_date]
@@ -790,6 +801,8 @@ async def sync_gantt_data(payload: GanttSyncRequest, db: Session = Depends(get_d
                 errors.append(f"Todo {task_id} nicht gefunden")
                 continue
             
+            print(f"[DEBUG] sync_gantt_data: task_id={task_id}, incoming_data={task_data}, current_duration={todo.total_duration_minutes}")
+            
             # Parse start_date from Gantt format
             if "start_date" in task_data and task_data["start_date"]:
                 try:
@@ -802,12 +815,15 @@ async def sync_gantt_data(payload: GanttSyncRequest, db: Session = Depends(get_d
             
             # Duration in minutes
             if "duration" in task_data:
+                old_duration = todo.total_duration_minutes
                 todo.total_duration_minutes = int(task_data["duration"])
                 todo.is_duration_manual = True
+                print(f"[DEBUG] sync_gantt_data: duration changed from {old_duration} to {todo.total_duration_minutes}")
             
             # Always recalculate planned_end if we have start and duration
             if todo.planned_start and todo.total_duration_minutes:
                 todo.planned_end = todo.planned_start + timedelta(minutes=todo.total_duration_minutes)
+                print(f"[DEBUG] sync_gantt_data: calculated planned_end={todo.planned_end}, start={todo.planned_start}, duration={todo.total_duration_minutes}")
             
             # Parent
             if "parent" in task_data:

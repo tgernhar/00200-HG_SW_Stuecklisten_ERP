@@ -359,9 +359,10 @@ def generate_todos_from_order(
         cursor.execute(article_query, params)
         article_rows = cursor.fetchall()
         
-        # Determine order type based on article count
+        # All orders are 'task' type, but we'll set gantt_type differently
+        # Orders with articles will have gantt_type='project' for visual grouping
         has_articles = len(article_rows) > 0
-        order_type = 'project' if has_articles else 'task'
+        order_type = 'task'  # Always 'task' for todo_type
         
         # Check if order todo already exists
         existing_order = db.query(PPSTodo).filter(

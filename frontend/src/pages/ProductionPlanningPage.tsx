@@ -282,6 +282,10 @@ export default function ProductionPlanningPage() {
 
   // Handle task update from Gantt - immediately sync to server
   const handleTaskUpdate = useCallback(async (taskId: number, task: Partial<GanttTask>) => {
+    // #region agent log
+    fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ProductionPlanningPage:handleTaskUpdate',message:'Task update triggered',data:{taskId,task:{start_date:task.start_date,end_date:task.end_date,duration:task.duration}},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
+    // #endregion
+    
     try {
       const syncRequest: GanttSyncRequest = {
         updated_tasks: [{ id: taskId, ...task }],
@@ -292,10 +296,18 @@ export default function ProductionPlanningPage() {
         deleted_link_ids: [],
       }
       
+      // #region agent log
+      fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ProductionPlanningPage:handleTaskUpdate:beforeSync',message:'About to sync',data:{syncRequest:syncRequest.updated_tasks[0]},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
+      // #endregion
+      
       // Store as pending and sync immediately
       pendingChangesRef.current = syncRequest
       await syncGanttData(syncRequest)
       pendingChangesRef.current = null
+      
+      // #region agent log
+      fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ProductionPlanningPage:handleTaskUpdate:afterSync',message:'Sync completed, reloading data',data:{},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3'})}).catch(()=>{});
+      // #endregion
       
       // Reload gantt data to get updated end_date from backend
       await loadData()
@@ -408,34 +420,13 @@ export default function ProductionPlanningPage() {
 
   // Handle task edit - opens TodoEditDialog instead of DHTMLX lightbox
   const handleTaskEdit = useCallback(async (taskId: number) => {
-    // #region agent log
-    fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ProductionPlanningPage:handleTaskEdit',message:'Task edit triggered',data:{taskId,type:typeof taskId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2'})}).catch(()=>{});
-    // #endregion
-    
     try {
       const todoWithErp = await getTodoWithERPDetails(taskId)
-      
-      // #region agent log
-      fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ProductionPlanningPage:handleTaskEdit:fetched',message:'Todo fetched from API',data:{todoId:todoWithErp.id,title:todoWithErp.title},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2'})}).catch(()=>{});
-      // #endregion
-      
       // Find current Gantt task to get its type
       // Note: taskId might be string from event, but ganttData IDs are numbers
       const ganttTask = ganttData?.data.find(t => t.id === Number(taskId))
-      
-      // #region agent log
-      fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ProductionPlanningPage:handleTaskEdit:beforeSet',message:'About to set editingTodo',data:{ganttType:ganttTask?.type,todoId:todoWithErp.id},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3'})}).catch(()=>{});
-      // #endregion
-      
       setEditingTodo({ ...todoWithErp, gantt_type: ganttTask?.type })
-      
-      // #region agent log
-      fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ProductionPlanningPage:handleTaskEdit:afterSet',message:'editingTodo state set',data:{success:true},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3'})}).catch(()=>{});
-      // #endregion
     } catch (err) {
-      // #region agent log
-      fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ProductionPlanningPage:handleTaskEdit:error',message:'Error loading todo',data:{error:err instanceof Error ? err.message : String(err)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
-      // #endregion
       console.error('Error loading todo for edit:', err)
     }
   }, [ganttData])
@@ -769,20 +760,15 @@ export default function ProductionPlanningPage() {
 
       {/* Todo Edit Dialog */}
       {editingTodo && (
-        <>
-          {/* #region agent log */}
-          {fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ProductionPlanningPage:render:dialog',message:'TodoEditDialog rendering',data:{editingTodoId:editingTodo.id,editingTodoTitle:editingTodo.title},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{}) && null}
-          {/* #endregion */}
-          <TodoEditDialog
-            todo={editingTodo}
-            ganttType={(editingTodo as any).gantt_type}
-            showGanttType={true}
-            onClose={() => setEditingTodo(null)}
-            onSave={handleEditSave}
-            onDelete={handleDeleteFromDialog}
-            onCreateFromPicker={handleCreateFromPicker}
-          />
-        </>
+        <TodoEditDialog
+          todo={editingTodo}
+          ganttType={(editingTodo as any).gantt_type}
+          showGanttType={true}
+          onClose={() => setEditingTodo(null)}
+          onSave={handleEditSave}
+          onDelete={handleDeleteFromDialog}
+          onCreateFromPicker={handleCreateFromPicker}
+        />
       )}
     </div>
   )
