@@ -9,6 +9,7 @@ import {
   PPSTodoCreate,
   PPSTodoUpdate,
   PPSTodoWithDetails,
+  PPSTodoWithERPDetails,
   PPSTodoSegment,
   TodoSplitRequest,
   PPSDependency,
@@ -20,6 +21,7 @@ import {
   GanttSyncRequest,
   GanttSyncResponse,
   TodoListResponse,
+  TodoListWithERPResponse,
   ResourceSyncResponse,
   GenerateTodosRequest,
   GenerateTodosResponse,
@@ -41,11 +43,38 @@ export async function getTodos(params?: {
   date_from?: string
   date_to?: string
   resource_id?: number
+  assigned_employee_id?: number
   has_conflicts?: boolean
   parent_todo_id?: number
   search?: string
+  // Cumulative filter flags (OR logic)
+  filter_orders?: boolean
+  filter_articles?: boolean
+  filter_operations?: boolean
 }): Promise<TodoListResponse> {
   const response = await api.get(`${BASE_URL}/todos`, { params })
+  return response.data
+}
+
+export async function getTodosWithERPDetails(params?: {
+  skip?: number
+  limit?: number
+  erp_order_id?: number
+  status?: string
+  todo_type?: string
+  date_from?: string
+  date_to?: string
+  resource_id?: number
+  assigned_employee_id?: number
+  has_conflicts?: boolean
+  parent_todo_id?: number
+  search?: string
+  // Cumulative filter flags (OR logic)
+  filter_orders?: boolean
+  filter_articles?: boolean
+  filter_operations?: boolean
+}): Promise<TodoListWithERPResponse> {
+  const response = await api.get(`${BASE_URL}/todos-with-erp-details`, { params })
   return response.data
 }
 
@@ -213,6 +242,7 @@ export async function updateWorkingHours(data: WorkingHoursUpdate[]): Promise<Wo
 // Export all functions as a single object for convenience
 export const ppsApi = {
   getTodos,
+  getTodosWithERPDetails,
   getTodo,
   createTodo,
   updateTodo,

@@ -5,16 +5,159 @@ Handles:
 - Todo generation from ERP orders
 - Available orders query
 - Todo operations
+- ERP name resolution for todos
 """
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from datetime import datetime, date, timedelta
 from app.models.pps_todo import PPSTodo, PPSTodoDependency, PPSResourceCache
 from app.schemas.pps import (
-    GenerateTodosResponse, AvailableOrder, TodoType, TodoStatus
+    GenerateTodosResponse, AvailableOrder, TodoType, TodoStatus, TodoWithERPDetails
 )
 from app.core.database import get_erp_db_connection
+
+
+def resolve_erp_details_for_todos(todos: List[PPSTodo]) -> List[Dict[str, Any]]:
+    """
+    Resolve ERP names for a list of todos by querying HUGWAWI.
+    
+    Returns todo data enriched with:
+    - order_name (from ordertable.name)
+    - order_article_number (from article.articlenumber via order_article)
+    - bom_article_number (from article.articlenumber via packingnote_details)
+    - workstep_name (from qualificationitem.name via workplan_details)
+    """
+    if not todos:
+        return []
+    
+    # Collect unique IDs to look up
+    order_ids = set()
+    order_article_ids = set()
+    packingnote_details_ids = set()
+    workplan_detail_ids = set()
+    
+    for todo in todos:
+        if todo.erp_order_id:
+            order_ids.add(todo.erp_order_id)
+        if todo.erp_order_article_id:
+            order_article_ids.add(todo.erp_order_article_id)
+        if todo.erp_packingnote_details_id:
+            packingnote_details_ids.add(todo.erp_packingnote_details_id)
+        if todo.erp_workplan_detail_id:
+            workplan_detail_ids.add(todo.erp_workplan_detail_id)
+    
+    # Query HUGWAWI for names
+    order_names: Dict[int, str] = {}
+    order_article_numbers: Dict[int, str] = {}
+    bom_article_numbers: Dict[int, str] = {}
+    workstep_names: Dict[int, str] = {}
+    
+    erp_conn = None
+    try:
+        erp_conn = get_erp_db_connection()
+        cursor = erp_conn.cursor(dictionary=True)
+        
+        # Get order names
+        if order_ids:
+            placeholders = ','.join(['%s'] * len(order_ids))
+            cursor.execute(f"""
+                SELECT id, name FROM ordertable WHERE id IN ({placeholders})
+            """, tuple(order_ids))
+            for row in cursor.fetchall():
+                order_names[row['id']] = row['name']
+        
+        # Get order article numbers (via article table)
+        if order_article_ids:
+            placeholders = ','.join(['%s'] * len(order_article_ids))
+            cursor.execute(f"""
+                SELECT oa.id, art.articlenumber
+                FROM order_article oa
+                JOIN article art ON oa.articleid = art.id
+                WHERE oa.id IN ({placeholders})
+            """, tuple(order_article_ids))
+            for row in cursor.fetchall():
+                order_article_numbers[row['id']] = row['articlenumber']
+        
+        # Get BOM article numbers (via packingnote_details -> article)
+        if packingnote_details_ids:
+            placeholders = ','.join(['%s'] * len(packingnote_details_ids))
+            cursor.execute(f"""
+                SELECT pd.id, art.articlenumber
+                FROM packingnote_details pd
+                LEFT JOIN article art ON art.id = pd.article
+                WHERE pd.id IN ({placeholders})
+            """, tuple(packingnote_details_ids))
+            for row in cursor.fetchall():
+                if row['articlenumber']:
+                    bom_article_numbers[row['id']] = row['articlenumber']
+        
+        # Get workstep names (via workplan_details -> qualificationitem)
+        if workplan_detail_ids:
+            placeholders = ','.join(['%s'] * len(workplan_detail_ids))
+            cursor.execute(f"""
+                SELECT wpd.id, qi.name as workstep_name
+                FROM workplan_details wpd
+                LEFT JOIN qualificationitem qi ON qi.id = wpd.qualificationitem
+                WHERE wpd.id IN ({placeholders})
+            """, tuple(workplan_detail_ids))
+            for row in cursor.fetchall():
+                if row['workstep_name']:
+                    workstep_names[row['id']] = row['workstep_name']
+        
+        cursor.close()
+        
+    except Exception as e:
+        # Log error but continue - we'll return todos without enriched names
+        print(f"Error resolving ERP details: {e}")
+    finally:
+        if erp_conn:
+            erp_conn.close()
+    
+    # Build enriched todo list
+    result = []
+    for todo in todos:
+        todo_dict = {
+            'id': todo.id,
+            'todo_type': todo.todo_type,
+            'title': todo.title,
+            'description': todo.description,
+            'quantity': todo.quantity,
+            'setup_time_minutes': todo.setup_time_minutes,
+            'run_time_minutes': todo.run_time_minutes,
+            'total_duration_minutes': todo.total_duration_minutes,
+            'is_duration_manual': todo.is_duration_manual,
+            'planned_start': todo.planned_start,
+            'planned_end': todo.planned_end,
+            'actual_start': todo.actual_start,
+            'actual_end': todo.actual_end,
+            'status': todo.status,
+            'block_reason': todo.block_reason,
+            'priority': todo.priority,
+            'delivery_date': todo.delivery_date,
+            'erp_order_id': todo.erp_order_id,
+            'erp_order_article_id': todo.erp_order_article_id,
+            'erp_packingnote_details_id': todo.erp_packingnote_details_id,
+            'erp_workplan_detail_id': todo.erp_workplan_detail_id,
+            'parent_todo_id': todo.parent_todo_id,
+            'assigned_department_id': todo.assigned_department_id,
+            'assigned_machine_id': todo.assigned_machine_id,
+            'assigned_employee_id': todo.assigned_employee_id,
+            'creator_employee_id': todo.creator_employee_id,
+            'version': todo.version,
+            'created_at': todo.created_at,
+            'updated_at': todo.updated_at,
+            'has_conflicts': len(todo.conflicts) > 0 if todo.conflicts else False,
+            'conflict_count': len(todo.conflicts) if todo.conflicts else 0,
+            # ERP resolved names
+            'order_name': order_names.get(todo.erp_order_id) if todo.erp_order_id else None,
+            'order_article_number': order_article_numbers.get(todo.erp_order_article_id) if todo.erp_order_article_id else None,
+            'bom_article_number': bom_article_numbers.get(todo.erp_packingnote_details_id) if todo.erp_packingnote_details_id else None,
+            'workstep_name': workstep_names.get(todo.erp_workplan_detail_id) if todo.erp_workplan_detail_id else None,
+        }
+        result.append(todo_dict)
+    
+    return result
 
 
 def get_available_orders_for_todos(
@@ -260,6 +403,7 @@ def generate_todos_from_order(
                 # Get workplan details
                 # Note: HUGWAWI workplan_details may not have setupTime/executionTime columns
                 # We use the existing working query pattern from orders_overview.py
+                # wp.packingnoteid references packingnote_details.id (BOM item)
                 cursor.execute("""
                     SELECT 
                         wpd.id as detail_id,
@@ -267,7 +411,8 @@ def generate_todos_from_order(
                         ws.id as workstep_id,
                         ws.name as workstep_name,
                         qi.id as machine_id,
-                        qi.name as machine_name
+                        qi.name as machine_name,
+                        wp.packingnoteid as packingnote_details_id
                     FROM workplan wp
                     JOIN workplan_relation wpr ON wpr.workplanId = wp.id
                     JOIN workplan_details wpd ON wpd.id = wpr.detail
@@ -319,9 +464,13 @@ def generate_todos_from_order(
                             if machine:
                                 machine_resource_id = machine.id
                         
+                        # Get packingnote_details_id (BOM item) from workplan
+                        packingnote_details_id = wp_row.get('packingnote_details_id')
+                        
                         operation = PPSTodo(
                             erp_order_id=erp_order_id,
                             erp_order_article_id=order_article_id,
+                            erp_packingnote_details_id=packingnote_details_id,
                             erp_workplan_detail_id=detail_id,
                             parent_todo_id=article_container_id,
                             todo_type='operation',

@@ -20,6 +20,7 @@ from app.models.pps_todo import (
 )
 from app.schemas.pps import (
     Todo, TodoCreate, TodoUpdate, TodoWithDetails, TodoFilter, TodoListResponse,
+    TodoWithERPDetails, TodoListWithERPResponse,
     TodoSegment, TodoSegmentCreate, TodoSplitRequest,
     Dependency, DependencyCreate,
     Resource, ResourceCreate, ResourceUpdate,
@@ -46,6 +47,7 @@ def _todo_to_response(todo: PPSTodo, include_conflicts: bool = True) -> Todo:
         id=todo.id,
         erp_order_id=todo.erp_order_id,
         erp_order_article_id=todo.erp_order_article_id,
+        erp_packingnote_details_id=todo.erp_packingnote_details_id,
         erp_workplan_detail_id=todo.erp_workplan_detail_id,
         parent_todo_id=todo.parent_todo_id,
         todo_type=TodoType(todo.todo_type),
@@ -142,9 +144,14 @@ async def get_todos(
     date_from: Optional[datetime] = None,
     date_to: Optional[datetime] = None,
     resource_id: Optional[int] = None,
+    assigned_employee_id: Optional[int] = None,  # Filter by specific employee
     has_conflicts: Optional[bool] = None,
     parent_todo_id: Optional[int] = None,
     search: Optional[str] = None,
+    # Cumulative filter flags (OR logic when multiple are true)
+    filter_orders: bool = False,  # Filter container_order types
+    filter_articles: bool = False,  # Filter container_article + BOM items
+    filter_operations: bool = False,  # Filter operation types
     current_employee_erp_id: Optional[int] = Header(None, alias="X-Employee-ERP-ID"),
     db: Session = Depends(get_db),
 ):
@@ -154,6 +161,11 @@ async def get_todos(
     - If current_employee_erp_id is provided, "eigene" todos are filtered
     - User sees their own "eigene" todos + those from their subordinates
     - Without this header, "eigene" todos are excluded
+    
+    Filter flags (cumulative/OR logic):
+    - filter_orders: Include container_order types
+    - filter_articles: Include container_article + todos with packingnote_details
+    - filter_operations: Include operation types
     """
     query = db.query(PPSTodo).options(joinedload(PPSTodo.conflicts))
     
@@ -185,7 +197,22 @@ async def get_todos(
         status_list = [s.strip() for s in status.split(",")]
         query = query.filter(PPSTodo.status.in_(status_list))
     
-    if todo_type:
+    # Cumulative filter for todo types (OR logic)
+    if filter_orders or filter_articles or filter_operations:
+        type_conditions = []
+        if filter_orders:
+            type_conditions.append(PPSTodo.todo_type == 'container_order')
+        if filter_articles:
+            # container_article OR has packingnote_details_id
+            type_conditions.append(PPSTodo.todo_type == 'container_article')
+            type_conditions.append(PPSTodo.erp_packingnote_details_id.isnot(None))
+        if filter_operations:
+            type_conditions.append(PPSTodo.todo_type == 'operation')
+        
+        if type_conditions:
+            query = query.filter(or_(*type_conditions))
+    elif todo_type:
+        # Traditional comma-separated filter
         type_list = [t.strip() for t in todo_type.split(",")]
         query = query.filter(PPSTodo.todo_type.in_(type_list))
     
@@ -203,6 +230,10 @@ async def get_todos(
                 PPSTodo.assigned_employee_id == resource_id,
             )
         )
+    
+    # Filter by specific employee
+    if assigned_employee_id is not None:
+        query = query.filter(PPSTodo.assigned_employee_id == assigned_employee_id)
     
     if parent_todo_id is not None:
         query = query.filter(PPSTodo.parent_todo_id == parent_todo_id)
@@ -232,6 +263,125 @@ async def get_todos(
     return TodoListResponse(items=items, total=total, skip=skip, limit=limit)
 
 
+@router.get("/todos-with-erp-details", response_model=TodoListWithERPResponse)
+async def get_todos_with_erp_details(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    erp_order_id: Optional[int] = None,
+    status: Optional[str] = None,  # comma-separated
+    todo_type: Optional[str] = None,  # comma-separated
+    date_from: Optional[datetime] = None,
+    date_to: Optional[datetime] = None,
+    resource_id: Optional[int] = None,
+    assigned_employee_id: Optional[int] = None,  # Filter by specific employee
+    has_conflicts: Optional[bool] = None,
+    parent_todo_id: Optional[int] = None,
+    search: Optional[str] = None,
+    # Cumulative filter flags (OR logic when multiple are true)
+    filter_orders: bool = False,  # Filter container_order types
+    filter_articles: bool = False,  # Filter container_article + BOM items
+    filter_operations: bool = False,  # Filter operation types
+    current_employee_erp_id: Optional[int] = Header(None, alias="X-Employee-ERP-ID"),
+    db: Session = Depends(get_db),
+):
+    """Get todos with ERP details resolved (order names, article numbers, etc.)
+    
+    Same filters as /todos but returns enriched data with:
+    - order_name: ordertable.name
+    - order_article_number: article.articlenumber via order_article
+    - bom_article_number: article.articlenumber via packingnote_details
+    - workstep_name: qualificationitem.name via workplan_details
+    """
+    from app.services.pps_service import resolve_erp_details_for_todos
+    
+    query = db.query(PPSTodo).options(joinedload(PPSTodo.conflicts))
+    
+    # Filter "eigene" todos by visibility
+    if current_employee_erp_id:
+        subordinate_erp_ids = get_subordinate_ids(current_employee_erp_id)
+        all_visible_erp_ids = [current_employee_erp_id] + subordinate_erp_ids
+        visible_resource_ids = get_employee_resource_ids_for_erp_ids(db, all_visible_erp_ids)
+        
+        query = query.filter(
+            or_(
+                PPSTodo.todo_type != 'eigene',
+                PPSTodo.creator_employee_id.in_(visible_resource_ids) if visible_resource_ids else False,
+            )
+        )
+    else:
+        query = query.filter(PPSTodo.todo_type != 'eigene')
+    
+    # Apply filters
+    if erp_order_id is not None:
+        query = query.filter(PPSTodo.erp_order_id == erp_order_id)
+    
+    if status:
+        status_list = [s.strip() for s in status.split(",")]
+        query = query.filter(PPSTodo.status.in_(status_list))
+    
+    # Cumulative filter for todo types (OR logic)
+    if filter_orders or filter_articles or filter_operations:
+        type_conditions = []
+        if filter_orders:
+            type_conditions.append(PPSTodo.todo_type == 'container_order')
+        if filter_articles:
+            type_conditions.append(PPSTodo.todo_type == 'container_article')
+            type_conditions.append(PPSTodo.erp_packingnote_details_id.isnot(None))
+        if filter_operations:
+            type_conditions.append(PPSTodo.todo_type == 'operation')
+        
+        if type_conditions:
+            query = query.filter(or_(*type_conditions))
+    elif todo_type:
+        type_list = [t.strip() for t in todo_type.split(",")]
+        query = query.filter(PPSTodo.todo_type.in_(type_list))
+    
+    if date_from:
+        query = query.filter(PPSTodo.planned_start >= date_from)
+    
+    if date_to:
+        query = query.filter(PPSTodo.planned_end <= date_to)
+    
+    if resource_id is not None:
+        query = query.filter(
+            or_(
+                PPSTodo.assigned_department_id == resource_id,
+                PPSTodo.assigned_machine_id == resource_id,
+                PPSTodo.assigned_employee_id == resource_id,
+            )
+        )
+    
+    if assigned_employee_id is not None:
+        query = query.filter(PPSTodo.assigned_employee_id == assigned_employee_id)
+    
+    if parent_todo_id is not None:
+        query = query.filter(PPSTodo.parent_todo_id == parent_todo_id)
+    elif parent_todo_id == 0:
+        query = query.filter(PPSTodo.parent_todo_id.is_(None))
+    
+    if search:
+        query = query.filter(PPSTodo.title.ilike(f"%{search}%"))
+    
+    # Get total before pagination
+    total = query.count()
+    
+    # Apply pagination and ordering
+    todos = query.order_by(
+        func.coalesce(PPSTodo.planned_start, '9999-12-31').asc(),
+        PPSTodo.priority.desc(),
+        PPSTodo.id.asc()
+    ).offset(skip).limit(limit).all()
+    
+    # Filter by has_conflicts after loading
+    if has_conflicts is not None:
+        todos = [t for t in todos if (len(t.conflicts) > 0) == has_conflicts]
+    
+    # Resolve ERP details (names from HUGWAWI)
+    enriched_items = resolve_erp_details_for_todos(todos)
+    
+    return TodoListWithERPResponse(items=enriched_items, total=total, skip=skip, limit=limit)
+
+
 @router.get("/todos/{todo_id}", response_model=TodoWithDetails)
 async def get_todo(todo_id: int, db: Session = Depends(get_db)):
     """Get single todo with full details"""
@@ -256,6 +406,7 @@ async def create_todo(payload: TodoCreate, db: Session = Depends(get_db)):
     todo = PPSTodo(
         erp_order_id=payload.erp_order_id,
         erp_order_article_id=payload.erp_order_article_id,
+        erp_packingnote_details_id=payload.erp_packingnote_details_id,
         erp_workplan_detail_id=payload.erp_workplan_detail_id,
         parent_todo_id=payload.parent_todo_id,
         todo_type=payload.todo_type.value,

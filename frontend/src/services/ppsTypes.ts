@@ -32,6 +32,7 @@ export interface PPSTodo {
   id: number
   erp_order_id?: number
   erp_order_article_id?: number
+  erp_packingnote_details_id?: number  // BOM item from packingnote_details
   erp_workplan_detail_id?: number
   parent_todo_id?: number
   todo_type: TodoType
@@ -61,6 +62,14 @@ export interface PPSTodo {
   conflict_count: number
 }
 
+// Todo with resolved ERP names for display
+export interface PPSTodoWithERPDetails extends PPSTodo {
+  order_name?: string  // ordertable.name
+  order_article_number?: string  // article.articlenumber via order_article
+  bom_article_number?: string  // article.articlenumber via packingnote_details
+  workstep_name?: string  // qualificationitem.name via workplan_details
+}
+
 export interface PPSTodoCreate {
   todo_type: TodoType
   title: string
@@ -78,6 +87,7 @@ export interface PPSTodoCreate {
   delivery_date?: string
   erp_order_id?: number
   erp_order_article_id?: number
+  erp_packingnote_details_id?: number  // BOM item from packingnote_details
   erp_workplan_detail_id?: number
   parent_todo_id?: number
   assigned_department_id?: number
@@ -240,6 +250,13 @@ export interface GanttSyncResponse {
 
 export interface TodoListResponse {
   items: PPSTodo[]
+  total: number
+  skip: number
+  limit: number
+}
+
+export interface TodoListWithERPResponse {
+  items: PPSTodoWithERPDetails[]
   total: number
   skip: number
   limit: number

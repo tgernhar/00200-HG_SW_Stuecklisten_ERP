@@ -71,6 +71,7 @@ class PPSTodo(Base):
     # ERP references (from HUGWAWI)
     erp_order_id = Column(Integer, nullable=True, index=True)  # ordertable.id
     erp_order_article_id = Column(Integer, nullable=True)  # order_article.id
+    erp_packingnote_details_id = Column(Integer, nullable=True)  # packingnote_details.id (BOM item)
     erp_workplan_detail_id = Column(Integer, nullable=True)  # workplan_details.id
     
     # Hierarchy

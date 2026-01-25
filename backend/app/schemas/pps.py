@@ -105,6 +105,7 @@ class TodoBase(BaseModel):
 class TodoCreate(TodoBase):
     erp_order_id: Optional[int] = None
     erp_order_article_id: Optional[int] = None
+    erp_packingnote_details_id: Optional[int] = None  # BOM item from packingnote_details
     erp_workplan_detail_id: Optional[int] = None
     parent_todo_id: Optional[int] = None
     assigned_department_id: Optional[int] = None
@@ -139,6 +140,7 @@ class Todo(TodoBase):
     id: int
     erp_order_id: Optional[int] = None
     erp_order_article_id: Optional[int] = None
+    erp_packingnote_details_id: Optional[int] = None  # BOM item from packingnote_details
     erp_workplan_detail_id: Optional[int] = None
     parent_todo_id: Optional[int] = None
     actual_start: Optional[datetime] = None
@@ -156,6 +158,15 @@ class Todo(TodoBase):
     
     class Config:
         from_attributes = True
+
+
+class TodoWithERPDetails(Todo):
+    """Todo with resolved ERP names for display in frontend"""
+    # ERP-resolved names (from HUGWAWI lookups)
+    order_name: Optional[str] = None  # ordertable.name
+    order_article_number: Optional[str] = None  # article.articlenumber via order_article
+    bom_article_number: Optional[str] = None  # article.articlenumber via packingnote_details
+    workstep_name: Optional[str] = None  # qualificationitem.name via workplan_details
 
 
 class TodoWithDetails(Todo):
@@ -333,14 +344,27 @@ class TodoFilter(BaseModel):
     date_from: Optional[datetime] = None
     date_to: Optional[datetime] = None
     resource_id: Optional[int] = None
+    assigned_employee_id: Optional[int] = None  # Filter by specific employee
     has_conflicts: Optional[bool] = None
     parent_todo_id: Optional[int] = None
     search: Optional[str] = None
+    # Cumulative filter flags (OR logic when multiple are true)
+    filter_orders: bool = False  # Filter container_order types
+    filter_articles: bool = False  # Filter container_article + BOM items
+    filter_operations: bool = False  # Filter operation types
 
 
 class TodoListResponse(BaseModel):
     """Paginated todo list response"""
     items: List[Todo]
+    total: int
+    skip: int
+    limit: int
+
+
+class TodoListWithERPResponse(BaseModel):
+    """Paginated todo list with ERP details for frontend display"""
+    items: List[TodoWithERPDetails]
     total: int
     skip: int
     limit: int

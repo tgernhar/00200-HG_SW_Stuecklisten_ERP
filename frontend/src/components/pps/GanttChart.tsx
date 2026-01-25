@@ -90,19 +90,27 @@ export default function GanttChart({
     ]
     gantt.config.min_column_width = 40
     
-    // Layout with explicit scrollbars
+    // Enable scrolling
+    gantt.config.scroll_on_click = true
+    gantt.config.show_chart = true
+    gantt.config.show_grid = true
+    gantt.config.autosize = false  // Important: disable autosize to allow scrolling
+    gantt.config.autosize_min_width = 800
+    
+    // Layout with explicit scrollbars - using correct DHTMLX structure
     gantt.config.layout = {
       css: "gantt_container",
       rows: [
         {
           cols: [
-            { view: "grid", scrollX: "scrollHor", scrollY: "scrollVer" },
+            { view: "grid", id: "grid", scrollX: "gridScrollX", scrollY: "scrollVer" },
             { resizer: true, width: 1 },
-            { view: "timeline", scrollX: "scrollHor", scrollY: "scrollVer" },
-            { view: "scrollbar", id: "scrollVer" }
+            { view: "timeline", id: "timeline", scrollX: "scrollHor", scrollY: "scrollVer" },
+            { view: "scrollbar", id: "scrollVer", group: "vertical" }
           ]
         },
-        { view: "scrollbar", id: "scrollHor" }
+        { view: "scrollbar", id: "scrollHor", group: "horizontal" },
+        { view: "scrollbar", id: "gridScrollX", group: "horizontal" }
       ]
     }
     
@@ -283,20 +291,47 @@ export default function GanttChart({
       .non-working-time {
         background-color: #f0f0f0 !important;
       }
-      /* Ensure scrollbars are visible */
-      .gantt_ver_scroll, .gantt_hor_scroll {
-        display: block !important;
-        visibility: visible !important;
+      /* DHTMLX Gantt Standard uses native browser scrollbars via gantt_layout_outer_scroll classes */
+      /* Enable scrolling for cells with outer_scroll classes */
+      .gantt_layout_outer_scroll {
+        overflow: auto !important;
       }
+      .gantt_layout_outer_scroll_vertical {
+        overflow-y: auto !important;
+      }
+      .gantt_layout_outer_scroll_horizontal {
+        overflow-x: auto !important;
+      }
+      /* Ensure data area can scroll */
+      .gantt_data_area {
+        overflow: auto !important;
+      }
+      /* Grid area scrolling */
+      .gantt_grid_data {
+        overflow: auto !important;
+      }
+      /* Timeline task area scrolling */
+      .gantt_task_bg, .gantt_task_line {
+        overflow: visible !important;
+      }
+      /* Ensure the gantt container itself doesn't clip */
       .gantt_container {
         overflow: visible !important;
       }
-      /* Scrollbar styling */
-      .gantt_ver_scroll {
-        width: 17px !important;
+      /* Custom scrollbar styling for better visibility */
+      .gantt_layout_outer_scroll::-webkit-scrollbar {
+        width: 12px;
+        height: 12px;
       }
-      .gantt_hor_scroll {
-        height: 17px !important;
+      .gantt_layout_outer_scroll::-webkit-scrollbar-track {
+        background: #f1f1f1;
+      }
+      .gantt_layout_outer_scroll::-webkit-scrollbar-thumb {
+        background: #888;
+        border-radius: 6px;
+      }
+      .gantt_layout_outer_scroll::-webkit-scrollbar-thumb:hover {
+        background: #555;
       }
     `
     document.head.appendChild(style)
@@ -305,8 +340,12 @@ export default function GanttChart({
     initialized.current = true
     
     // #region agent log
-    // Debug: Check Gantt layout and scrollbar config after init
-    fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'GanttChart.tsx:init',message:'Gantt initialized',data:{layout: gantt.config.layout, containerWidth: containerRef.current?.offsetWidth, containerHeight: containerRef.current?.offsetHeight, scrollX: gantt.config.scroll_size, scrollY: gantt.config.scroll_size},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3'})}).catch(()=>{});
+    // Debug: Check Gantt structure after init - look for scrollbar views
+    const scrollbarViews = document.querySelectorAll('[data-cell-id*="scroll"]');
+    const ganttScrollbar = document.querySelector('.gantt_scrollbar');
+    const ganttVerScroll = document.querySelector('.gantt_ver_scroll');
+    const layoutContent = document.querySelectorAll('.gantt_layout_content');
+    fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'GanttChart.tsx:init',message:'Gantt init scrollbar check',data:{autosize: gantt.config.autosize, scrollbarViewCount: scrollbarViews.length, scrollbarViewIds: Array.from(scrollbarViews).map(el => el.getAttribute('data-cell-id')), hasGanttScrollbar: !!ganttScrollbar, hasVerScroll: !!ganttVerScroll, layoutContentCount: layoutContent.length, layoutConfig: JSON.stringify(gantt.config.layout).substring(0,200)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H11'})}).catch(()=>{});
     // #endregion
     
     return () => {
@@ -478,12 +517,24 @@ export default function GanttChart({
     // Fit to screen
     setTimeout(() => {
       gantt.render()
-      // #region agent log
-      // Debug: Check container and scrollbar visibility after render
+      
+      // #region agent log - force scrollbar visibility via JS (H10 fix)
+      // Force overflow via JavaScript since CSS is overridden by DHTMLX
+      const dataArea = document.querySelector('.gantt_data_area') as HTMLElement;
+      const gridData = document.querySelector('.gantt_grid_data') as HTMLElement;
+      const timelineData = document.querySelector('.gantt_task_bg') as HTMLElement;
+      const ganttGrid = document.querySelector('.gantt_grid') as HTMLElement;
+      const ganttTask = document.querySelector('.gantt_task') as HTMLElement;
+      
+      if (dataArea) dataArea.style.overflow = 'auto';
+      if (gridData) gridData.style.overflow = 'auto';
+      if (timelineData) timelineData.style.overflow = 'visible';
+      if (ganttGrid) ganttGrid.style.overflow = 'auto';
+      if (ganttTask) ganttTask.style.overflow = 'auto';
+      
+      // Debug: Check if JS override worked
       const container = containerRef.current;
-      const scrollVerEl = document.querySelector('.gantt_ver_scroll');
-      const scrollHorEl = document.querySelector('.gantt_hor_scroll');
-      fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'GanttChart.tsx:afterRender',message:'After render check',data:{containerWidth: container?.offsetWidth, containerHeight: container?.offsetHeight, scrollVerFound: !!scrollVerEl, scrollHorFound: !!scrollHorEl, scrollVerDisplay: scrollVerEl ? getComputedStyle(scrollVerEl).display : 'n/a', scrollHorDisplay: scrollHorEl ? getComputedStyle(scrollHorEl).display : 'n/a', taskCount: data?.data?.length},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3-H4'})}).catch(()=>{});
+      fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'GanttChart.tsx:afterRender',message:'JS overflow fix applied',data:{containerSize: container?.offsetWidth + 'x' + container?.offsetHeight, dataAreaOverflow: dataArea ? dataArea.style.overflow : 'n/a', gridDataOverflow: gridData ? gridData.style.overflow : 'n/a', ganttGridOverflow: ganttGrid ? ganttGrid.style.overflow : 'n/a', ganttTaskOverflow: ganttTask ? ganttTask.style.overflow : 'n/a', dataAreaScrollHeight: dataArea?.scrollHeight, dataAreaClientHeight: dataArea?.clientHeight, taskCount: data?.data?.length},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H10'})}).catch(()=>{});
       // #endregion
     }, 100)
     

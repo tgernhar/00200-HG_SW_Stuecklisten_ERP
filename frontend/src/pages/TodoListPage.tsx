@@ -4,16 +4,19 @@
  * Features:
  * - AG-Grid table with all todos
  * - Sorting by priority, date
- * - Filtering by status, resource, order
- * - Quick edit functionality
+ * - Extended filtering (Auftrag, Artikel, Arbeitsgang, Mitarbeiter)
+ * - Cumulative filters (OR logic)
+ * - ERP reference columns (order_name, article_number, etc.)
+ * - Quick edit functionality via TodoEditDialog
  */
 import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import { AgGridReact } from 'ag-grid-react'
-import { ColDef, GridReadyEvent, ValueFormatterParams, CellClickedEvent } from 'ag-grid-community'
+import { ColDef, GridReadyEvent, ValueFormatterParams, RowDoubleClickedEvent } from 'ag-grid-community'
 import 'ag-grid-community/styles/ag-grid.css'
 import 'ag-grid-community/styles/ag-theme-alpine.css'
-import { getTodos, getResources, deleteTodo, updateTodo } from '../services/ppsApi'
-import { PPSTodo, PPSResource, TodoStatus } from '../services/ppsTypes'
+import { getTodosWithERPDetails, getResources, deleteTodo, updateTodo } from '../services/ppsApi'
+import { PPSTodoWithERPDetails, PPSResource, TodoStatus } from '../services/ppsTypes'
+import TodoEditDialog from '../components/pps/TodoEditDialog'
 
 const styles = {
   container: {
@@ -43,15 +46,37 @@ const styles = {
     padding: '10px 15px',
     backgroundColor: '#fafafa',
     borderBottom: '1px solid #eeeeee',
+    flexWrap: 'wrap' as const,
   },
   filterGroup: {
     display: 'flex',
     alignItems: 'center',
     gap: '5px',
   },
+  filterSection: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '15px',
+    padding: '8px 12px',
+    backgroundColor: '#f0f7ff',
+    borderRadius: '4px',
+    border: '1px solid #d0e3f7',
+  },
+  filterCheckbox: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '4px',
+    fontSize: '12px',
+    cursor: 'pointer',
+  },
   label: {
     fontSize: '12px',
     color: '#666666',
+  },
+  labelBold: {
+    fontSize: '12px',
+    color: '#333333',
+    fontWeight: 'bold' as const,
   },
   select: {
     padding: '4px 8px',
@@ -63,6 +88,16 @@ const styles = {
     padding: '6px 12px',
     backgroundColor: '#ffffff',
     border: '1px solid #cccccc',
+    borderRadius: '3px',
+    cursor: 'pointer',
+    fontSize: '12px',
+    fontFamily: 'Arial, sans-serif',
+  },
+  buttonReset: {
+    padding: '6px 12px',
+    backgroundColor: '#fff3cd',
+    border: '1px solid #ffc107',
+    color: '#856404',
     borderRadius: '3px',
     cursor: 'pointer',
     fontSize: '12px',
@@ -91,6 +126,12 @@ const styles = {
     display: 'flex',
     justifyContent: 'space-between',
   },
+  separator: {
+    width: '1px',
+    height: '24px',
+    backgroundColor: '#dddddd',
+    margin: '0 5px',
+  },
 }
 
 // Status display mapping
@@ -112,22 +153,37 @@ const statusColors: Record<string, string> = {
 }
 
 export default function TodoListPage() {
-  const [todos, setTodos] = useState<PPSTodo[]>([])
+  const [todos, setTodos] = useState<PPSTodoWithERPDetails[]>([])
   const [resources, setResources] = useState<PPSResource[]>([])
   const [loading, setLoading] = useState(true)
-  const [selectedRows, setSelectedRows] = useState<PPSTodo[]>([])
+  const [selectedRows, setSelectedRows] = useState<PPSTodoWithERPDetails[]>([])
+  
+  // Edit dialog state
+  const [editingTodo, setEditingTodo] = useState<PPSTodoWithERPDetails | null>(null)
   
   // Filters
   const [statusFilter, setStatusFilter] = useState<string>('')
-  const [resourceFilter, setResourceFilter] = useState<string>('')
+  const [employeeFilter, setEmployeeFilter] = useState<string>('')
+  
+  // Cumulative type filters (OR logic)
+  const [filterOrders, setFilterOrders] = useState(false)
+  const [filterArticles, setFilterArticles] = useState(false)
+  const [filterOperations, setFilterOperations] = useState(false)
+
+  // Check if any cumulative filter is active
+  const hasActiveTypeFilter = filterOrders || filterArticles || filterOperations
 
   // Load data
   const loadData = useCallback(async () => {
     setLoading(true)
     try {
       const [todosResponse, resourcesResponse] = await Promise.all([
-        getTodos({ 
+        getTodosWithERPDetails({ 
           status: statusFilter || undefined,
+          assigned_employee_id: employeeFilter ? parseInt(employeeFilter) : undefined,
+          filter_orders: filterOrders,
+          filter_articles: filterArticles,
+          filter_operations: filterOperations,
           limit: 1000 
         }),
         getResources({ is_active: true }),
@@ -153,11 +209,16 @@ export default function TodoListPage() {
     } finally {
       setLoading(false)
     }
-  }, [statusFilter])
+  }, [statusFilter, employeeFilter, filterOrders, filterArticles, filterOperations])
 
   useEffect(() => {
     loadData()
   }, [loadData])
+
+  // Get employees for filter dropdown
+  const employees = useMemo(() => {
+    return resources.filter(r => r.resource_type === 'employee')
+  }, [resources])
 
   // Get resource name by ID
   const getResourceName = useCallback((departmentId?: number, machineId?: number, employeeId?: number) => {
@@ -167,7 +228,16 @@ export default function TodoListPage() {
     return resource?.name || '-'
   }, [resources])
 
-  // Column definitions
+  // Reset all filters
+  const handleResetFilters = useCallback(() => {
+    setStatusFilter('')
+    setEmployeeFilter('')
+    setFilterOrders(false)
+    setFilterArticles(false)
+    setFilterOperations(false)
+  }, [])
+
+  // Column definitions with ERP references
   const columnDefs = useMemo<ColDef[]>(() => [
     {
       headerName: 'Prio',
@@ -185,7 +255,7 @@ export default function TodoListPage() {
     {
       headerName: 'Typ',
       field: 'todo_type',
-      width: 120,
+      width: 110,
       valueFormatter: (params: ValueFormatterParams) => {
         const types: Record<string, string> = {
           container_order: 'Auftrag',
@@ -195,6 +265,31 @@ export default function TodoListPage() {
         }
         return types[params.value] || params.value
       },
+    },
+    // ERP Reference columns
+    {
+      headerName: 'Auftrag',
+      field: 'order_name',
+      width: 120,
+      valueFormatter: (params: ValueFormatterParams) => params.value || '-',
+    },
+    {
+      headerName: 'Auftragsartikel',
+      field: 'order_article_number',
+      width: 140,
+      valueFormatter: (params: ValueFormatterParams) => params.value || '-',
+    },
+    {
+      headerName: 'Stücklistenartikel',
+      field: 'bom_article_number',
+      width: 140,
+      valueFormatter: (params: ValueFormatterParams) => params.value || '-',
+    },
+    {
+      headerName: 'Arbeitsgang',
+      field: 'workstep_name',
+      width: 130,
+      valueFormatter: (params: ValueFormatterParams) => params.value || '-',
     },
     {
       headerName: 'Status',
@@ -299,8 +394,15 @@ export default function TodoListPage() {
   }, [])
 
   // Handle row selection
-  const onSelectionChanged = useCallback((event: { api: { getSelectedRows: () => PPSTodo[] } }) => {
+  const onSelectionChanged = useCallback((event: { api: { getSelectedRows: () => PPSTodoWithERPDetails[] } }) => {
     setSelectedRows(event.api.getSelectedRows())
+  }, [])
+
+  // Handle row double-click to open edit dialog
+  const onRowDoubleClicked = useCallback((event: RowDoubleClickedEvent) => {
+    if (event.data) {
+      setEditingTodo(event.data as PPSTodoWithERPDetails)
+    }
   }, [])
 
   // Handle delete
@@ -335,16 +437,11 @@ export default function TodoListPage() {
     }
   }, [selectedRows, loadData])
 
-  // Filter todos by resource
-  const filteredTodos = useMemo(() => {
-    if (!resourceFilter) return todos
-    const resourceId = parseInt(resourceFilter)
-    return todos.filter(t => 
-      t.assigned_department_id === resourceId ||
-      t.assigned_machine_id === resourceId ||
-      t.assigned_employee_id === resourceId
-    )
-  }, [todos, resourceFilter])
+  // Handle save from edit dialog
+  const handleEditSave = useCallback(() => {
+    setEditingTodo(null)
+    loadData()
+  }, [loadData])
 
   return (
     <div style={styles.container}>
@@ -358,6 +455,37 @@ export default function TodoListPage() {
 
       {/* Toolbar */}
       <div style={styles.toolbar}>
+        {/* Type filters (cumulative) */}
+        <div style={styles.filterSection}>
+          <span style={styles.labelBold}>Typ-Filter:</span>
+          <label style={styles.filterCheckbox}>
+            <input
+              type="checkbox"
+              checked={filterOrders}
+              onChange={(e) => setFilterOrders(e.target.checked)}
+            />
+            Auftrag
+          </label>
+          <label style={styles.filterCheckbox}>
+            <input
+              type="checkbox"
+              checked={filterArticles}
+              onChange={(e) => setFilterArticles(e.target.checked)}
+            />
+            Artikel
+          </label>
+          <label style={styles.filterCheckbox}>
+            <input
+              type="checkbox"
+              checked={filterOperations}
+              onChange={(e) => setFilterOperations(e.target.checked)}
+            />
+            Arbeitsgang
+          </label>
+        </div>
+
+        <div style={styles.separator} />
+
         {/* Status filter */}
         <div style={styles.filterGroup}>
           <span style={styles.label}>Status:</span>
@@ -375,27 +503,36 @@ export default function TodoListPage() {
           </select>
         </div>
 
-        {/* Resource filter */}
+        {/* Employee filter */}
         <div style={styles.filterGroup}>
-          <span style={styles.label}>Ressource:</span>
+          <span style={styles.label}>Mitarbeiter:</span>
           <select
             style={styles.select}
-            value={resourceFilter}
-            onChange={(e) => setResourceFilter(e.target.value)}
+            value={employeeFilter}
+            onChange={(e) => setEmployeeFilter(e.target.value)}
           >
             <option value="">Alle</option>
-            {resources.map(r => (
-              <option key={r.id} value={r.id}>
-                {r.name} ({r.resource_type})
+            {employees.map(e => (
+              <option key={e.id} value={e.id}>
+                {e.name}
               </option>
             ))}
           </select>
         </div>
 
+        {/* Reset filters button */}
+        {(hasActiveTypeFilter || statusFilter || employeeFilter) && (
+          <button style={styles.buttonReset} onClick={handleResetFilters}>
+            Filter zurücksetzen
+          </button>
+        )}
+
+        <div style={styles.separator} />
+
         {/* Actions for selected rows */}
         {selectedRows.length > 0 && (
           <>
-            <div style={{ marginLeft: '20px', borderLeft: '1px solid #ddd', paddingLeft: '20px' }}>
+            <div style={{ marginLeft: '10px' }}>
               <span style={styles.label}>{selectedRows.length} ausgewählt:</span>
             </div>
             
@@ -427,11 +564,12 @@ export default function TodoListPage() {
       {/* Grid */}
       <div style={styles.gridContainer} className="ag-theme-alpine">
         <AgGridReact
-          rowData={filteredTodos}
+          rowData={todos}
           columnDefs={columnDefs}
           defaultColDef={defaultColDef}
           onGridReady={onGridReady}
           onSelectionChanged={onSelectionChanged}
+          onRowDoubleClicked={onRowDoubleClicked}
           rowSelection="multiple"
           animateRows={true}
           suppressCellFocus={true}
@@ -442,13 +580,23 @@ export default function TodoListPage() {
       {/* Status bar */}
       <div style={styles.statusBar}>
         <span>
-          {filteredTodos.length} ToDos angezeigt
+          {todos.length} ToDos angezeigt
           {selectedRows.length > 0 && ` | ${selectedRows.length} ausgewählt`}
+          {hasActiveTypeFilter && ' | Typ-Filter aktiv'}
         </span>
         <span>
-          {loading ? 'Lade...' : 'Bereit'}
+          {loading ? 'Lade...' : 'Doppelklick zum Bearbeiten'}
         </span>
       </div>
+
+      {/* Edit Dialog */}
+      {editingTodo && (
+        <TodoEditDialog
+          todo={editingTodo}
+          onClose={() => setEditingTodo(null)}
+          onSave={handleEditSave}
+        />
+      )}
     </div>
   )
 }

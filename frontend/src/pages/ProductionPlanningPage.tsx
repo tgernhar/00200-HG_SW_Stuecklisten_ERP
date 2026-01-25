@@ -123,7 +123,7 @@ const styles = {
   },
   ganttContainer: {
     flex: 1,
-    overflow: 'hidden',
+    overflow: 'auto',  // Changed from 'hidden' to allow scrolling
     position: 'relative' as const,
   },
   conflictContainer: {
