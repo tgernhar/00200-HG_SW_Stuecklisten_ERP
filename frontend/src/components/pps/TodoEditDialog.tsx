@@ -11,6 +11,7 @@ import { PPSTodoWithERPDetails, PPSTodoUpdate, PPSResource, TodoStatus, TodoType
 interface TodoEditDialogProps {
   todo: PPSTodoWithERPDetails
   ganttType?: 'task' | 'project' | 'milestone'  // Gantt display type (optional, for Planboard)
+  showGanttType?: boolean  // Show Gantt type field (true for Planboard context)
   onClose: () => void
   onSave: (updatedTodo: PPSTodoWithERPDetails, ganttType?: 'task' | 'project' | 'milestone') => void
   onDelete?: (todoId: number) => void
@@ -267,17 +268,41 @@ const typeOptions: { value: TodoType; label: string }[] = [
 export default function TodoEditDialog({
   todo,
   ganttType: initialGanttType,
+  showGanttType = false,
   onClose,
   onSave,
   onDelete,
 }: TodoEditDialogProps) {
   // Form state
-  const [priority, setPriority] = useState(todo.priority)
+  const [priority, setPriority] = useState<number | ''>(todo.priority)
   const [todoType, setTodoType] = useState<TodoType>(todo.todo_type)
   const [ganttType, setGanttType] = useState<'task' | 'project' | 'milestone'>(
     initialGanttType || (todo.todo_type.startsWith('container') ? 'project' : 'task')
   )
   const [description, setDescription] = useState(todo.description || '')
+  
+  // Handle priority changes - allow empty input during editing
+  const handlePriorityChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newValue = e.target.value
+    // Allow empty string during editing
+    if (newValue === '') {
+      setPriority('' as any)  // Temporarily allow empty
+      return
+    }
+    const numValue = parseInt(newValue)
+    if (!isNaN(numValue)) {
+      setPriority(numValue)
+    }
+  }
+  
+  // Validate priority on blur - ensure it's within range
+  const handlePriorityBlur = () => {
+    if (priority === '' || priority < 1) {
+      setPriority(50)  // Default fallback
+    } else if (priority > 100) {
+      setPriority(100)  // Max value
+    }
+  }
   const [status, setStatus] = useState<TodoStatus>(todo.status)
   const [plannedStart, setPlannedStart] = useState(
     todo.planned_start ? todo.planned_start.slice(0, 16) : ''
@@ -346,12 +371,13 @@ export default function TodoEditDialog({
       const updateData: PPSTodoUpdate = {
         description: description.trim() || undefined,
         status,
-        priority,
+        priority: typeof priority === 'number' ? priority : 50,  // Ensure number before sending
         planned_start: plannedStart ? `${plannedStart}:00` : undefined,
         total_duration_minutes: totalDurationMinutes,
         assigned_department_id: assignedDepartmentId || undefined,
         assigned_machine_id: assignedMachineId || undefined,
         assigned_employee_id: assignedEmployeeId || undefined,
+        gantt_display_type: showGanttType ? ganttType : undefined,  // Only send if Planboard context
         version: todo.version,
       }
       
@@ -527,7 +553,8 @@ export default function TodoEditDialog({
             <input
               type="number"
               value={priority}
-              onChange={e => setPriority(parseInt(e.target.value) || 50)}
+              onChange={handlePriorityChange}
+              onBlur={handlePriorityBlur}
               style={{ ...styles.input, width: '80px' }}
               min={1}
               max={100}
@@ -581,8 +608,8 @@ export default function TodoEditDialog({
             </select>
           </div>
 
-          {/* Gantt Type (Display) - only show if initialGanttType was provided (Planboard context) */}
-          {initialGanttType !== undefined && (
+          {/* Gantt Type (Display) - only show in Planboard context */}
+          {showGanttType && (
             <div style={styles.formGroup}>
               <label style={styles.label}>Gantt-Typ</label>
               <select

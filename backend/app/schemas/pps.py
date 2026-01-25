@@ -133,6 +133,7 @@ class TodoUpdate(BaseModel):
     assigned_department_id: Optional[int] = None
     assigned_machine_id: Optional[int] = None
     assigned_employee_id: Optional[int] = None
+    gantt_display_type: Optional[str] = None  # 'task', 'project', 'milestone'
     # For optimistic locking
     version: Optional[int] = None
 

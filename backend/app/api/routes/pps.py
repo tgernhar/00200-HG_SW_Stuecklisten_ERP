@@ -102,13 +102,16 @@ def _todo_to_gantt_task(todo: PPSTodo) -> GanttTask:
     elif todo.status == "in_progress":
         progress = 0.5
     
+    # Use gantt_display_type if set, otherwise derive from todo_type
+    gantt_type = todo.gantt_display_type or ("project" if todo.todo_type.startswith("container") else "task")
+    
     return GanttTask(
         id=todo.id,
         text=todo.title,
         start_date=todo.planned_start.strftime("%Y-%m-%d %H:%M") if todo.planned_start else None,
         duration=duration,
         parent=todo.parent_todo_id or 0,
-        type="project" if todo.todo_type.startswith("container") else "task",
+        type=gantt_type,
         progress=progress,
         open=True,
         status=todo.status,

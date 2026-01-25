@@ -115,6 +115,7 @@ export interface PPSTodoUpdate {
   assigned_department_id?: number
   assigned_machine_id?: number
   assigned_employee_id?: number
+  gantt_display_type?: 'task' | 'project' | 'milestone'  // Gantt chart display type
   version?: number
 }
 

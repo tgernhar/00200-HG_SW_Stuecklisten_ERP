@@ -78,6 +78,7 @@ class PPSTodo(Base):
     # Hierarchy
     parent_todo_id = Column(Integer, ForeignKey("pps_todos.id", ondelete="SET NULL"), nullable=True)
     todo_type = Column(String(20), nullable=False, index=True)  # 'container_order', 'container_article', 'operation'
+    gantt_display_type = Column(String(20), nullable=True)  # 'task', 'project', 'milestone' - for Gantt chart display
     
     # Basic info
     title = Column(String(255), nullable=False)

@@ -368,7 +368,8 @@ export default function ProductionPlanningPage() {
     try {
       const todoWithErp = await getTodoWithERPDetails(taskId)
       // Find current Gantt task to get its type
-      const ganttTask = ganttData?.data.find(t => t.id === taskId)
+      // Note: taskId might be string from event, but ganttData IDs are numbers
+      const ganttTask = ganttData?.data.find(t => t.id === Number(taskId))
       setEditingTodo({ ...todoWithErp, gantt_type: ganttTask?.type })
     } catch (err) {
       console.error('Error loading todo for edit:', err)
@@ -378,32 +379,9 @@ export default function ProductionPlanningPage() {
   // Handle save from edit dialog
   const handleEditSave = useCallback((updatedTodo: PPSTodoWithERPDetails, ganttType?: 'task' | 'project' | 'milestone') => {
     setEditingTodo(null)
-    
-    // Update Gantt task directly instead of full reload for better UX
-    if (ganttData && ganttType) {
-      const updatedGanttData = {
-        ...ganttData,
-        data: ganttData.data.map(task => {
-          if (task.id === updatedTodo.id) {
-            return {
-              ...task,
-              type: ganttType,
-              text: updatedTodo.title,
-              priority: updatedTodo.priority,
-              status: updatedTodo.status,
-              start_date: updatedTodo.planned_start ? updatedTodo.planned_start.slice(0, 16).replace('T', ' ') : undefined,
-              duration: updatedTodo.total_duration_minutes,
-            }
-          }
-          return task
-        })
-      }
-      setGanttData(updatedGanttData)
-    } else {
-      // Fallback: full reload if no Gantt context
-      loadData()
-    }
-  }, [ganttData, loadData])
+    // Always do a full reload to ensure consistency
+    loadData()
+  }, [loadData])
 
   // Handle delete from edit dialog
   const handleDeleteFromDialog = useCallback((todoId: number) => {
@@ -606,6 +584,7 @@ export default function ProductionPlanningPage() {
         <TodoEditDialog
           todo={editingTodo}
           ganttType={(editingTodo as any).gantt_type}
+          showGanttType={true}
           onClose={() => setEditingTodo(null)}
           onSave={handleEditSave}
           onDelete={handleDeleteFromDialog}

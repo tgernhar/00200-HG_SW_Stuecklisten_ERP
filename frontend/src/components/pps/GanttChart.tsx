@@ -97,29 +97,19 @@ export default function GanttChart({
     ]
     gantt.config.min_column_width = 40
     
-    // Enable scrolling
+    // Enable scrolling - Standard Edition doesn't support scrollbar views
     gantt.config.scroll_on_click = true
     gantt.config.show_chart = true
     gantt.config.show_grid = true
-    gantt.config.autosize = false  // Important: disable autosize to allow scrolling
+    gantt.config.autosize = false  // Disable autosize to allow scrolling
     gantt.config.autosize_min_width = 800
     
-    // Layout with explicit scrollbars - using correct DHTMLX structure
-    gantt.config.layout = {
-      css: "gantt_container",
-      rows: [
-        {
-          cols: [
-            { view: "grid", id: "grid", scrollX: "gridScrollX", scrollY: "scrollVer" },
-            { resizer: true, width: 1 },
-            { view: "timeline", id: "timeline", scrollX: "scrollHor", scrollY: "scrollVer" },
-            { view: "scrollbar", id: "scrollVer", group: "vertical" }
-          ]
-        },
-        { view: "scrollbar", id: "scrollHor", group: "horizontal" },
-        { view: "scrollbar", id: "gridScrollX", group: "horizontal" }
-      ]
-    }
+    // Force minimum content size to enable scrolling
+    gantt.config.min_column_width = 50  // Minimum width per time column
+    gantt.config.scale_height = 50  // Height of scale header
+    
+    // Use default layout (Standard Edition doesn't support custom scrollbar views)
+    // Scrolling will be handled by CSS overflow on the container
     
     // Readonly mode
     gantt.config.readonly = readOnly
@@ -276,9 +266,24 @@ export default function GanttChart({
 
     configureGantt()
     
-    // Add custom CSS for conflicts and working hours
+    // Add custom CSS for conflicts, working hours, and scrollbars
     const style = document.createElement('style')
     style.textContent = `
+      /* Custom scrollbar styling for gantt wrapper */
+      .gantt-wrapper::-webkit-scrollbar {
+        width: 15px;
+        height: 15px;
+      }
+      .gantt-wrapper::-webkit-scrollbar-track {
+        background: #f1f1f1;
+      }
+      .gantt-wrapper::-webkit-scrollbar-thumb {
+        background: #888;
+        border-radius: 6px;
+      }
+      .gantt-wrapper::-webkit-scrollbar-thumb:hover {
+        background: #555;
+      }
       .conflict-task .gantt_task_content {
         background-color: #ffcccc !important;
       }
@@ -298,47 +303,13 @@ export default function GanttChart({
       .non-working-time {
         background-color: #f0f0f0 !important;
       }
-      /* DHTMLX Gantt Standard uses native browser scrollbars via gantt_layout_outer_scroll classes */
-      /* Enable scrolling for cells with outer_scroll classes */
-      .gantt_layout_outer_scroll {
-        overflow: auto !important;
-      }
-      .gantt_layout_outer_scroll_vertical {
-        overflow-y: auto !important;
-      }
-      .gantt_layout_outer_scroll_horizontal {
-        overflow-x: auto !important;
-      }
-      /* Ensure data area can scroll */
-      .gantt_data_area {
-        overflow: auto !important;
-      }
-      /* Grid area scrolling */
-      .gantt_grid_data {
-        overflow: auto !important;
-      }
-      /* Timeline task area scrolling */
-      .gantt_task_bg, .gantt_task_line {
-        overflow: visible !important;
-      }
-      /* Ensure the gantt container itself doesn't clip */
+      /* DHTMLX Gantt Standard Edition: Scrolling via mouse wheel */
+      /* Note: Standard Edition doesn't support custom scrollbar views */
       .gantt_container {
         overflow: visible !important;
       }
-      /* Custom scrollbar styling for better visibility */
-      .gantt_layout_outer_scroll::-webkit-scrollbar {
-        width: 12px;
-        height: 12px;
-      }
-      .gantt_layout_outer_scroll::-webkit-scrollbar-track {
-        background: #f1f1f1;
-      }
-      .gantt_layout_outer_scroll::-webkit-scrollbar-thumb {
-        background: #888;
-        border-radius: 6px;
-      }
-      .gantt_layout_outer_scroll::-webkit-scrollbar-thumb:hover {
-        background: #555;
+      .gantt_grid, .gantt_task {
+        overflow: visible !important;
       }
     `
     document.head.appendChild(style)
@@ -523,22 +494,9 @@ export default function GanttChart({
       links: data.links,
     })
     
-    // Fit to screen
+    // Render
     setTimeout(() => {
       gantt.render()
-      
-      // Force overflow via JavaScript since CSS is overridden by DHTMLX
-      const dataArea = document.querySelector('.gantt_data_area') as HTMLElement;
-      const gridData = document.querySelector('.gantt_grid_data') as HTMLElement;
-      const timelineData = document.querySelector('.gantt_task_bg') as HTMLElement;
-      const ganttGrid = document.querySelector('.gantt_grid') as HTMLElement;
-      const ganttTask = document.querySelector('.gantt_task') as HTMLElement;
-      
-      if (dataArea) dataArea.style.overflow = 'auto';
-      if (gridData) gridData.style.overflow = 'auto';
-      if (timelineData) timelineData.style.overflow = 'visible';
-      if (ganttGrid) ganttGrid.style.overflow = 'auto';
-      if (ganttTask) ganttTask.style.overflow = 'auto';
     }, 100)
     
   }, [data])
@@ -546,7 +504,12 @@ export default function GanttChart({
   return (
     <div 
       ref={containerRef} 
-      style={{ ...styles.container, height }}
+      style={{ 
+        ...styles.container, 
+        height,
+        position: 'relative'
+      }}
+      className="gantt-wrapper"
     />
   )
 }
