@@ -5,6 +5,7 @@
  * - AG-Grid table with all todos
  * - Sorting by priority, date
  * - Extended filtering (Auftrag, Artikel, Arbeitsgang, Mitarbeiter)
+ * - Text search with type filter awareness
  * - Cumulative filters (OR logic)
  * - ERP reference columns (order_name, article_number, etc.)
  * - Quick edit functionality via TodoEditDialog
@@ -62,6 +63,15 @@ const styles = {
     borderRadius: '4px',
     border: '1px solid #d0e3f7',
   },
+  searchSection: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    padding: '8px 12px',
+    backgroundColor: '#fff8e6',
+    borderRadius: '4px',
+    border: '1px solid #ffe0a6',
+  },
   filterCheckbox: {
     display: 'flex',
     alignItems: 'center',
@@ -84,6 +94,13 @@ const styles = {
     border: '1px solid #cccccc',
     borderRadius: '3px',
   },
+  searchInput: {
+    padding: '5px 10px',
+    fontSize: '12px',
+    border: '1px solid #cccccc',
+    borderRadius: '3px',
+    width: '180px',
+  },
   button: {
     padding: '6px 12px',
     backgroundColor: '#ffffff',
@@ -92,6 +109,17 @@ const styles = {
     cursor: 'pointer',
     fontSize: '12px',
     fontFamily: 'Arial, sans-serif',
+  },
+  buttonFilter: {
+    padding: '6px 12px',
+    backgroundColor: '#f5a623',
+    border: '1px solid #e09000',
+    color: '#ffffff',
+    borderRadius: '3px',
+    cursor: 'pointer',
+    fontSize: '12px',
+    fontFamily: 'Arial, sans-serif',
+    fontWeight: 'bold' as const,
   },
   buttonReset: {
     padding: '6px 12px',
@@ -153,7 +181,8 @@ const statusColors: Record<string, string> = {
 }
 
 export default function TodoListPage() {
-  const [todos, setTodos] = useState<PPSTodoWithERPDetails[]>([])
+  const [allTodos, setAllTodos] = useState<PPSTodoWithERPDetails[]>([])
+  const [filteredTodos, setFilteredTodos] = useState<PPSTodoWithERPDetails[]>([])
   const [resources, setResources] = useState<PPSResource[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedRows, setSelectedRows] = useState<PPSTodoWithERPDetails[]>([])
@@ -169,11 +198,16 @@ export default function TodoListPage() {
   const [filterOrders, setFilterOrders] = useState(false)
   const [filterArticles, setFilterArticles] = useState(false)
   const [filterOperations, setFilterOperations] = useState(false)
+  
+  // Search
+  const [searchText, setSearchText] = useState('')
+  const [searchInput, setSearchInput] = useState('')
 
   // Check if any cumulative filter is active
   const hasActiveTypeFilter = filterOrders || filterArticles || filterOperations
+  const hasActiveSearch = searchText.length > 0
 
-  // Load data
+  // Load data from API
   const loadData = useCallback(async () => {
     setLoading(true)
     try {
@@ -181,39 +215,89 @@ export default function TodoListPage() {
         getTodosWithERPDetails({ 
           status: statusFilter || undefined,
           assigned_employee_id: employeeFilter ? parseInt(employeeFilter) : undefined,
-          filter_orders: filterOrders,
-          filter_articles: filterArticles,
-          filter_operations: filterOperations,
           limit: 1000 
         }),
         getResources({ is_active: true }),
       ])
       
-      // Sort by planned_start descending (newest first)
+      // Sort by priority then by planned_start
       const sortedTodos = [...todosResponse.items].sort((a, b) => {
-        // First by priority (1 = highest)
         if (a.priority !== b.priority) {
           return a.priority - b.priority
         }
-        // Then by planned_start (newest first)
         if (!a.planned_start && !b.planned_start) return 0
         if (!a.planned_start) return 1
         if (!b.planned_start) return -1
         return new Date(b.planned_start).getTime() - new Date(a.planned_start).getTime()
       })
       
-      setTodos(sortedTodos)
+      setAllTodos(sortedTodos)
       setResources(resourcesResponse)
     } catch (err) {
       console.error('Error loading todos:', err)
     } finally {
       setLoading(false)
     }
-  }, [statusFilter, employeeFilter, filterOrders, filterArticles, filterOperations])
+  }, [statusFilter, employeeFilter])
 
   useEffect(() => {
     loadData()
   }, [loadData])
+
+  // Apply local filters (type checkboxes + search)
+  useEffect(() => {
+    let result = [...allTodos]
+    
+    // Apply type filters (cumulative OR logic)
+    if (hasActiveTypeFilter) {
+      result = result.filter(todo => {
+        if (filterOrders && todo.todo_type === 'container_order') return true
+        if (filterArticles && (todo.todo_type === 'container_article' || todo.erp_packingnote_details_id)) return true
+        if (filterOperations && todo.todo_type === 'operation') return true
+        return false
+      })
+    }
+    
+    // Apply text search
+    if (searchText) {
+      const searchLower = searchText.toLowerCase()
+      
+      result = result.filter(todo => {
+        // If no type checkboxes are active, search all fields
+        if (!hasActiveTypeFilter) {
+          return (
+            todo.title?.toLowerCase().includes(searchLower) ||
+            todo.order_name?.toLowerCase().includes(searchLower) ||
+            todo.order_article_number?.toLowerCase().includes(searchLower) ||
+            todo.bom_article_number?.toLowerCase().includes(searchLower) ||
+            todo.workstep_name?.toLowerCase().includes(searchLower)
+          )
+        }
+        
+        // Search only in fields corresponding to active checkboxes
+        let matches = false
+        
+        if (filterOrders) {
+          matches = matches || (todo.order_name?.toLowerCase().includes(searchLower) ?? false)
+        }
+        if (filterArticles) {
+          matches = matches || 
+            (todo.order_article_number?.toLowerCase().includes(searchLower) ?? false) ||
+            (todo.bom_article_number?.toLowerCase().includes(searchLower) ?? false)
+        }
+        if (filterOperations) {
+          matches = matches || (todo.workstep_name?.toLowerCase().includes(searchLower) ?? false)
+        }
+        
+        // Always also search title
+        matches = matches || (todo.title?.toLowerCase().includes(searchLower) ?? false)
+        
+        return matches
+      })
+    }
+    
+    setFilteredTodos(result)
+  }, [allTodos, filterOrders, filterArticles, filterOperations, searchText, hasActiveTypeFilter])
 
   // Get employees for filter dropdown
   const employees = useMemo(() => {
@@ -228,6 +312,18 @@ export default function TodoListPage() {
     return resource?.name || '-'
   }, [resources])
 
+  // Handle search filter button
+  const handleFilter = useCallback(() => {
+    setSearchText(searchInput)
+  }, [searchInput])
+
+  // Handle Enter key in search input
+  const handleSearchKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      handleFilter()
+    }
+  }, [handleFilter])
+
   // Reset all filters
   const handleResetFilters = useCallback(() => {
     setStatusFilter('')
@@ -235,6 +331,8 @@ export default function TodoListPage() {
     setFilterOrders(false)
     setFilterArticles(false)
     setFilterOperations(false)
+    setSearchText('')
+    setSearchInput('')
   }, [])
 
   // Column definitions with ERP references
@@ -405,7 +503,7 @@ export default function TodoListPage() {
     }
   }, [])
 
-  // Handle delete
+  // Handle delete from grid
   const handleDelete = useCallback(async () => {
     if (selectedRows.length === 0) return
     
@@ -422,6 +520,12 @@ export default function TodoListPage() {
       console.error('Error deleting todos:', err)
     }
   }, [selectedRows, loadData])
+
+  // Handle delete from dialog
+  const handleDeleteFromDialog = useCallback((todoId: number) => {
+    setEditingTodo(null)
+    loadData()
+  }, [loadData])
 
   // Handle status change
   const handleStatusChange = useCallback(async (newStatus: TodoStatus) => {
@@ -484,6 +588,22 @@ export default function TodoListPage() {
           </label>
         </div>
 
+        {/* Search section */}
+        <div style={styles.searchSection}>
+          <span style={styles.labelBold}>Suche:</span>
+          <input
+            type="text"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            onKeyDown={handleSearchKeyDown}
+            style={styles.searchInput}
+            placeholder={hasActiveTypeFilter ? 'In gewählten Feldern...' : 'In allen Feldern...'}
+          />
+          <button style={styles.buttonFilter} onClick={handleFilter}>
+            Filtern
+          </button>
+        </div>
+
         <div style={styles.separator} />
 
         {/* Status filter */}
@@ -521,7 +641,7 @@ export default function TodoListPage() {
         </div>
 
         {/* Reset filters button */}
-        {(hasActiveTypeFilter || statusFilter || employeeFilter) && (
+        {(hasActiveTypeFilter || statusFilter || employeeFilter || hasActiveSearch) && (
           <button style={styles.buttonReset} onClick={handleResetFilters}>
             Filter zurücksetzen
           </button>
@@ -564,7 +684,7 @@ export default function TodoListPage() {
       {/* Grid */}
       <div style={styles.gridContainer} className="ag-theme-alpine">
         <AgGridReact
-          rowData={todos}
+          rowData={filteredTodos}
           columnDefs={columnDefs}
           defaultColDef={defaultColDef}
           onGridReady={onGridReady}
@@ -580,9 +700,11 @@ export default function TodoListPage() {
       {/* Status bar */}
       <div style={styles.statusBar}>
         <span>
-          {todos.length} ToDos angezeigt
+          {filteredTodos.length} ToDos angezeigt
+          {allTodos.length !== filteredTodos.length && ` (von ${allTodos.length})`}
           {selectedRows.length > 0 && ` | ${selectedRows.length} ausgewählt`}
           {hasActiveTypeFilter && ' | Typ-Filter aktiv'}
+          {hasActiveSearch && ` | Suche: "${searchText}"`}
         </span>
         <span>
           {loading ? 'Lade...' : 'Doppelklick zum Bearbeiten'}
@@ -595,6 +717,7 @@ export default function TodoListPage() {
           todo={editingTodo}
           onClose={() => setEditingTodo(null)}
           onSave={handleEditSave}
+          onDelete={handleDeleteFromDialog}
         />
       )}
     </div>

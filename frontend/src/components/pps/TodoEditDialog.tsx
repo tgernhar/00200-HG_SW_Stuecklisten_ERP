@@ -1,16 +1,18 @@
 /**
  * Todo Edit Dialog - Reusable dialog for editing PPS todos
  * 
- * Can be used in both ProductionPlanningPage (Gantt) and TodoListPage
+ * Styled like the Planboard Lightbox with orange header.
+ * Can be used in both ProductionPlanningPage (Gantt) and TodoListPage.
  */
-import React, { useState, useEffect, useCallback } from 'react'
-import { updateTodo, getResources } from '../../services/ppsApi'
-import { PPSTodo, PPSTodoUpdate, PPSResource, TodoStatus } from '../../services/ppsTypes'
+import React, { useState, useEffect } from 'react'
+import { updateTodo, getResources, deleteTodo } from '../../services/ppsApi'
+import { PPSTodoWithERPDetails, PPSTodoUpdate, PPSResource, TodoStatus, TodoType } from '../../services/ppsTypes'
 
 interface TodoEditDialogProps {
-  todo: PPSTodo
+  todo: PPSTodoWithERPDetails
   onClose: () => void
-  onSave: (updatedTodo: PPSTodo) => void
+  onSave: (updatedTodo: PPSTodoWithERPDetails) => void
+  onDelete?: (todoId: number) => void
 }
 
 const styles = {
@@ -28,129 +30,219 @@ const styles = {
   },
   modal: {
     backgroundColor: '#ffffff',
-    borderRadius: '6px',
+    borderRadius: '4px',
     boxShadow: '0 4px 20px rgba(0, 0, 0, 0.3)',
-    width: '550px',
+    width: '520px',
     maxHeight: '90vh',
     display: 'flex',
     flexDirection: 'column' as const,
+    overflow: 'hidden',
   },
+  // Orange header like Planboard Lightbox
   header: {
-    padding: '15px 20px',
-    borderBottom: '1px solid #dddddd',
+    padding: '8px 12px',
+    backgroundColor: '#f5a623',
+    borderBottom: '1px solid #e09000',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  title: {
-    fontSize: '16px',
-    fontWeight: 'bold' as const,
+  headerText: {
+    fontSize: '13px',
     color: '#333333',
+    fontWeight: 'normal' as const,
   },
   closeButton: {
     background: 'none',
     border: 'none',
-    fontSize: '20px',
+    fontSize: '18px',
     cursor: 'pointer',
-    color: '#666666',
-    padding: '0',
+    color: '#333333',
+    padding: '0 4px',
     lineHeight: 1,
   },
   body: {
-    padding: '20px',
+    padding: '12px',
     overflow: 'auto',
     flex: 1,
   },
   formGroup: {
-    marginBottom: '15px',
+    marginBottom: '10px',
   },
   label: {
     display: 'block',
-    fontSize: '12px',
+    fontSize: '11px',
     fontWeight: 'bold' as const,
     color: '#555555',
-    marginBottom: '5px',
+    marginBottom: '3px',
   },
   input: {
     width: '100%',
-    padding: '8px 10px',
+    padding: '6px 8px',
     border: '1px solid #cccccc',
-    borderRadius: '4px',
-    fontSize: '13px',
+    borderRadius: '3px',
+    fontSize: '12px',
     boxSizing: 'border-box' as const,
+  },
+  inputReadonly: {
+    width: '100%',
+    padding: '6px 8px',
+    border: '1px solid #e0e0e0',
+    borderRadius: '3px',
+    fontSize: '12px',
+    boxSizing: 'border-box' as const,
+    backgroundColor: '#f5f5f5',
+    color: '#666666',
   },
   select: {
     width: '100%',
-    padding: '8px 10px',
+    padding: '6px 8px',
     border: '1px solid #cccccc',
-    borderRadius: '4px',
-    fontSize: '13px',
+    borderRadius: '3px',
+    fontSize: '12px',
     boxSizing: 'border-box' as const,
     backgroundColor: '#ffffff',
   },
   textarea: {
     width: '100%',
-    padding: '8px 10px',
+    padding: '6px 8px',
     border: '1px solid #cccccc',
-    borderRadius: '4px',
-    fontSize: '13px',
+    borderRadius: '3px',
+    fontSize: '12px',
     boxSizing: 'border-box' as const,
-    minHeight: '60px',
+    minHeight: '80px',
     resize: 'vertical' as const,
+    fontFamily: 'inherit',
   },
   row: {
     display: 'flex',
-    gap: '15px',
+    gap: '10px',
   },
   col: {
     flex: 1,
   },
-  section: {
-    marginTop: '20px',
-    paddingTop: '15px',
-    borderTop: '1px solid #eeeeee',
+  col2: {
+    flex: 2,
   },
-  sectionTitle: {
-    fontSize: '13px',
+  // ERP Reference section
+  erpSection: {
+    marginTop: '8px',
+    padding: '8px',
+    backgroundColor: '#f9f9f9',
+    borderRadius: '3px',
+    border: '1px solid #e8e8e8',
+  },
+  erpRow: {
+    display: 'flex',
+    alignItems: 'center',
+    marginBottom: '4px',
+    fontSize: '11px',
+  },
+  erpLabel: {
+    width: '120px',
+    color: '#666666',
     fontWeight: 'bold' as const,
-    color: '#333333',
-    marginBottom: '15px',
   },
+  erpValue: {
+    flex: 1,
+    color: '#333333',
+    padding: '2px 6px',
+    backgroundColor: '#ffffff',
+    border: '1px solid #e0e0e0',
+    borderRadius: '2px',
+  },
+  // Footer with buttons
   footer: {
-    padding: '15px 20px',
+    padding: '10px 12px',
     borderTop: '1px solid #dddddd',
     display: 'flex',
-    justifyContent: 'flex-end',
-    gap: '10px',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#f8f8f8',
   },
-  button: {
-    padding: '8px 16px',
-    border: '1px solid #cccccc',
-    borderRadius: '4px',
-    cursor: 'pointer',
-    fontSize: '13px',
-    backgroundColor: '#ffffff',
+  footerLeft: {
+    display: 'flex',
+    gap: '8px',
   },
-  buttonPrimary: {
-    padding: '8px 16px',
-    border: '1px solid #357abd',
-    borderRadius: '4px',
+  footerRight: {
+    display: 'flex',
+    gap: '8px',
+  },
+  buttonSave: {
+    padding: '6px 14px',
+    border: '1px solid #4a8f29',
+    borderRadius: '3px',
     cursor: 'pointer',
-    fontSize: '13px',
-    backgroundColor: '#4a90d9',
+    fontSize: '12px',
+    backgroundColor: '#5cb85c',
     color: '#ffffff',
+    fontWeight: 'bold' as const,
+  },
+  buttonCancel: {
+    padding: '6px 14px',
+    border: '1px solid #cccccc',
+    borderRadius: '3px',
+    cursor: 'pointer',
+    fontSize: '12px',
+    backgroundColor: '#f5f5f5',
+    color: '#333333',
+  },
+  buttonDelete: {
+    padding: '6px 14px',
+    border: '1px solid #c9302c',
+    borderRadius: '3px',
+    cursor: 'pointer',
+    fontSize: '12px',
+    backgroundColor: '#d9534f',
+    color: '#ffffff',
+    fontWeight: 'bold' as const,
   },
   buttonDisabled: {
     opacity: 0.5,
     cursor: 'not-allowed',
   },
   error: {
-    padding: '10px',
+    padding: '8px',
     backgroundColor: '#ffeeee',
     color: '#cc0000',
-    borderRadius: '4px',
-    fontSize: '12px',
+    borderRadius: '3px',
+    fontSize: '11px',
+    marginTop: '8px',
+  },
+  // Time section with +/- controls
+  timeSection: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
     marginTop: '10px',
+    padding: '8px',
+    backgroundColor: '#f9f9f9',
+    borderRadius: '3px',
+    border: '1px solid #e8e8e8',
+  },
+  timeLabel: {
+    fontSize: '11px',
+    color: '#666666',
+  },
+  timeInput: {
+    width: '60px',
+    padding: '4px 6px',
+    border: '1px solid #cccccc',
+    borderRadius: '3px',
+    fontSize: '12px',
+    textAlign: 'center' as const,
+  },
+  timeButton: {
+    width: '24px',
+    height: '24px',
+    border: '1px solid #cccccc',
+    borderRadius: '3px',
+    cursor: 'pointer',
+    fontSize: '14px',
+    backgroundColor: '#ffffff',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 }
 
@@ -163,26 +255,31 @@ const statusOptions: { value: TodoStatus; label: string }[] = [
   { value: 'blocked', label: 'Blockiert' },
 ]
 
+// Type options
+const typeOptions: { value: TodoType; label: string }[] = [
+  { value: 'container_order', label: 'Auftrag' },
+  { value: 'container_article', label: 'Artikel' },
+  { value: 'operation', label: 'Arbeitsgang' },
+  { value: 'eigene', label: 'Eigene' },
+]
+
 export default function TodoEditDialog({
   todo,
   onClose,
   onSave,
+  onDelete,
 }: TodoEditDialogProps) {
   // Form state
-  const [title, setTitle] = useState(todo.title)
+  const [priority, setPriority] = useState(todo.priority)
+  const [todoType, setTodoType] = useState<TodoType>(todo.todo_type)
   const [description, setDescription] = useState(todo.description || '')
   const [status, setStatus] = useState<TodoStatus>(todo.status)
-  const [priority, setPriority] = useState(todo.priority)
   const [plannedStart, setPlannedStart] = useState(
     todo.planned_start ? todo.planned_start.slice(0, 16) : ''
-  )
-  const [plannedEnd, setPlannedEnd] = useState(
-    todo.planned_end ? todo.planned_end.slice(0, 16) : ''
   )
   const [totalDurationMinutes, setTotalDurationMinutes] = useState(
     todo.total_duration_minutes || 60
   )
-  const [blockReason, setBlockReason] = useState(todo.block_reason || '')
   
   // Resource assignment
   const [assignedDepartmentId, setAssignedDepartmentId] = useState<number | null>(
@@ -202,6 +299,7 @@ export default function TodoEditDialog({
   
   // State
   const [saving, setSaving] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   // Load resources
@@ -219,26 +317,30 @@ export default function TodoEditDialog({
     loadResources()
   }, [])
 
+  // Calculate end date from start and duration
+  const calculateEndDate = (): string => {
+    if (!plannedStart || !totalDurationMinutes) return ''
+    const start = new Date(plannedStart)
+    const end = new Date(start.getTime() + totalDurationMinutes * 60 * 1000)
+    return end.toLocaleString('de-DE', {
+      day: '2-digit',
+      month: 'long',
+      year: 'numeric',
+    })
+  }
+
   // Handle save
   const handleSave = async () => {
-    if (!title.trim()) {
-      setError('Titel ist erforderlich')
-      return
-    }
-    
     setSaving(true)
     setError(null)
     
     try {
       const updateData: PPSTodoUpdate = {
-        title: title.trim(),
         description: description.trim() || undefined,
         status,
         priority,
         planned_start: plannedStart ? `${plannedStart}:00` : undefined,
-        planned_end: plannedEnd ? `${plannedEnd}:00` : undefined,
         total_duration_minutes: totalDurationMinutes,
-        block_reason: status === 'blocked' ? blockReason : undefined,
         assigned_department_id: assignedDepartmentId || undefined,
         assigned_machine_id: assignedMachineId || undefined,
         assigned_employee_id: assignedEmployeeId || undefined,
@@ -246,7 +348,15 @@ export default function TodoEditDialog({
       }
       
       const updated = await updateTodo(todo.id, updateData)
-      onSave(updated)
+      // Merge ERP details from original todo since they don't change
+      const updatedWithErp: PPSTodoWithERPDetails = {
+        ...updated,
+        order_name: todo.order_name,
+        order_article_number: todo.order_article_number,
+        bom_article_number: todo.bom_article_number,
+        workstep_name: todo.workstep_name,
+      }
+      onSave(updatedWithErp)
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Fehler beim Speichern'
       setError(message)
@@ -255,33 +365,117 @@ export default function TodoEditDialog({
     }
   }
 
-  // Format datetime for display
-  const formatDatetimeLocal = (isoString?: string): string => {
-    if (!isoString) return ''
-    return isoString.slice(0, 16)
+  // Handle delete
+  const handleDelete = async () => {
+    if (!onDelete) return
+    if (!window.confirm('ToDo wirklich löschen?')) return
+    
+    setDeleting(true)
+    setError(null)
+    
+    try {
+      await deleteTodo(todo.id)
+      onDelete(todo.id)
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Fehler beim Löschen'
+      setError(message)
+    } finally {
+      setDeleting(false)
+    }
   }
+
+  // Duration adjustment
+  const adjustDuration = (delta: number) => {
+    const newDuration = Math.max(15, totalDurationMinutes + delta)
+    setTotalDurationMinutes(newDuration)
+  }
+
+  // Format date range for header
+  const formatDateRange = (): string => {
+    if (!plannedStart) return ''
+    const start = new Date(plannedStart)
+    const end = new Date(start.getTime() + totalDurationMinutes * 60 * 1000)
+    const formatDate = (d: Date) => d.toLocaleDateString('de-DE', {
+      day: '2-digit',
+      month: 'long',
+      year: 'numeric',
+    })
+    return `${formatDate(start)} - ${formatDate(end)}`
+  }
+
+  // Check if ERP fields have values
+  const hasErpData = todo.order_name || todo.order_article_number || 
+                     todo.bom_article_number || todo.workstep_name
 
   return (
     <div style={styles.overlay} onClick={onClose}>
       <div style={styles.modal} onClick={e => e.stopPropagation()}>
-        {/* Header */}
+        {/* Orange Header */}
         <div style={styles.header}>
-          <span style={styles.title}>ToDo bearbeiten</span>
+          <span style={styles.headerText}>{formatDateRange() || todo.title}</span>
           <button style={styles.closeButton} onClick={onClose}>×</button>
         </div>
 
         {/* Body */}
         <div style={styles.body}>
-          {/* Title */}
+          {/* Priority */}
           <div style={styles.formGroup}>
-            <label style={styles.label}>Titel *</label>
+            <label style={styles.label}>Priorität</label>
             <input
-              type="text"
-              value={title}
-              onChange={e => setTitle(e.target.value)}
-              style={styles.input}
-              placeholder="Titel eingeben..."
+              type="number"
+              value={priority}
+              onChange={e => setPriority(parseInt(e.target.value) || 50)}
+              style={{ ...styles.input, width: '80px' }}
+              min={1}
+              max={100}
             />
+          </div>
+
+          {/* ERP Reference Fields (read-only) - only shown if data exists */}
+          {hasErpData && (
+            <div style={styles.erpSection}>
+              {todo.order_name && (
+                <div style={styles.erpRow}>
+                  <span style={styles.erpLabel}>Auftrag:</span>
+                  <span style={styles.erpValue}>{todo.order_name}</span>
+                </div>
+              )}
+              {todo.order_article_number && (
+                <div style={styles.erpRow}>
+                  <span style={styles.erpLabel}>Auftragsartikel:</span>
+                  <span style={styles.erpValue}>{todo.order_article_number}</span>
+                </div>
+              )}
+              {todo.bom_article_number && (
+                <div style={styles.erpRow}>
+                  <span style={styles.erpLabel}>Stücklistenartikel:</span>
+                  <span style={styles.erpValue}>{todo.bom_article_number}</span>
+                </div>
+              )}
+              {todo.workstep_name && (
+                <div style={styles.erpRow}>
+                  <span style={styles.erpLabel}>Arbeitsgang:</span>
+                  <span style={styles.erpValue}>{todo.workstep_name}</span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Type */}
+          <div style={styles.formGroup}>
+            <label style={styles.label}>Typ</label>
+            <select
+              value={todoType}
+              onChange={e => setTodoType(e.target.value as TodoType)}
+              style={styles.select}
+              disabled // Type should not be editable
+            >
+              {typeOptions.map(opt => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
           </div>
 
           {/* Description */}
@@ -291,130 +485,144 @@ export default function TodoEditDialog({
               value={description}
               onChange={e => setDescription(e.target.value)}
               style={styles.textarea}
-              placeholder="Beschreibung eingeben..."
+              placeholder={todo.title}
             />
           </div>
 
-          {/* Status and Priority */}
-          <div style={styles.row}>
-            <div style={{ ...styles.col, ...styles.formGroup }}>
-              <label style={styles.label}>Status</label>
-              <select
-                value={status}
-                onChange={e => setStatus(e.target.value as TodoStatus)}
-                style={styles.select}
-              >
-                {statusOptions.map(opt => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div style={{ ...styles.col, ...styles.formGroup }}>
-              <label style={styles.label}>Priorität (1 = höchste)</label>
-              <input
-                type="number"
-                value={priority}
-                onChange={e => setPriority(parseInt(e.target.value) || 50)}
-                style={styles.input}
-                min={1}
-                max={100}
-              />
-            </div>
+          {/* Status */}
+          <div style={styles.formGroup}>
+            <label style={styles.label}>Status</label>
+            <select
+              value={status}
+              onChange={e => setStatus(e.target.value as TodoStatus)}
+              style={styles.select}
+            >
+              {statusOptions.map(opt => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
           </div>
 
-          {/* Block reason (only shown when blocked) */}
-          {status === 'blocked' && (
-            <div style={styles.formGroup}>
-              <label style={styles.label}>Blockierungsgrund</label>
-              <input
-                type="text"
-                value={blockReason}
-                onChange={e => setBlockReason(e.target.value)}
-                style={styles.input}
-                placeholder="Grund für Blockierung..."
-              />
-            </div>
-          )}
-
-          {/* Time Planning Section */}
-          <div style={styles.section}>
-            <div style={styles.sectionTitle}>Zeitplanung</div>
+          {/* Time Section with +/- controls */}
+          <div style={styles.timeSection}>
+            <select
+              value={plannedStart ? new Date(plannedStart).getDate() : ''}
+              onChange={e => {
+                if (plannedStart) {
+                  const d = new Date(plannedStart)
+                  d.setDate(parseInt(e.target.value))
+                  setPlannedStart(d.toISOString().slice(0, 16))
+                }
+              }}
+              style={{ ...styles.select, width: '50px' }}
+            >
+              {Array.from({ length: 31 }, (_, i) => (
+                <option key={i + 1} value={i + 1}>{i + 1}</option>
+              ))}
+            </select>
             
-            <div style={styles.row}>
-              <div style={{ ...styles.col, ...styles.formGroup }}>
-                <label style={styles.label}>Geplanter Start</label>
-                <input
-                  type="datetime-local"
-                  value={plannedStart}
-                  onChange={e => setPlannedStart(e.target.value)}
-                  style={styles.input}
-                />
-              </div>
-              <div style={{ ...styles.col, ...styles.formGroup }}>
-                <label style={styles.label}>Geplantes Ende</label>
-                <input
-                  type="datetime-local"
-                  value={plannedEnd}
-                  onChange={e => setPlannedEnd(e.target.value)}
-                  style={styles.input}
-                />
-              </div>
-            </div>
+            <select
+              value={plannedStart ? new Date(plannedStart).toLocaleString('de-DE', { month: 'long' }) : ''}
+              style={{ ...styles.select, width: '100px' }}
+              disabled
+            >
+              <option>{plannedStart ? new Date(plannedStart).toLocaleString('de-DE', { month: 'long' }) : 'Januar'}</option>
+            </select>
+            
+            <select
+              value={plannedStart ? new Date(plannedStart).getFullYear() : 2026}
+              style={{ ...styles.select, width: '70px' }}
+              disabled
+            >
+              <option>{plannedStart ? new Date(plannedStart).getFullYear() : 2026}</option>
+            </select>
+            
+            <select
+              value={plannedStart ? new Date(plannedStart).toTimeString().slice(0, 5) : '09:00'}
+              onChange={e => {
+                if (plannedStart) {
+                  const [hours, minutes] = e.target.value.split(':')
+                  const d = new Date(plannedStart)
+                  d.setHours(parseInt(hours), parseInt(minutes))
+                  setPlannedStart(d.toISOString().slice(0, 16))
+                }
+              }}
+              style={{ ...styles.select, width: '70px' }}
+            >
+              {Array.from({ length: 24 }, (_, h) => 
+                Array.from({ length: 4 }, (_, q) => {
+                  const time = `${h.toString().padStart(2, '0')}:${(q * 15).toString().padStart(2, '0')}`
+                  return <option key={time} value={time}>{time}</option>
+                })
+              ).flat()}
+            </select>
 
-            <div style={styles.formGroup}>
-              <label style={styles.label}>Dauer (Minuten)</label>
-              <input
-                type="number"
-                value={totalDurationMinutes}
-                onChange={e => setTotalDurationMinutes(parseInt(e.target.value) || 0)}
-                style={{ ...styles.input, width: '150px' }}
-                min={0}
-              />
-            </div>
+            <span style={styles.timeLabel}>-</span>
+            
+            <button 
+              style={styles.timeButton} 
+              onClick={() => adjustDuration(-15)}
+              type="button"
+            >
+              -
+            </button>
+            <input
+              type="number"
+              value={totalDurationMinutes}
+              onChange={e => setTotalDurationMinutes(parseInt(e.target.value) || 15)}
+              style={styles.timeInput}
+              min={15}
+              step={15}
+            />
+            <button 
+              style={styles.timeButton} 
+              onClick={() => adjustDuration(15)}
+              type="button"
+            >
+              +
+            </button>
+            <span style={styles.timeLabel}>Minutes {calculateEndDate()}</span>
           </div>
 
-          {/* Resource Assignment Section */}
-          <div style={styles.section}>
-            <div style={styles.sectionTitle}>Ressourcen-Zuweisung</div>
-            
-            <div style={styles.formGroup}>
-              <label style={styles.label}>Abteilung</label>
-              <select
-                value={assignedDepartmentId || ''}
-                onChange={e => setAssignedDepartmentId(e.target.value ? parseInt(e.target.value) : null)}
-                style={styles.select}
-              >
-                <option value="">-- Keine Zuweisung --</option>
-                {departments.map(d => (
-                  <option key={d.id} value={d.id}>{d.name}</option>
-                ))}
-              </select>
-            </div>
-
+          {/* Resource Assignment */}
+          <div style={{ ...styles.formGroup, marginTop: '10px' }}>
             <div style={styles.row}>
-              <div style={{ ...styles.col, ...styles.formGroup }}>
+              <div style={styles.col}>
+                <label style={styles.label}>Abteilung</label>
+                <select
+                  value={assignedDepartmentId || ''}
+                  onChange={e => setAssignedDepartmentId(e.target.value ? parseInt(e.target.value) : null)}
+                  style={styles.select}
+                >
+                  <option value="">--</option>
+                  {departments.map(d => (
+                    <option key={d.id} value={d.id}>{d.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div style={styles.col}>
                 <label style={styles.label}>Maschine</label>
                 <select
                   value={assignedMachineId || ''}
                   onChange={e => setAssignedMachineId(e.target.value ? parseInt(e.target.value) : null)}
                   style={styles.select}
                 >
-                  <option value="">-- Keine Zuweisung --</option>
+                  <option value="">--</option>
                   {machines.map(m => (
                     <option key={m.id} value={m.id}>{m.name}</option>
                   ))}
                 </select>
               </div>
-              <div style={{ ...styles.col, ...styles.formGroup }}>
+              <div style={styles.col}>
                 <label style={styles.label}>Mitarbeiter</label>
                 <select
                   value={assignedEmployeeId || ''}
                   onChange={e => setAssignedEmployeeId(e.target.value ? parseInt(e.target.value) : null)}
                   style={styles.select}
                 >
-                  <option value="">-- Keine Zuweisung --</option>
+                  <option value="">--</option>
                   {employees.map(e => (
                     <option key={e.id} value={e.id}>{e.name}</option>
                   ))}
@@ -427,21 +635,41 @@ export default function TodoEditDialog({
           {error && <div style={styles.error}>{error}</div>}
         </div>
 
-        {/* Footer */}
+        {/* Footer with buttons */}
         <div style={styles.footer}>
-          <button style={styles.button} onClick={onClose} disabled={saving}>
-            Abbrechen
-          </button>
-          <button
-            style={{
-              ...styles.buttonPrimary,
-              ...(saving ? styles.buttonDisabled : {}),
-            }}
-            onClick={handleSave}
-            disabled={saving}
-          >
-            {saving ? 'Speichere...' : 'Speichern'}
-          </button>
+          <div style={styles.footerLeft}>
+            <button
+              style={{
+                ...styles.buttonSave,
+                ...(saving ? styles.buttonDisabled : {}),
+              }}
+              onClick={handleSave}
+              disabled={saving || deleting}
+            >
+              {saving ? '...' : '✓ Speichern'}
+            </button>
+            <button 
+              style={styles.buttonCancel} 
+              onClick={onClose} 
+              disabled={saving || deleting}
+            >
+              ⊘ Abbrechen
+            </button>
+          </div>
+          <div style={styles.footerRight}>
+            {onDelete && (
+              <button
+                style={{
+                  ...styles.buttonDelete,
+                  ...(deleting ? styles.buttonDisabled : {}),
+                }}
+                onClick={handleDelete}
+                disabled={saving || deleting}
+              >
+                {deleting ? '...' : '🗑 Löschen'}
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>
