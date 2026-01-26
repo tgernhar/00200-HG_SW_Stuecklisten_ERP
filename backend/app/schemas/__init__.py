@@ -15,6 +15,27 @@ from app.schemas.pps import (
     ResourceSyncRequest, ResourceSyncResponse,
     TodoType, TodoStatus, DependencyType, ConflictType, ConflictSeverity, ResourceType,
 )
+# CRM Schemas
+from app.schemas.crm import (
+    CommunicationType, LeadStatus, TaskType, TaskStatus, TagType, DocumentLinkType,
+    Mailbox, MailboxCreate, MailboxUpdate, MailboxListResponse,
+    Tag, TagCreate, TagUpdate, TagListResponse,
+    Attachment,
+    CommunicationLink, CommunicationLinkBase, CommunicationLinkCreate,
+    CommunicationEntry, CommunicationEntryCreate, CommunicationEntryUpdate,
+    CommunicationEntryWithDetails, CommunicationListResponse,
+    Lead, LeadCreate, LeadUpdate, LeadWithDetails, LeadListResponse, LeadConvertRequest,
+    Task, TaskCreate, TaskUpdate, TaskWithDetails, TaskListResponse, MyDayResponse,
+    EmailTemplate, EmailTemplateCreate, EmailTemplateUpdate, EmailTemplateListResponse,
+    UserSignature, UserSignatureCreate, UserSignatureUpdate,
+    EmailSendRequest, EmailSendResponse, TemplateRenderRequest, TemplateRenderResponse,
+    TimelineEntry, TimelineResponse,
+    SearchRequest, SearchResult, SearchResponse,
+    DashboardStats, RecentActivity, DashboardResponse,
+    MailboxSyncRequest, MailboxSyncResponse,
+    AssignmentSuggestion, AssignmentRequest, AssignmentResponse,
+    CustomerInfo, SupplierInfo, ContactInfo, CustomerSearchResponse, SupplierSearchResponse,
+)
 
 __all__ = [
     "Project", "ProjectCreate", "ProjectUpdate",
@@ -31,4 +52,23 @@ __all__ = [
     "GenerateTodosRequest", "GenerateTodosResponse", "AvailableOrder",
     "ResourceSyncRequest", "ResourceSyncResponse",
     "TodoType", "TodoStatus", "DependencyType", "ConflictType", "ConflictSeverity", "ResourceType",
+    # CRM Schemas
+    "CommunicationType", "LeadStatus", "TaskType", "TaskStatus", "TagType", "DocumentLinkType",
+    "Mailbox", "MailboxCreate", "MailboxUpdate", "MailboxListResponse",
+    "Tag", "TagCreate", "TagUpdate", "TagListResponse",
+    "Attachment",
+    "CommunicationLink", "CommunicationLinkBase", "CommunicationLinkCreate",
+    "CommunicationEntry", "CommunicationEntryCreate", "CommunicationEntryUpdate",
+    "CommunicationEntryWithDetails", "CommunicationListResponse",
+    "Lead", "LeadCreate", "LeadUpdate", "LeadWithDetails", "LeadListResponse", "LeadConvertRequest",
+    "Task", "TaskCreate", "TaskUpdate", "TaskWithDetails", "TaskListResponse", "MyDayResponse",
+    "EmailTemplate", "EmailTemplateCreate", "EmailTemplateUpdate", "EmailTemplateListResponse",
+    "UserSignature", "UserSignatureCreate", "UserSignatureUpdate",
+    "EmailSendRequest", "EmailSendResponse", "TemplateRenderRequest", "TemplateRenderResponse",
+    "TimelineEntry", "TimelineResponse",
+    "SearchRequest", "SearchResult", "SearchResponse",
+    "DashboardStats", "RecentActivity", "DashboardResponse",
+    "MailboxSyncRequest", "MailboxSyncResponse",
+    "AssignmentSuggestion", "AssignmentRequest", "AssignmentResponse",
+    "CustomerInfo", "SupplierInfo", "ContactInfo", "CustomerSearchResponse", "SupplierSearchResponse",
 ]

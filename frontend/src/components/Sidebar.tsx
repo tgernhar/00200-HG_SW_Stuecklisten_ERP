@@ -58,6 +58,37 @@ const menuItems: MenuItem[] = [
     ]
   },
   {
+    id: 'crm',
+    label: 'CRM',
+    children: [
+      {
+        id: 'crm-dashboard',
+        label: 'Dashboard',
+        path: '/menu/crm/dashboard'
+      },
+      {
+        id: 'crm-timeline',
+        label: 'Vorgangsakte',
+        path: '/menu/crm/timeline'
+      },
+      {
+        id: 'crm-leads',
+        label: 'Lead-Pipeline',
+        path: '/menu/crm/leads'
+      },
+      {
+        id: 'crm-tasks',
+        label: 'Aufgaben',
+        path: '/menu/crm/tasks'
+      },
+      {
+        id: 'crm-search',
+        label: 'Suche',
+        path: '/menu/crm/search'
+      }
+    ]
+  },
+  {
     id: 'administration',
     label: 'Administration',
     children: [
@@ -144,7 +175,7 @@ const styles = {
 }
 
 export default function Sidebar() {
-  const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set(['stuecklisten', 'fertigungsplanung', 'produktionsplanung']))
+  const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set(['stuecklisten', 'fertigungsplanung', 'produktionsplanung', 'crm']))
   const [hoveredItem, setHoveredItem] = useState<string | null>(null)
   
   const navigate = useNavigate()

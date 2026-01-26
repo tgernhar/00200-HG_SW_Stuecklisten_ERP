@@ -101,8 +101,12 @@ const styles = {
   headerStatus: {
     width: '100px'
   },
+  headerCrm: {
+    width: '40px',
+    textAlign: 'center' as const
+  },
   headerRemark: {
-    width: '200px',
+    width: '160px',
     borderRight: 'none'
   },
   listContainer: {
@@ -394,6 +398,7 @@ export default function OrdersOverviewPage() {
         <div style={{ ...styles.headerCell, ...styles.headerDate }}>LT-Kunde</div>
         <div style={{ ...styles.headerCell, ...styles.headerResponsible }}>Verantw.</div>
         <div style={{ ...styles.headerCell, ...styles.headerStatus }}>Status</div>
+        <div style={{ ...styles.headerCell, ...styles.headerCrm }}>CRM</div>
         <div style={{ ...styles.headerCell, ...styles.headerRemark }}>Bemerkung</div>
       </div>
 

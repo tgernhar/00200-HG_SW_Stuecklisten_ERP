@@ -466,6 +466,9 @@ export default function TodoEditDialog({
     todo.assigned_employee_id || null
   )
   
+  // Progress
+  const [progress, setProgress] = useState(todo.progress || 0)
+  
   // Resources
   const [departments, setDepartments] = useState<PPSResource[]>([])
   const [machines, setMachines] = useState<PPSResource[]>([])
@@ -550,6 +553,7 @@ export default function TodoEditDialog({
         assigned_machine_id: assignedMachineId || undefined,
         assigned_employee_id: assignedEmployeeId || undefined,
         gantt_display_type: showGanttType ? ganttType : undefined,  // Only send if Planboard context
+        progress: progress,  // 0.0 - 1.0
         version: todo.version,
       }
       
@@ -1046,6 +1050,24 @@ export default function TodoEditDialog({
               min={0}
             />
             <span style={styles.timeLabel}>Min. → {calculateEndDate()}</span>
+          </div>
+
+          {/* Progress Slider */}
+          <div style={{ ...styles.formGroup, marginTop: '10px' }}>
+            <label style={styles.label}>Fortschritt: {Math.round(progress * 100)}%</label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                value={Math.round(progress * 100)}
+                onChange={e => setProgress(parseInt(e.target.value) / 100)}
+                style={{ flex: 1 }}
+              />
+              <span style={{ fontSize: '12px', width: '40px', textAlign: 'right' }}>
+                {Math.round(progress * 100)}%
+              </span>
+            </div>
           </div>
 
           {/* Resource Assignment */}

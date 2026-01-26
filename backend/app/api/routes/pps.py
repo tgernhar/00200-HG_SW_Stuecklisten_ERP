@@ -1166,6 +1166,27 @@ async def resolve_conflict(conflict_id: int, db: Session = Depends(get_db)):
     return {"success": True, "conflict_id": conflict_id}
 
 
+@router.post("/conflicts/fix-dependencies")
+async def fix_dependency_conflicts_endpoint(db: Session = Depends(get_db)):
+    """
+    Automatically fix dependency conflicts.
+    
+    Shifts all successors that start before their predecessor ends,
+    propagating changes through the entire dependency chain.
+    
+    Returns:
+        - fixed_count: Number of todos that were shifted
+        - shifted_todos: Details of each shifted todo
+    """
+    from app.services.pps_conflict_service import fix_dependency_conflicts
+    
+    try:
+        result = fix_dependency_conflicts(db)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Fehler beim Korrigieren der Abhängigkeiten: {str(e)}")
+
+
 # ============== Todo Generation ==============
 
 @router.get("/orders/available", response_model=List[AvailableOrder])

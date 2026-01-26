@@ -17,6 +17,22 @@ from app.models.pps_todo import (
     PPSConflict,
     PPSAuditLog,
 )
+# CRM Models
+from app.models.crm import (
+    CRMMailbox,
+    CRMCommunicationEntry,
+    CRMCommunicationAttachment,
+    CRMCommunicationLink,
+    CRMTag,
+    CRMCustomerTag,
+    CRMLead,
+    CRMLeadTag,
+    CRMTask,
+    CRMEmailTemplate,
+    CRMUserSignature,
+    CRMAssignmentRule,
+    CRMAuditLog,
+)
 
 __all__ = [
     "Project", "Bom", "Article", "Order", "Document", "DocumentGenerationFlag",
@@ -24,4 +40,8 @@ __all__ = [
     # PPS Models
     "PPSTodo", "PPSTodoSegment", "PPSTodoDependency", "PPSResourceCache",
     "PPSConflict", "PPSAuditLog",
+    # CRM Models
+    "CRMMailbox", "CRMCommunicationEntry", "CRMCommunicationAttachment",
+    "CRMCommunicationLink", "CRMTag", "CRMCustomerTag", "CRMLead", "CRMLeadTag",
+    "CRMTask", "CRMEmailTemplate", "CRMUserSignature", "CRMAssignmentRule", "CRMAuditLog",
 ]

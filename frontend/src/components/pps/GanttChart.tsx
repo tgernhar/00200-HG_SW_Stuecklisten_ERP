@@ -99,10 +99,11 @@ export default function GanttChart({
     gantt.config.fit_tasks = true
     
     // Auto-scheduling: move linked tasks together
-    // Note: Full auto_scheduling is a Pro feature, but we handle it manually
-    gantt.config.auto_scheduling = true
-    gantt.config.auto_scheduling_strict = true
-    gantt.config.auto_scheduling_compatibility = true
+    // DISABLED: Native auto_scheduling causes duration corruption
+    // We implement manual auto-scheduling in onAfterTaskUpdate instead
+    gantt.config.auto_scheduling = false
+    gantt.config.auto_scheduling_strict = false
+    gantt.config.auto_scheduling_compatibility = false
     
     // 15-minute time step (REQ-TODO-010, REQ-CAL-001)
     gantt.config.time_step = 15
@@ -459,6 +460,9 @@ export default function GanttChart({
     
     // Track drag mode to distinguish from resize
     let isDragging = false
+    // Track tasks being updated by auto-scheduling to skip their recursive onAfterTaskUpdate
+    const autoSchedulingTaskIds = new Set<number>()
+    
     const onBeforeTaskDrag = gantt.attachEvent('onBeforeTaskDrag', (id: number, mode: string) => {
       isDragging = (mode === 'move')  // 'move' = drag, 'resize' = resize
       return true
@@ -466,6 +470,11 @@ export default function GanttChart({
     
     // Task updated (drag/resize) with auto-scheduling of linked tasks
     const onAfterTaskUpdate = gantt.attachEvent('onAfterTaskUpdate', (id: number, task: GanttTask) => {
+      // Skip if this task is being updated by auto-scheduling (to prevent recursive corruption)
+      if (autoSchedulingTaskIds.has(id as number)) {
+        return
+      }
+      
       if (onTaskUpdate && !readOnly) {
         // If it was a drag (not resize), preserve original duration from database
         const originalDuration = data?.data.find(t => t.id === id)?.duration
@@ -486,37 +495,85 @@ export default function GanttChart({
         };
         onTaskUpdate(id, updateData);
         
-        // Auto-scheduling: find and update linked successors
+        // Auto-scheduling: find and update linked successors (recursive chain)
         if (wasDragging && onBatchUpdateRef.current) {
           const batchUpdates: BatchUpdateItem[] = []
           const links = gantt.getLinks()
+          const processedIds = new Set<number>()
           
-          // Find all links where this task is the source (predecessor)
-          const successorLinks = links.filter((link: GanttLink) => link.source === id)
-          
-          for (const link of successorLinks) {
-            const successorTask = gantt.getTask(link.target)
-            if (successorTask) {
-              // Calculate new start for successor based on this task's end
-              const thisTaskEnd = gantt.calculateEndDate({
-                start_date: task.start_date,
-                duration: duration,
-                task: task
-              })
+          // Recursive function to process successor chain
+          const processSuccessors = (sourceId: number, sourceEndDate: Date) => {
+            const successorLinks = links.filter((link: GanttLink) => link.source === sourceId)
+            
+            for (const link of successorLinks) {
+              const targetId = link.target as number
+              if (processedIds.has(targetId)) continue // Avoid infinite loops
               
-              // Only update if successor starts before this task ends
-              if (successorTask.start_date < thisTaskEnd) {
-                successorTask.start_date = thisTaskEnd
-                gantt.updateTask(link.target)
+              const successorTask = gantt.getTask(targetId)
+              if (!successorTask) continue
+              
+              // Only update if successor starts before source ends
+              if (successorTask.start_date < sourceEndDate) {
+                processedIds.add(targetId)
+                
+                // Save original duration BEFORE any modification
+                const savedDuration = successorTask.duration
+                
+                // Calculate the new end_date based on new start and saved duration
+                const newEndDate = gantt.calculateEndDate({
+                  start_date: sourceEndDate,
+                  duration: savedDuration,
+                  task: successorTask
+                })
+                
+                // Update BOTH start_date AND end_date to prevent Gantt from recalculating duration
+                successorTask.start_date = sourceEndDate
+                successorTask.end_date = newEndDate
+                successorTask.duration = savedDuration
+                
+                // Mark this task as being updated by auto-scheduling
+                // This prevents the recursive onAfterTaskUpdate from sending corrupted data
+                autoSchedulingTaskIds.add(targetId)
+                
+                // Update visual
+                gantt.updateTask(targetId)
+                
+                // CRITICAL: Restore all values after updateTask (it may corrupt them)
+                successorTask.start_date = sourceEndDate
+                successorTask.end_date = newEndDate
+                successorTask.duration = savedDuration
+                gantt.refreshTask(targetId)
+                
+                // Remove from auto-scheduling set
+                autoSchedulingTaskIds.delete(targetId)
                 
                 batchUpdates.push({
-                  id: link.target as number,
-                  start_date: gantt.templates.format_date(thisTaskEnd),
-                  duration: successorTask.duration as number
+                  id: targetId,
+                  start_date: gantt.templates.format_date(sourceEndDate),
+                  duration: savedDuration as number
                 })
+                
+                // Calculate this successor's end date and process its successors (chain)
+                const successorEndDate = gantt.calculateEndDate({
+                  start_date: sourceEndDate,
+                  duration: savedDuration,
+                  task: successorTask
+                })
+                
+                // Recursively process next level of successors
+                processSuccessors(targetId, successorEndDate)
               }
             }
           }
+          
+          // Start processing from the dragged task
+          const draggedTaskEnd = gantt.calculateEndDate({
+            start_date: task.start_date,
+            duration: duration,
+            task: task
+          })
+          
+          processSuccessors(id, draggedTaskEnd)
           
           // Send batch update to backend
           if (batchUpdates.length > 0) {

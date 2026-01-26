@@ -11,6 +11,7 @@ interface ConflictPanelProps {
   conflicts: PPSConflictWithTodos[]
   onConflictClick?: (conflict: PPSConflictWithTodos) => void
   onRefresh?: () => void
+  onFixDependencies?: () => void
 }
 
 const styles = {
@@ -37,6 +38,20 @@ const styles = {
     borderRadius: '3px',
     cursor: 'pointer',
     fontSize: '11px',
+  },
+  fixButton: {
+    padding: '4px 8px',
+    backgroundColor: '#4a90d9',
+    border: '1px solid #3a7bc8',
+    borderRadius: '3px',
+    cursor: 'pointer',
+    fontSize: '11px',
+    color: '#ffffff',
+    marginLeft: '6px',
+  },
+  headerButtons: {
+    display: 'flex',
+    gap: '6px',
   },
   conflictList: {
     display: 'flex',
@@ -113,6 +128,7 @@ export default function ConflictPanel({
   conflicts,
   onConflictClick,
   onRefresh,
+  onFixDependencies,
 }: ConflictPanelProps) {
   const handleClick = (conflict: PPSConflictWithTodos) => {
     if (onConflictClick) {
@@ -120,17 +136,31 @@ export default function ConflictPanel({
     }
   }
 
+  // Check if there are dependency conflicts
+  const hasDependencyConflicts = conflicts.some(c => c.conflict_type === 'dependency')
+
   return (
     <div style={styles.container}>
       <div style={styles.header}>
         <span style={styles.headerTitle}>
           Konflikte ({conflicts.length})
         </span>
-        {onRefresh && (
-          <button style={styles.refreshButton} onClick={onRefresh}>
-            Aktualisieren
-          </button>
-        )}
+        <div style={styles.headerButtons}>
+          {hasDependencyConflicts && onFixDependencies && (
+            <button 
+              style={styles.fixButton} 
+              onClick={onFixDependencies}
+              title="Verschiebt alle Nachfolger automatisch, sodass sie nach ihren Vorgängern starten"
+            >
+              Abhängigkeiten korrigieren
+            </button>
+          )}
+          {onRefresh && (
+            <button style={styles.refreshButton} onClick={onRefresh}>
+              Aktualisieren
+            </button>
+          )}
+        </div>
       </div>
 
       {conflicts.length === 0 ? (

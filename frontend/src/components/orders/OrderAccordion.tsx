@@ -3,6 +3,7 @@
  * Single order row with expand/collapse functionality - Level 1
  */
 import React, { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { OrderOverviewItem, HierarchyRemark, ChildRemarksSummary } from '../../services/types'
 import OrderArticlesPanel from './OrderArticlesPanel'
 import remarksApi from '../../services/remarksApi'
@@ -103,8 +104,31 @@ const styles = {
   cellStatus: {
     width: '100px'
   },
+  cellActions: {
+    width: '40px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '4px'
+  },
+  crmButton: {
+    padding: '4px 6px',
+    backgroundColor: '#e3f2fd',
+    border: '1px solid #90caf9',
+    borderRadius: '3px',
+    cursor: 'pointer',
+    fontSize: '11px',
+    color: '#1565c0',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '2px',
+    whiteSpace: 'nowrap' as const
+  },
+  crmButtonHover: {
+    backgroundColor: '#bbdefb'
+  },
   cellRemark: {
-    width: '200px',
+    width: '160px',
     fontSize: '11px'
   },
   remarkText: {
@@ -199,6 +223,7 @@ const truncateText = (text: string, maxLength: number = 50): string => {
 }
 
 export default function OrderAccordion({ order, isExpanded, isSelected, onToggle, onSelect, preloadedRemark, onRemarkChange, onShowChildRemarks }: OrderAccordionProps) {
+  const navigate = useNavigate()
   // Use preloaded remark if available, otherwise local state
   const [localRemark, setLocalRemark] = useState<HierarchyRemark | null>(null)
   const remark = preloadedRemark !== undefined ? preloadedRemark : localRemark
@@ -206,6 +231,23 @@ export default function OrderAccordion({ order, isExpanded, isSelected, onToggle
   const [remarkText, setRemarkText] = useState('')
   const [childRemarksCount, setChildRemarksCount] = useState<number>(0)
   const [childRemarksSummary, setChildRemarksSummary] = useState<ChildRemarksSummary | null>(null)
+  const [crmButtonHovered, setCrmButtonHovered] = useState(false)
+
+  // Navigate to CRM timeline for this order
+  const handleCrmClick = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    // Navigate to CRM timeline with order context
+    // Store order info in sessionStorage for the CRM page to use
+    if (order.order_id) {
+      sessionStorage.setItem('crm_context', JSON.stringify({
+        type: 'order',
+        id: order.order_id,
+        name: order.auftrag,
+        customer: order.kunde,
+      }))
+    }
+    navigate('/menu/crm/timeline')
+  }
 
   // Only fetch remark if not preloaded (fallback for backwards compatibility)
   useEffect(() => {
@@ -334,6 +376,22 @@ export default function OrderAccordion({ order, isExpanded, isSelected, onToggle
         
         <div style={{ ...styles.cell, ...styles.cellStatus }}>
           {order.status_name || '-'}
+        </div>
+
+        {/* CRM Button */}
+        <div style={{ ...styles.cell, ...styles.cellActions }}>
+          <button
+            style={{
+              ...styles.crmButton,
+              ...(crmButtonHovered ? styles.crmButtonHover : {})
+            }}
+            onClick={handleCrmClick}
+            onMouseEnter={() => setCrmButtonHovered(true)}
+            onMouseLeave={() => setCrmButtonHovered(false)}
+            title="Kommunikation anzeigen"
+          >
+            💬
+          </button>
         </div>
 
         {/* Remark Cell */}

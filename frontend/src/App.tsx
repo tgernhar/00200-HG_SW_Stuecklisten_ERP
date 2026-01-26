@@ -16,6 +16,13 @@ const ProductionPlanningPage = React.lazy(() => import('./pages/ProductionPlanni
 const TodoListPage = React.lazy(() => import('./pages/TodoListPage'))
 const PPSConfigPage = React.lazy(() => import('./pages/PPSConfigPage'))
 
+// CRM Pages
+const CRMDashboardPage = React.lazy(() => import('./pages/CRMDashboardPage'))
+const CRMTimelinePage = React.lazy(() => import('./pages/CRMTimelinePage'))
+const CRMLeadPipelinePage = React.lazy(() => import('./pages/CRMLeadPipelinePage'))
+const CRMTasksPage = React.lazy(() => import('./pages/CRMTasksPage'))
+const CRMSearchPage = React.lazy(() => import('./pages/CRMSearchPage'))
+
 function App() {
   const { isAuthenticated, isLoading } = useAuth()
 
@@ -90,6 +97,47 @@ function App() {
             element={
               <React.Suspense fallback={<div style={{ padding: 20 }}>Lade Konfiguration...</div>}>
                 <PPSConfigPage />
+              </React.Suspense>
+            } 
+          />
+          {/* CRM Routes */}
+          <Route 
+            path="crm/dashboard" 
+            element={
+              <React.Suspense fallback={<div style={{ padding: 20 }}>Lade CRM Dashboard...</div>}>
+                <CRMDashboardPage />
+              </React.Suspense>
+            } 
+          />
+          <Route 
+            path="crm/timeline" 
+            element={
+              <React.Suspense fallback={<div style={{ padding: 20 }}>Lade Vorgangsakte...</div>}>
+                <CRMTimelinePage />
+              </React.Suspense>
+            } 
+          />
+          <Route 
+            path="crm/leads" 
+            element={
+              <React.Suspense fallback={<div style={{ padding: 20 }}>Lade Lead-Pipeline...</div>}>
+                <CRMLeadPipelinePage />
+              </React.Suspense>
+            } 
+          />
+          <Route 
+            path="crm/tasks" 
+            element={
+              <React.Suspense fallback={<div style={{ padding: 20 }}>Lade Aufgaben...</div>}>
+                <CRMTasksPage />
+              </React.Suspense>
+            } 
+          />
+          <Route 
+            path="crm/search" 
+            element={
+              <React.Suspense fallback={<div style={{ padding: 20 }}>Lade Suche...</div>}>
+                <CRMSearchPage />
               </React.Suspense>
             } 
           />

@@ -195,6 +195,21 @@ export async function resolveConflict(conflictId: number): Promise<{ success: bo
   return response.data
 }
 
+export async function fixDependencyConflicts(): Promise<{
+  success: boolean
+  fixed_count: number
+  shifted_todos: Array<{
+    id: number
+    title: string
+    old_start: string | null
+    new_start: string | null
+    shift_minutes: number
+  }>
+}> {
+  const response = await api.post(`${BASE_URL}/conflicts/fix-dependencies`)
+  return response.data
+}
+
 // ============== Todo Generation ==============
 
 export async function getAvailableOrders(params?: {
@@ -341,6 +356,7 @@ export const ppsApi = {
   getConflicts,
   checkConflicts,
   resolveConflict,
+  fixDependencyConflicts,
   getAvailableOrders,
   generateTodos,
   getAuditLog,

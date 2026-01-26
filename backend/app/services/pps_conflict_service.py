@@ -331,3 +331,124 @@ def check_single_todo_conflicts(db: Session, todo_id: int) -> List[dict]:
     db.commit()
     
     return new_conflicts
+
+
+def fix_dependency_conflicts(db: Session) -> dict:
+    """
+    Automatically fix dependency conflicts by shifting successors.
+    
+    For each dependency where the successor starts before the predecessor ends,
+    the successor (and its entire chain) will be shifted forward.
+    
+    Returns:
+        dict with statistics about fixed conflicts
+    """
+    from app.models.pps_todo import PPSTodo, PPSTodoDependency
+    
+    # Get all active dependencies
+    dependencies = db.query(PPSTodoDependency).filter(
+        PPSTodoDependency.is_active == True
+    ).all()
+    
+    # Create lookup maps
+    todo_ids = set()
+    for dep in dependencies:
+        todo_ids.add(dep.predecessor_id)
+        todo_ids.add(dep.successor_id)
+    
+    todos = db.query(PPSTodo).filter(PPSTodo.id.in_(todo_ids)).all()
+    todo_map = {t.id: t for t in todos}
+    
+    # Build successor map (predecessor_id -> list of successor_ids)
+    successor_map: Dict[int, List[int]] = {}
+    for dep in dependencies:
+        if dep.predecessor_id not in successor_map:
+            successor_map[dep.predecessor_id] = []
+        successor_map[dep.predecessor_id].append(dep.successor_id)
+    
+    fixed_count = 0
+    shifted_todos = []
+    processed_ids = set()
+    
+    def shift_successor_chain(predecessor_id: int, predecessor_end: datetime):
+        """Recursively shift successors to start after predecessor ends"""
+        nonlocal fixed_count
+        
+        if predecessor_id not in successor_map:
+            return
+        
+        for successor_id in successor_map[predecessor_id]:
+            if successor_id in processed_ids:
+                continue
+            
+            successor = todo_map.get(successor_id)
+            if not successor or not successor.planned_start or not successor.planned_end:
+                continue
+            
+            # Check if successor starts before predecessor ends
+            if successor.planned_start < predecessor_end:
+                # Calculate shift amount
+                shift_delta = predecessor_end - successor.planned_start
+                
+                # Shift successor
+                old_start = successor.planned_start
+                old_end = successor.planned_end
+                successor.planned_start = predecessor_end
+                successor.planned_end = old_end + shift_delta
+                
+                fixed_count += 1
+                shifted_todos.append({
+                    "id": successor.id,
+                    "title": successor.title,
+                    "old_start": old_start.isoformat() if old_start else None,
+                    "new_start": successor.planned_start.isoformat() if successor.planned_start else None,
+                    "shift_minutes": int(shift_delta.total_seconds() / 60)
+                })
+                
+                processed_ids.add(successor_id)
+                
+                # Recursively process this successor's successors
+                shift_successor_chain(successor_id, successor.planned_end)
+            else:
+                # Successor is already after predecessor, but still process its chain
+                processed_ids.add(successor_id)
+                shift_successor_chain(successor_id, successor.planned_end)
+    
+    # Find all "root" tasks (tasks that are predecessors but have no predecessor themselves)
+    all_successor_ids = set()
+    for dep in dependencies:
+        all_successor_ids.add(dep.successor_id)
+    
+    root_ids = set()
+    for dep in dependencies:
+        if dep.predecessor_id not in all_successor_ids:
+            root_ids.add(dep.predecessor_id)
+    
+    # Process from each root
+    for root_id in root_ids:
+        root = todo_map.get(root_id)
+        if root and root.planned_end:
+            processed_ids.add(root_id)
+            shift_successor_chain(root_id, root.planned_end)
+    
+    # Also process any remaining dependencies (in case of cycles or isolated chains)
+    for dep in dependencies:
+        predecessor = todo_map.get(dep.predecessor_id)
+        if predecessor and predecessor.planned_end and dep.predecessor_id not in processed_ids:
+            processed_ids.add(dep.predecessor_id)
+            shift_successor_chain(dep.predecessor_id, predecessor.planned_end)
+    
+    db.commit()
+    
+    # Clear resolved dependency conflicts
+    db.query(PPSConflict).filter(
+        PPSConflict.conflict_type == 'dependency',
+        PPSConflict.resolved == False
+    ).update({"resolved": True})
+    db.commit()
+    
+    return {
+        "success": True,
+        "fixed_count": fixed_count,
+        "shifted_todos": shifted_todos
+    }

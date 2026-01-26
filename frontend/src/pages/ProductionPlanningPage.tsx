@@ -8,7 +8,7 @@
  * - Bottom panel with conflicts
  */
 import React, { useState, useEffect, useCallback, useRef } from 'react'
-import GanttChart, { zoomIn, zoomOut, setZoom } from '../components/pps/GanttChart'
+import GanttChart, { zoomIn, zoomOut, setZoom, scrollToTask } from '../components/pps/GanttChart'
 import ResourcePanel from '../components/pps/ResourcePanel'
 import ConflictPanel from '../components/pps/ConflictPanel'
 import TodoGeneratorModal from '../components/pps/TodoGeneratorModal'
@@ -21,6 +21,7 @@ import {
   syncResources,
   getConflicts,
   checkConflicts,
+  fixDependencyConflicts,
   getWorkingHours,
   getTodoWithERPDetails,
   createTodo,
@@ -435,13 +436,70 @@ export default function ProductionPlanningPage() {
     }
   }, [])
 
-  // Handle conflict click
+  // Fix dependency conflicts automatically
+  const handleFixDependencyConflicts = useCallback(async () => {
+    setIsSyncing(true)
+    try {
+      const result = await fixDependencyConflicts()
+      if (result.success && result.fixed_count > 0) {
+        // Reload Gantt data to show updated positions
+        const resourceFilter = selectedResourceIds.length > 0 
+          ? selectedResourceIds.join(',') 
+          : undefined
+        const ganttResponse = await getGanttData({
+          resource_ids: resourceFilter,
+          date_from: dateFromRef.current || undefined,
+          date_to: dateToRef.current || undefined,
+        })
+        setGanttData(ganttResponse)
+        
+        // Refresh conflicts
+        const conflictsResponse = await getConflicts({ resolved: false })
+        setConflicts(conflictsResponse.items)
+        setUnresolvedCount(conflictsResponse.unresolved_count)
+        
+        alert(`${result.fixed_count} Abhängigkeit(en) korrigiert`)
+      } else if (result.fixed_count === 0) {
+        alert('Keine Abhängigkeitskonflikte zu korrigieren')
+      }
+    } catch (err) {
+      console.error('Error fixing dependency conflicts:', err)
+      alert('Fehler beim Korrigieren der Abhängigkeiten')
+    } finally {
+      setIsSyncing(false)
+    }
+  }, [selectedResourceIds])
+
+  // Handle conflict click - scroll to and select the affected task, filter by resource(s)
   const handleConflictClick = useCallback((conflict: PPSConflictWithTodos) => {
     if (conflict.todo_id) {
-      setSelectedTaskIds([conflict.todo_id])
-      // Scroll to task in Gantt (handled by GanttChart)
+      // Find both tasks involved in the conflict to get their resource_ids
+      const task = ganttData?.data.find(t => t.id === conflict.todo_id)
+      const relatedTask = conflict.related_todo_id 
+        ? ganttData?.data.find(t => t.id === conflict.related_todo_id)
+        : null
+      
+      // Collect unique resource IDs from both tasks
+      const resourceIds: number[] = []
+      if (task?.resource_id) {
+        resourceIds.push(task.resource_id)
+      }
+      if (relatedTask?.resource_id && !resourceIds.includes(relatedTask.resource_id)) {
+        resourceIds.push(relatedTask.resource_id)
+      }
+      
+      if (resourceIds.length > 0) {
+        // Set filter to show resources involved in conflict (triggers data reload)
+        setSelectedResourceIds(resourceIds)
+      }
+      
+      // Select the task and scroll to it (after potential filter change)
+      setTimeout(() => {
+        setSelectedTaskIds([conflict.todo_id])
+        scrollToTask(conflict.todo_id)
+      }, 100)
     }
-  }, [])
+  }, [ganttData])
 
   // Handle generator success
   const handleGeneratorSuccess = useCallback(() => {
@@ -792,6 +850,7 @@ export default function ProductionPlanningPage() {
             conflicts={conflicts}
             onConflictClick={handleConflictClick}
             onRefresh={handleCheckConflicts}
+            onFixDependencies={handleFixDependencyConflicts}
           />
         </div>
       )}

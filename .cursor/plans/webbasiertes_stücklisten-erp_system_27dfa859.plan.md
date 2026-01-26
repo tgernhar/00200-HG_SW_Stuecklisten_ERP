@@ -1396,6 +1396,76 @@ Detaillierte Dokumentation zu einzelnen Features befindet sich im `docs/` Verzei
 - **`docs/06_solidworks_custom_properties.md`** - Custom Properties Import & Zurückschreiben
 - **`docs/07_hugwawi_article_import_csv.md`** - CSV-Export für HUGWAWI
 - **`docs/08_manual_rows_and_bn_sync.md`** - Manuelle Zeilen & Bestellungen-Sync
+- **`docs/10 PPS Lastenheft-pps-feinplanung.md`** - PPS-Modul Spezifikation
+
+## PPS - Produktionsplanung (Gantt)
+
+Das PPS-Modul ermöglicht die visuelle Feinplanung von Produktionsaufträgen in einem Gantt-Chart.
+
+### Hauptfunktionen
+
+- **Gantt-Chart**: DHTMLX Gantt für visuelle Planung mit Drag & Drop
+- **Task-Verknüpfungen**: Abhängigkeiten zwischen Tasks (Vorgänger → Nachfolger)
+- **Auto-Scheduling**: Verknüpfte Tasks verschieben sich automatisch mit
+- **Konflikt-Erkennung**: Automatische Erkennung von Ressourcen-, Abhängigkeits- und Terminkonflikt
+- **Fortschrittsanzeige**: Progress-Bar pro Task
+
+### API-Endpunkte (PPS)
+
+#### Konflikt-Management
+
+- `GET /api/pps/conflicts` - Liste aller Konflikte
+- `POST /api/pps/conflicts/check` - Führt Konfliktprüfung durch
+- `PATCH /api/pps/conflicts/{id}/resolve` - Markiert Konflikt als gelöst
+- `POST /api/pps/conflicts/fix-dependencies` - **Abhängigkeiten korrigieren** (automatische Konfliktlösung)
+
+#### Abhängigkeiten korrigieren
+
+Die Funktion "Abhängigkeiten korrigieren" löst automatisch alle Abhängigkeitskonflikte:
+
+**Workflow**:
+1. Alle aktiven Abhängigkeiten werden geprüft
+2. Für jede Abhängigkeit: Wenn der Nachfolger vor dem Ende des Vorgängers startet
+3. Der Nachfolger wird automatisch nach hinten verschoben
+4. Die Verschiebung wird rekursiv durch die gesamte Kette propagiert
+5. Alle betroffenen Konflikte werden als gelöst markiert
+
+**API-Response**:
+```json
+{
+  "success": true,
+  "fixed_count": 3,
+  "shifted_todos": [
+    {
+      "id": 123,
+      "title": "Montage",
+      "old_start": "2026-01-26T10:00:00",
+      "new_start": "2026-01-26T12:00:00",
+      "shift_minutes": 120
+    }
+  ]
+}
+```
+
+**Frontend-Integration**:
+- Button "Abhängigkeiten korrigieren" erscheint im Konflikt-Panel
+- Nur sichtbar wenn Abhängigkeitskonflikte existieren
+- Nach Ausführung wird das Gantt-Chart automatisch aktualisiert
+
+### Gantt Auto-Scheduling
+
+Beim Verschieben eines Tasks werden verknüpfte Nachfolger automatisch mitbewegt:
+
+1. **Drag & Drop**: Task wird verschoben
+2. **Chain-Propagation**: Alle Nachfolger in der Kette werden aktualisiert
+3. **Duration-Erhaltung**: Die Dauer der Tasks bleibt erhalten
+4. **Batch-Update**: Alle Änderungen werden in einem API-Call gespeichert
+
+**Technische Details**:
+- Native DHTMLX Auto-Scheduling ist deaktiviert (verursacht Duration-Korruption)
+- Custom Implementierung in `GanttChart.tsx` → `onAfterTaskUpdate`
+- Sowohl `start_date` als auch `end_date` werden explizit gesetzt
+- Rekursive Verarbeitung für beliebig lange Ketten
 
 ## Nächste Schritte
 
