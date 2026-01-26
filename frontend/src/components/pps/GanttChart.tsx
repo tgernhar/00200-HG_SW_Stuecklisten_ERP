@@ -20,10 +20,6 @@ interface BatchUpdateItem {
   duration: number
 }
 
-// Sortierung State (global da Gantt außerhalb React lebt)
-let currentSortField: string | null = null
-let currentSortDir: 'asc' | 'desc' = 'asc'
-
 // Grid columns collapsed state (global)
 let gridColumnsCollapsed = false
 
@@ -80,6 +76,9 @@ export default function GanttChart({
   const onTaskEditRef = useRef(onTaskEdit)
   const onBatchUpdateRef = useRef(onBatchUpdate)
   const workingHoursRef = useRef(workingHours)
+  
+  // React state for button display (synced with global gridColumnsCollapsed)
+  const [columnsCollapsed, setColumnsCollapsed] = useState(gridColumnsCollapsed)
   
   // Update workingHours ref when it changes
   useEffect(() => {
@@ -160,24 +159,18 @@ export default function GanttChart({
     gantt.config.order_branch = false
     gantt.config.order_branch_free = false
     
-    // Helper to get sort icon for column header
-    const getSortIcon = (fieldName: string) => {
-      if (currentSortField !== fieldName) return ' ⇅'
-      return currentSortDir === 'asc' ? ' ▲' : ' ▼'
-    }
-    
     // Base column (always visible)
     const baseColumns = [
-      { name: 'text', label: 'Aufgabe' + getSortIcon('text'), tree: true, width: 200, resize: true },
+      { name: 'text', label: 'Aufgabe', tree: true, width: 200, resize: true },
     ]
     
     // Additional columns (collapsible)
     const additionalColumns = [
-      { name: 'priority', label: 'Prio' + getSortIcon('priority'), align: 'center', width: 50 },
-      { name: 'start_date', label: 'Start' + getSortIcon('start_date'), align: 'center', width: 90 },
+      { name: 'priority', label: 'Prio', align: 'center', width: 50 },
+      { name: 'start_date', label: 'Start', align: 'center', width: 90 },
       { 
         name: 'duration', 
-        label: 'Dauer' + getSortIcon('duration'), 
+        label: 'Dauer', 
         align: 'center', 
         width: 70,
         template: (task: GanttTask) => {
@@ -189,7 +182,7 @@ export default function GanttChart({
       },
       {
         name: 'progress',
-        label: '%' + getSortIcon('progress'),
+        label: '%',
         align: 'center',
         width: 50,
         template: (task: GanttTask) => {
@@ -198,7 +191,7 @@ export default function GanttChart({
           return Math.round(task.progress * 100) + '%'
         }
       },
-      { name: 'resource_name', label: 'Ressource' + getSortIcon('resource_name'), width: 100, resize: true },
+      { name: 'resource_name', label: 'Ressource', width: 100, resize: true },
     ]
     
     // Grid columns - show all or only base based on collapsed state
@@ -403,46 +396,13 @@ export default function GanttChart({
       .gantt_grid, .gantt_task {
         overflow: visible !important;
       }
-      /* Sortable column headers */
-      .gantt_grid_head_cell {
-        cursor: pointer;
-        user-select: none;
-      }
-      .gantt_grid_head_cell:hover {
-        background-color: #e8e8e8;
-      }
     `
     document.head.appendChild(style)
     
     gantt.init(containerRef.current)
     initialized.current = true
     
-    // Header click handler for column sorting
-    const onGridHeaderClick = gantt.attachEvent('onGridHeaderClick', (name: string, e: Event) => {
-      // Sortable columns
-      const sortableColumns = ['text', 'priority', 'start_date', 'duration', 'progress', 'resource_name']
-      if (!sortableColumns.includes(name)) return true
-      
-      // Toggle sort direction if same column, otherwise reset to asc
-      if (currentSortField === name) {
-        currentSortDir = currentSortDir === 'asc' ? 'desc' : 'asc'
-      } else {
-        currentSortField = name
-        currentSortDir = 'asc'
-      }
-      
-      // Perform sort
-      gantt.sort(name, currentSortDir === 'desc')
-      
-      // Update column headers with new sort icons
-      configureGantt()
-      gantt.render()
-      
-      return false // Prevent default behavior
-    })
-    
     return () => {
-      gantt.detachEvent(onGridHeaderClick)
       gantt.clearAll()
       style.remove()
     }
@@ -764,7 +724,15 @@ export default function GanttChart({
   // Toggle grid columns collapsed state
   const handleToggleColumns = useCallback(() => {
     gridColumnsCollapsed = !gridColumnsCollapsed
+    setColumnsCollapsed(gridColumnsCollapsed) // Sync React state for immediate button update
     configureGantt()
+    // DHTMLX Gantt requires resetLayout() to apply column changes, render() is not enough
+    if (typeof gantt.resetLayout === 'function') {
+      gantt.resetLayout()
+    } else {
+      // Fallback: re-init gantt if resetLayout not available
+      gantt.init(containerRef.current!)
+    }
     gantt.render()
   }, [configureGantt])
 
@@ -776,7 +744,7 @@ export default function GanttChart({
         style={{
           position: 'absolute',
           top: '12px',
-          left: gridColumnsCollapsed ? '180px' : '540px',
+          left: columnsCollapsed ? '180px' : '540px',
           zIndex: 100,
           width: '20px',
           height: '26px',
@@ -792,9 +760,9 @@ export default function GanttChart({
           justifyContent: 'center',
           transition: 'left 0.2s ease',
         }}
-        title={gridColumnsCollapsed ? 'Spalten einblenden' : 'Spalten ausblenden'}
+        title={columnsCollapsed ? 'Spalten einblenden' : 'Spalten ausblenden'}
       >
-        {gridColumnsCollapsed ? '►' : '◄'}
+        {columnsCollapsed ? '►' : '◄'}
       </button>
       
       <div 

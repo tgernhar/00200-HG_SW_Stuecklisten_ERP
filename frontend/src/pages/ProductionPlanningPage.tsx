@@ -242,8 +242,33 @@ export default function ProductionPlanningPage() {
     
     try {
       // Load gantt data
-      const resourceFilter = selectedResourceIds.length > 0 
-        ? selectedResourceIds.join(',') 
+      // IMPORTANT: Only send machine/employee IDs to API, NOT department IDs
+      // Department IDs would cause the backend to return ALL tasks from that department
+      // Instead, we filter departments in the ResourcePanel for UI purposes only
+      const nonDeptResourceIds = selectedResourceIds.filter(id => {
+        const resource = resources.find(r => r.id === id)
+        return resource && resource.resource_type !== 'department'
+      })
+      
+      // If departments are selected but no machines/employees, find all machines in those departments
+      let effectiveResourceIds = nonDeptResourceIds
+      if (nonDeptResourceIds.length === 0 && selectedResourceIds.length > 0) {
+        // User selected only departments - get machines/employees belonging to those departments
+        const selectedDeptErpIds = new Set(
+          resources
+            .filter(r => r.resource_type === 'department' && selectedResourceIds.includes(r.id))
+            .map(r => r.erp_id)
+        )
+        effectiveResourceIds = resources
+          .filter(r => 
+            (r.resource_type === 'machine' || r.resource_type === 'employee') &&
+            r.erp_department_id && selectedDeptErpIds.has(r.erp_department_id)
+          )
+          .map(r => r.id)
+      }
+      
+      const resourceFilter = effectiveResourceIds.length > 0 
+        ? effectiveResourceIds.join(',') 
         : undefined
       
       // Use refs to get current date filter values
