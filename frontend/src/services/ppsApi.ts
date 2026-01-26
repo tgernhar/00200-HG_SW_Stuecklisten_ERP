@@ -135,6 +135,7 @@ export async function syncGanttData(data: GanttSyncRequest): Promise<GanttSyncRe
 export async function getResources(params?: {
   resource_type?: ResourceType
   is_active?: boolean
+  max_level?: number  // Filter machines by level (1-5)
 }): Promise<PPSResource[]> {
   const response = await api.get(`${BASE_URL}/resources`, { params })
   return response.data

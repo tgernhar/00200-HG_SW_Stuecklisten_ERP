@@ -11,6 +11,8 @@ interface ResourcePanelProps {
   resources: PPSResource[]
   selectedIds: number[]
   onSelectionChange: (ids: number[]) => void
+  resourceLevelFilter: number
+  onLevelChange: (level: number) => void
 }
 
 const styles = {
@@ -22,6 +24,26 @@ const styles = {
     fontWeight: 'bold' as const,
     marginBottom: '10px',
     color: '#333333',
+  },
+  levelSelect: {
+    width: '100%',
+    padding: '6px 8px',
+    marginBottom: '10px',
+    border: '1px solid #cccccc',
+    borderRadius: '3px',
+    fontSize: '11px',
+    boxSizing: 'border-box' as const,
+    backgroundColor: '#ffffff',
+    cursor: 'pointer',
+  },
+  searchInput: {
+    width: '100%',
+    padding: '6px 8px',
+    marginBottom: '10px',
+    border: '1px solid #cccccc',
+    borderRadius: '3px',
+    fontSize: '11px',
+    boxSizing: 'border-box' as const,
   },
   selectAll: {
     display: 'flex',
@@ -84,12 +106,31 @@ export default function ResourcePanel({
   resources,
   selectedIds,
   onSelectionChange,
+  resourceLevelFilter,
+  onLevelChange,
 }: ResourcePanelProps) {
   const [expandedSections, setExpandedSections] = useState<Set<ResourceType>>(
     new Set(['department', 'machine', 'employee'])
   )
+  const [searchText, setSearchText] = useState('')
 
-  // Group resources by type
+  // Filter resources by search text
+  const filteredResources = useMemo(() => {
+    if (!searchText.trim()) return resources
+    const lower = searchText.toLowerCase()
+    return resources.filter(r => r.name.toLowerCase().includes(lower))
+  }, [resources, searchText])
+
+  // Get selected department erp_ids for filtering machines/employees
+  const selectedDeptErpIds = useMemo(() => {
+    return new Set(
+      filteredResources
+        .filter(r => r.resource_type === 'department' && selectedIds.includes(r.id))
+        .map(r => r.erp_id)
+    )
+  }, [filteredResources, selectedIds])
+
+  // Group filtered resources by type - with department filter for machines/employees
   const groupedResources = useMemo(() => {
     const grouped: Record<ResourceType, PPSResource[]> = {
       department: [],
@@ -97,14 +138,21 @@ export default function ResourcePanel({
       employee: [],
     }
     
-    resources.forEach(r => {
-      if (grouped[r.resource_type]) {
-        grouped[r.resource_type].push(r)
+    filteredResources.forEach(r => {
+      if (r.resource_type === 'department') {
+        // Departments are always shown
+        grouped.department.push(r)
+      } else if (r.resource_type === 'machine' || r.resource_type === 'employee') {
+        // Machines/Employees: Only show if no department selected OR erp_department_id matches
+        if (selectedDeptErpIds.size === 0 || 
+            (r.erp_department_id && selectedDeptErpIds.has(r.erp_department_id))) {
+          grouped[r.resource_type].push(r)
+        }
       }
     })
     
     return grouped
-  }, [resources])
+  }, [filteredResources, selectedDeptErpIds])
 
   // Toggle section expand/collapse
   const toggleSection = (type: ResourceType) => {
@@ -142,16 +190,23 @@ export default function ResourcePanel({
     }
   }
 
-  // Select/deselect all
+  // Select/deselect all (filtered)
   const toggleAll = () => {
-    if (selectedIds.length === resources.length) {
-      onSelectionChange([])
+    const filteredIds = filteredResources.map(r => r.id)
+    const allFilteredSelected = filteredIds.every(id => selectedIds.includes(id))
+    
+    if (allFilteredSelected) {
+      // Deselect all filtered
+      onSelectionChange(selectedIds.filter(id => !filteredIds.includes(id)))
     } else {
-      onSelectionChange(resources.map(r => r.id))
+      // Select all filtered
+      const newIds = new Set([...selectedIds, ...filteredIds])
+      onSelectionChange(Array.from(newIds))
     }
   }
 
-  const allSelected = selectedIds.length === resources.length && resources.length > 0
+  const allSelected = filteredResources.length > 0 && 
+    filteredResources.every(r => selectedIds.includes(r.id))
 
   const renderSection = (type: ResourceType, label: string) => {
     const items = groupedResources[type]
@@ -213,19 +268,43 @@ export default function ResourcePanel({
     <div style={styles.container}>
       <div style={styles.header}>Ressourcen Filter</div>
       
+      {/* Level filter for machines */}
+      <select
+        value={resourceLevelFilter}
+        onChange={e => onLevelChange(Number(e.target.value))}
+        style={styles.levelSelect}
+        title="Maschinen-Level Filter (filtert nach Wichtigkeit)"
+      >
+        <option value={1}>Level 1 (CNC-Hauptmaschinen)</option>
+        <option value={2}>Level 2 (Konstruktion/Haupt)</option>
+        <option value={3}>Level 3 (Standard)</option>
+        <option value={4}>Level 4 (Selten)</option>
+        <option value={5}>Level 5 (Alle Maschinen)</option>
+      </select>
+      
+      {/* Search input */}
+      <input
+        type="text"
+        placeholder="Suchen..."
+        value={searchText}
+        onChange={e => setSearchText(e.target.value)}
+        style={styles.searchInput}
+      />
+      
       <label style={styles.selectAll}>
         <input
           type="checkbox"
           checked={allSelected}
           ref={input => {
             if (input) {
-              input.indeterminate = selectedIds.length > 0 && !allSelected
+              const someFilteredSelected = filteredResources.some(r => selectedIds.includes(r.id))
+              input.indeterminate = someFilteredSelected && !allSelected
             }
           }}
           onChange={toggleAll}
           style={styles.checkbox}
         />
-        <span>Alle ({resources.length})</span>
+        <span>Alle ({filteredResources.length})</span>
       </label>
       
       {renderSection('department', 'Abteilungen')}

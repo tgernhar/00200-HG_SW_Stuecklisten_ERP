@@ -727,11 +727,12 @@ async def get_gantt_data(
         
         query = query.filter(PPSTodo.id.in_(all_ids))
     
-    # Sort by priority (1=highest first), then by planned_start
+    # Sort by priority (1=highest first), then by planned_start, then by id (creation order = position)
     # Note: MySQL doesn't support NULLS LAST, so we use COALESCE to put NULLs at end
     todos = query.order_by(
         PPSTodo.priority.asc(),  # Priority 1 first
-        func.coalesce(PPSTodo.planned_start, '9999-12-31').asc()
+        func.coalesce(PPSTodo.planned_start, '9999-12-31').asc(),
+        PPSTodo.id.asc()  # Creation order (Position 1 created first, then 2, etc.)
     ).all()
     
     # Convert to Gantt tasks
@@ -970,15 +971,39 @@ async def sync_gantt_data(payload: GanttSyncRequest, db: Session = Depends(get_d
 async def get_resources(
     resource_type: Optional[str] = None,
     is_active: Optional[bool] = True,
+    max_level: Optional[int] = None,  # Filter machines by level (1-5)
     db: Session = Depends(get_db),
 ):
-    """Get cached resources"""
+    """Get cached resources
+    
+    Args:
+        resource_type: Filter by type (department, machine, employee)
+        is_active: Filter by active status
+        max_level: For machines only - filter by level <= max_level (1-5)
+                   Level meanings:
+                   1: CNC machines (autonomous)
+                   2: Main machines, programming workstations
+                   3: Standard machines and tools (default)
+                   4: Rarely used machines/aids
+                   5: Very rarely used (special projects)
+    """
     query = db.query(PPSResourceCache)
     
     if resource_type:
         query = query.filter(PPSResourceCache.resource_type == resource_type)
     if is_active is not None:
         query = query.filter(PPSResourceCache.is_active == is_active)
+    
+    # Filter machines by level
+    if max_level is not None:
+        from sqlalchemy import or_
+        query = query.filter(
+            or_(
+                PPSResourceCache.resource_type != 'machine',  # Non-machines pass through
+                PPSResourceCache.level.is_(None),  # NULL level passes through
+                PPSResourceCache.level <= max_level  # Level filter for machines
+            )
+        )
     
     resources = query.order_by(
         PPSResourceCache.resource_type,

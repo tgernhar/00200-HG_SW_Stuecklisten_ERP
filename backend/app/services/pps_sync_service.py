@@ -157,12 +157,12 @@ def _sync_machines(db: Session, cursor) -> dict:
     updated = 0
     deactivated = 0
     
-    # Query machines - only non-blocked, include department id
+    # Query machines - only non-blocked, include department id and level
     try:
         # Some HUGWAWI installations use department_id, others use department
         try:
             cursor.execute("""
-                SELECT id, name, department_id, blocked
+                SELECT id, name, department_id, level, blocked
                 FROM qualificationitem
                 WHERE blocked = 0 OR blocked IS NULL
                 ORDER BY name
@@ -170,7 +170,7 @@ def _sync_machines(db: Session, cursor) -> dict:
             dept_field = 'department_id'
         except Exception:
             cursor.execute("""
-                SELECT id, name, department, blocked
+                SELECT id, name, department, level, blocked
                 FROM qualificationitem
                 WHERE blocked = 0 OR blocked IS NULL
                 ORDER BY name
@@ -185,6 +185,7 @@ def _sync_machines(db: Session, cursor) -> dict:
         erp_id = row['id']
         name = row['name']
         department_id = row.get('department_id') if 'department_id' in row else row.get('department')
+        level = row.get('level') or 3  # Default to level 3 if not set
         erp_ids.add(erp_id)
         
         existing = db.query(PPSResourceCache).filter(
@@ -197,12 +198,14 @@ def _sync_machines(db: Session, cursor) -> dict:
             needs_update = (
                 existing.name != name or 
                 not existing.is_active or
-                existing.erp_department_id != department_id
+                existing.erp_department_id != department_id or
+                existing.level != level
             )
             if needs_update:
                 existing.name = name
                 existing.is_active = True
                 existing.erp_department_id = department_id
+                existing.level = level
                 existing.last_sync_at = datetime.utcnow()
                 existing.updated_at = datetime.utcnow()
                 updated += 1
@@ -211,6 +214,7 @@ def _sync_machines(db: Session, cursor) -> dict:
                 resource_type='machine',
                 erp_id=erp_id,
                 erp_department_id=department_id,
+                level=level,
                 name=name,
                 capacity=1,  # Single machine
                 is_active=True,

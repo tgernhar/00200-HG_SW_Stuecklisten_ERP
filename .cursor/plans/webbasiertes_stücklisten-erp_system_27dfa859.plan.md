@@ -1452,6 +1452,26 @@ Die Funktion "Abhängigkeiten korrigieren" löst automatisch alle Abhängigkeits
 - Nur sichtbar wenn Abhängigkeitskonflikte existieren
 - Nach Ausführung wird das Gantt-Chart automatisch aktualisiert
 
+### Konflikt-Visualisierung (Click-to-Task)
+
+Beim Klick auf einen Konflikt im Konflikt-Panel wird der betroffene Task visuell hervorgehoben:
+
+**Workflow**:
+1. Klick auf Konflikt → `handleConflictClick` in `ProductionPlanningPage.tsx`
+2. Ressourcen-Filter wird auf die beteiligten Ressourcen gesetzt
+3. Falls ein Task nicht sichtbar ist (anderer Ressourcen-Filter aktiv): Filter wird zurückgesetzt
+4. Nach Daten-Reload: `scrollToTask()` wird aufgerufen
+
+**Visuelle Hervorhebung**:
+- **1. Task (todo_id)**: Orange Rahmen (`#ff9900`) mit Glow-Effekt
+- **2. Task (related_todo_id)**: Roter Rahmen (`#ff0000`) mit Glow-Effekt
+- Beide Tasks erhalten die CSS-Klasse `conflict-highlight-manual`
+- Hervorhebung wird bei nächstem Konflikt-Klick zurückgesetzt
+
+**Dateien**:
+- `frontend/src/pages/ProductionPlanningPage.tsx` → `handleConflictClick`
+- `frontend/src/components/pps/GanttChart.tsx` → `scrollToTask(taskId, relatedTaskId?)`
+
 ### Gantt Auto-Scheduling
 
 Beim Verschieben eines Tasks werden verknüpfte Nachfolger automatisch mitbewegt:
@@ -1466,6 +1486,49 @@ Beim Verschieben eines Tasks werden verknüpfte Nachfolger automatisch mitbewegt
 - Custom Implementierung in `GanttChart.tsx` → `onAfterTaskUpdate`
 - Sowohl `start_date` als auch `end_date` werden explizit gesetzt
 - Rekursive Verarbeitung für beliebig lange Ketten
+
+### Ressourcen-Panel Filterung
+
+Das Ressourcen-Panel (linke Sidebar) bietet mehrere Filtermöglichkeiten:
+
+#### Level-Filter (Maschinen)
+
+Eine Dropdown-Auswahl ermöglicht die Filterung von Maschinen nach Wichtigkeitsstufen:
+
+| Level | Beschreibung |
+|-------|--------------|
+| Level 1 | CNC-Maschinen die selbständig arbeiten können |
+| Level 2 | Konstruktions-/Programmierplätze, Hauptmaschinen, Biegeformen |
+| Level 3 | Wenig genutzte Maschinen, Handmaschinen, Hilfsmittel (Standard) |
+| Level 4 | Selten genutzte Maschinen und Hilfsmittel |
+| Level 5 | Seltenst genutzte Hilfsmittel (z.B. spezielle Projekte) |
+
+**Technische Details**:
+- Datenbankfeld: `pps_resource_cache.level` (aus HUGWAWI `qualificationitem.level`)
+- API-Parameter: `GET /api/pps/resources?max_level=3`
+- Frontend: `ResourcePanel.tsx` mit Dropdown, Callback an `ProductionPlanningPage.tsx`
+
+#### Abteilungsfilter (Maschinen/Mitarbeiter)
+
+Wenn eine oder mehrere Abteilungen im Ressourcen-Panel ausgewählt sind, werden nur Maschinen und Mitarbeiter angezeigt, die dieser Abteilung zugeordnet sind.
+
+**Verknüpfungslogik**:
+- Abteilung: `pps_resource_cache.erp_id` = `department.id` (HUGWAWI)
+- Maschine: `pps_resource_cache.erp_department_id` = `qualificationitem.department_id` (HUGWAWI)
+- Mitarbeiter: `pps_resource_cache.erp_department_id` = `userlogin.department_id` (HUGWAWI)
+
+**Verhalten**:
+- Keine Abteilung ausgewählt → Alle Maschinen/Mitarbeiter werden angezeigt
+- Abteilung(en) ausgewählt → Nur zugehörige Maschinen/Mitarbeiter werden angezeigt
+- Filterung erfolgt clientseitig im `ResourcePanel.tsx`
+
+#### Textsuche
+
+Ein Suchfeld ermöglicht die Freitextsuche über alle Ressourcennamen.
+
+**Dateien**:
+- `frontend/src/components/pps/ResourcePanel.tsx` → `filteredResources`, `selectedDeptErpIds`, `groupedResources`
+- `frontend/src/pages/ProductionPlanningPage.tsx` → `resourceLevelFilter`, `onLevelChange`
 
 ## Nächste Schritte
 

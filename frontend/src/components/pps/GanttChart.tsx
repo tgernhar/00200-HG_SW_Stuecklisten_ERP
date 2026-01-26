@@ -7,7 +7,7 @@
  * - Conflict highlighting
  * - Drag & drop support
  */
-import React, { useEffect, useRef, useCallback } from 'react'
+import React, { useEffect, useRef, useCallback, useState } from 'react'
 // @ts-ignore - DHTMLX Gantt doesn't have official TS types
 import { gantt } from 'dhtmlx-gantt'
 import 'dhtmlx-gantt/codebase/dhtmlxgantt.css'
@@ -19,6 +19,13 @@ interface BatchUpdateItem {
   start_date: string
   duration: number
 }
+
+// Sortierung State (global da Gantt außerhalb React lebt)
+let currentSortField: string | null = null
+let currentSortDir: 'asc' | 'desc' = 'asc'
+
+// Grid columns collapsed state (global)
+let gridColumnsCollapsed = false
 
 interface GanttChartProps {
   data: GanttData
@@ -146,18 +153,31 @@ export default function GanttChart({
     gantt.config.row_height = 35
     gantt.config.task_height = 24
     
+    // Enable grid resizing (allow user to resize columns and grid)
+    gantt.config.grid_resize = true
+    
     // Disable vertical movement between rows - only horizontal drag allowed
     gantt.config.order_branch = false
     gantt.config.order_branch_free = false
     
-    // Grid columns with priority - duration in hours
-    gantt.config.columns = [
-      { name: 'text', label: 'Aufgabe', tree: true, width: 200, resize: true },
-      { name: 'priority', label: 'Prio', align: 'center', width: 50 },
-      { name: 'start_date', label: 'Start', align: 'center', width: 90 },
+    // Helper to get sort icon for column header
+    const getSortIcon = (fieldName: string) => {
+      if (currentSortField !== fieldName) return ' ⇅'
+      return currentSortDir === 'asc' ? ' ▲' : ' ▼'
+    }
+    
+    // Base column (always visible)
+    const baseColumns = [
+      { name: 'text', label: 'Aufgabe' + getSortIcon('text'), tree: true, width: 200, resize: true },
+    ]
+    
+    // Additional columns (collapsible)
+    const additionalColumns = [
+      { name: 'priority', label: 'Prio' + getSortIcon('priority'), align: 'center', width: 50 },
+      { name: 'start_date', label: 'Start' + getSortIcon('start_date'), align: 'center', width: 90 },
       { 
         name: 'duration', 
-        label: 'Dauer (h)', 
+        label: 'Dauer' + getSortIcon('duration'), 
         align: 'center', 
         width: 70,
         template: (task: GanttTask) => {
@@ -169,7 +189,7 @@ export default function GanttChart({
       },
       {
         name: 'progress',
-        label: '%',
+        label: '%' + getSortIcon('progress'),
         align: 'center',
         width: 50,
         template: (task: GanttTask) => {
@@ -178,8 +198,13 @@ export default function GanttChart({
           return Math.round(task.progress * 100) + '%'
         }
       },
-      { name: 'resource_name', label: 'Ressource', width: 100, resize: true },
+      { name: 'resource_name', label: 'Ressource' + getSortIcon('resource_name'), width: 100, resize: true },
     ]
+    
+    // Grid columns - show all or only base based on collapsed state
+    gantt.config.columns = gridColumnsCollapsed 
+      ? baseColumns 
+      : [...baseColumns, ...additionalColumns]
     
     // Task class for conflict highlighting
     gantt.templates.task_class = (start: Date, end: Date, task: GanttTask) => {
@@ -189,6 +214,10 @@ export default function GanttChart({
       }
       if (task.type === 'project') {
         classes += ' project-task'
+      }
+      // Highlight related task in conflict view
+      if ((task as any).$conflict_highlight) {
+        classes += ' conflict-highlight'
       }
       return classes.trim()
     }
@@ -346,6 +375,16 @@ export default function GanttChart({
       .conflict-task {
         border: 2px solid #ff6666 !important;
       }
+      /* Highlight for related task in conflict (pulsing orange border) */
+      .conflict-highlight {
+        border: 3px solid #ff9900 !important;
+        box-shadow: 0 0 8px #ff9900 !important;
+        animation: conflict-pulse 1s ease-in-out 3;
+      }
+      @keyframes conflict-pulse {
+        0%, 100% { box-shadow: 0 0 8px #ff9900; }
+        50% { box-shadow: 0 0 16px #ff9900, 0 0 24px #ffcc00; }
+      }
       .project-task .gantt_task_content {
         background-color: #e0e0e0;
       }
@@ -364,13 +403,46 @@ export default function GanttChart({
       .gantt_grid, .gantt_task {
         overflow: visible !important;
       }
+      /* Sortable column headers */
+      .gantt_grid_head_cell {
+        cursor: pointer;
+        user-select: none;
+      }
+      .gantt_grid_head_cell:hover {
+        background-color: #e8e8e8;
+      }
     `
     document.head.appendChild(style)
     
     gantt.init(containerRef.current)
     initialized.current = true
     
+    // Header click handler for column sorting
+    const onGridHeaderClick = gantt.attachEvent('onGridHeaderClick', (name: string, e: Event) => {
+      // Sortable columns
+      const sortableColumns = ['text', 'priority', 'start_date', 'duration', 'progress', 'resource_name']
+      if (!sortableColumns.includes(name)) return true
+      
+      // Toggle sort direction if same column, otherwise reset to asc
+      if (currentSortField === name) {
+        currentSortDir = currentSortDir === 'asc' ? 'desc' : 'asc'
+      } else {
+        currentSortField = name
+        currentSortDir = 'asc'
+      }
+      
+      // Perform sort
+      gantt.sort(name, currentSortDir === 'desc')
+      
+      // Update column headers with new sort icons
+      configureGantt()
+      gantt.render()
+      
+      return false // Prevent default behavior
+    })
+    
     return () => {
+      gantt.detachEvent(onGridHeaderClick)
       gantt.clearAll()
       style.remove()
     }
@@ -689,24 +761,102 @@ export default function GanttChart({
     
   }, [data, dateFrom, dateTo])
 
+  // Toggle grid columns collapsed state
+  const handleToggleColumns = useCallback(() => {
+    gridColumnsCollapsed = !gridColumnsCollapsed
+    configureGantt()
+    gantt.render()
+  }, [configureGantt])
+
   return (
-    <div 
-      ref={containerRef} 
-      style={{ 
-        ...styles.container, 
-        height,
-        position: 'relative'
-      }}
-      className="gantt-wrapper"
-    />
+    <div style={{ position: 'relative', height, width: '100%' }}>
+      {/* Column collapse toggle button */}
+      <button
+        onClick={handleToggleColumns}
+        style={{
+          position: 'absolute',
+          top: '12px',
+          left: gridColumnsCollapsed ? '180px' : '540px',
+          zIndex: 100,
+          width: '20px',
+          height: '26px',
+          padding: '0',
+          backgroundColor: '#e8e8e8',
+          border: '1px solid #ccc',
+          borderRadius: '3px',
+          cursor: 'pointer',
+          fontSize: '10px',
+          color: '#666',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          transition: 'left 0.2s ease',
+        }}
+        title={gridColumnsCollapsed ? 'Spalten einblenden' : 'Spalten ausblenden'}
+      >
+        {gridColumnsCollapsed ? '►' : '◄'}
+      </button>
+      
+      <div 
+        ref={containerRef} 
+        style={{ 
+          ...styles.container, 
+          height: '100%',
+          position: 'relative'
+        }}
+        className="gantt-wrapper"
+      />
+    </div>
   )
 }
 
 // Export helper functions
-export function scrollToTask(taskId: number) {
+export function scrollToTask(taskId: number, relatedTaskId?: number) {
+  // Clear previous conflict highlighting (DOM-based)
+  document.querySelectorAll('.conflict-highlight-manual').forEach(el => {
+    el.classList.remove('conflict-highlight-manual')
+    ;(el as HTMLElement).style.border = ''
+    ;(el as HTMLElement).style.boxShadow = ''
+  })
+  
+  // Clear task-based highlight flag
+  gantt.eachTask((task: GanttTask) => {
+    if (task.$conflict_highlight) {
+      delete task.$conflict_highlight
+    }
+  })
+  
   if (gantt.isTaskExists(taskId)) {
     gantt.showTask(taskId)
     gantt.selectTask(taskId)
+    
+    // Highlight first task with ORANGE border
+    setTimeout(() => {
+      const taskBar = document.querySelector(`[data-task-id="${taskId}"]`) as HTMLElement
+        || document.querySelector(`.gantt_task_line[task_id="${taskId}"]`) as HTMLElement
+      if (taskBar) {
+        taskBar.classList.add('conflict-highlight-manual')
+        taskBar.style.border = '3px solid #ff9900'
+        taskBar.style.boxShadow = '0 0 8px 2px #ff9900'
+      }
+    }, 100)
+  }
+  
+  // Highlight related task with RED border
+  if (relatedTaskId && gantt.isTaskExists(relatedTaskId)) {
+    const relatedTask = gantt.getTask(relatedTaskId)
+    relatedTask.$conflict_highlight = true
+    gantt.refreshTask(relatedTaskId)
+    
+    setTimeout(() => {
+      const relatedBar = document.querySelector(`[data-task-id="${relatedTaskId}"]`) as HTMLElement
+        || document.querySelector(`.gantt_task_line[task_id="${relatedTaskId}"]`) as HTMLElement
+      if (relatedBar) {
+        relatedBar.classList.add('conflict-highlight-manual')
+        relatedBar.style.border = '3px solid #ff0000'
+        relatedBar.style.boxShadow = '0 0 8px #ff0000'
+      }
+    }, 100)
   }
 }
 

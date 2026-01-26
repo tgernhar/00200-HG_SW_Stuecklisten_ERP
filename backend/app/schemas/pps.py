@@ -59,6 +59,7 @@ class ResourceBase(BaseModel):
     resource_type: ResourceType
     erp_id: int
     erp_department_id: Optional[int] = None  # qualificationitem.department (for machines)
+    level: Optional[int] = None  # qualificationitem.level (1-5, for machines)
     name: str
     capacity: int = 1
     is_active: bool = True

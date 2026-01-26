@@ -205,6 +205,7 @@ export default function ProductionPlanningPage() {
   const [isSyncing, setIsSyncing] = useState(false)
   const [zoomLevel, setZoomLevel] = useState<'hour' | 'day' | 'week'>('day')
   const [showResourcePanel, setShowResourcePanel] = useState(true)
+  const [resourceLevelFilter, setResourceLevelFilter] = useState<number>(3)  // Default: Level 3 (Standard)
   
   // Edit dialog state
   const [editingTodo, setEditingTodo] = useState<PPSTodoWithERPDetails | null>(null)
@@ -255,7 +256,7 @@ export default function ProductionPlanningPage() {
           date_from: currentDateFrom || undefined,
           date_to: currentDateTo || undefined,
         }),
-        getResources({ is_active: true }),
+        getResources({ is_active: true, max_level: resourceLevelFilter }),
         getConflicts({ resolved: false }),
         getWorkingHours(),
       ])
@@ -273,7 +274,7 @@ export default function ProductionPlanningPage() {
     } finally {
       setLoading(false)
     }
-  }, [selectedResourceIds])
+  }, [selectedResourceIds, resourceLevelFilter])
 
   // Initial load
   // Initial load
@@ -412,14 +413,14 @@ export default function ProductionPlanningPage() {
     setIsSyncing(true)
     try {
       await syncResources()
-      const resourcesResponse = await getResources({ is_active: true })
+      const resourcesResponse = await getResources({ is_active: true, max_level: resourceLevelFilter })
       setResources(resourcesResponse)
     } catch (err) {
       console.error('Error syncing resources:', err)
     } finally {
       setIsSyncing(false)
     }
-  }, [])
+  }, [resourceLevelFilter])
 
   // Check conflicts
   const handleCheckConflicts = useCallback(async () => {
@@ -479,25 +480,50 @@ export default function ProductionPlanningPage() {
         ? ganttData?.data.find(t => t.id === conflict.related_todo_id)
         : null
       
-      // Collect unique resource IDs from both tasks
-      const resourceIds: number[] = []
-      if (task?.resource_id) {
-        resourceIds.push(task.resource_id)
-      }
-      if (relatedTask?.resource_id && !resourceIds.includes(relatedTask.resource_id)) {
-        resourceIds.push(relatedTask.resource_id)
+      // Store task IDs to select/scroll after data reload
+      const taskIdsToSelect = [conflict.todo_id]
+      if (conflict.related_todo_id) {
+        taskIdsToSelect.push(conflict.related_todo_id)
       }
       
-      if (resourceIds.length > 0) {
-        // Set filter to show resources involved in conflict (triggers data reload)
-        setSelectedResourceIds(resourceIds)
-      }
+      // If one task is not in current view, we need to show all resources
+      // to ensure both conflict tasks are visible
+      const taskNotInView = !task || (conflict.related_todo_id && !relatedTask)
       
-      // Select the task and scroll to it (after potential filter change)
-      setTimeout(() => {
-        setSelectedTaskIds([conflict.todo_id])
-        scrollToTask(conflict.todo_id)
-      }, 100)
+      if (taskNotInView) {
+        // Clear filter to show all resources (both tasks will be visible)
+        setSelectedResourceIds([])
+        
+        // Wait for data reload, then select and scroll
+        setTimeout(() => {
+          setSelectedTaskIds(taskIdsToSelect)
+          scrollToTask(conflict.todo_id, conflict.related_todo_id || undefined)
+        }, 500)
+      } else {
+        // Both tasks are in view, collect their resource IDs
+        const resourceIds: number[] = []
+        if (task?.resource_id) {
+          resourceIds.push(task.resource_id)
+        }
+        if (relatedTask?.resource_id && !resourceIds.includes(relatedTask.resource_id)) {
+          resourceIds.push(relatedTask.resource_id)
+        }
+        
+        if (resourceIds.length > 0) {
+          // Set filter to show resources involved in conflict (triggers data reload)
+          setSelectedResourceIds(resourceIds)
+          
+          // Wait for data reload, then select both tasks and scroll to first one
+          setTimeout(() => {
+            setSelectedTaskIds(taskIdsToSelect)
+            scrollToTask(conflict.todo_id, conflict.related_todo_id || undefined)
+          }, 500)
+        } else {
+          // No filter change needed, select and scroll immediately
+          setSelectedTaskIds(taskIdsToSelect)
+          scrollToTask(conflict.todo_id, conflict.related_todo_id || undefined)
+        }
+      }
     }
   }, [ganttData])
 
@@ -806,6 +832,8 @@ export default function ProductionPlanningPage() {
                 resources={resources}
                 selectedIds={selectedResourceIds}
                 onSelectionChange={handleResourceFilterChange}
+                resourceLevelFilter={resourceLevelFilter}
+                onLevelChange={setResourceLevelFilter}
               />
             </div>
           )}
