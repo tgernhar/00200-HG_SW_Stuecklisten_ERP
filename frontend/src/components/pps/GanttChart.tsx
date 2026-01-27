@@ -171,9 +171,14 @@ export default function GanttChart({
         align: 'center', 
         width: 70,
         template: (task: GanttTask) => {
+          // Use original duration from backend data (in minutes), not Gantt's calculated duration
+          // Gantt recalculates duration from start/end dates which gives wrong values
+          const originalTask = data?.data.find(t => t.id === task.id)
+          const durationMinutes = originalTask?.duration ?? task.duration
+          
           // Display duration in hours (X,X h format)
-          if (!task.duration) return '-'
-          const hours = task.duration / 60
+          if (!durationMinutes) return '-'
+          const hours = durationMinutes / 60
           return hours.toFixed(1).replace('.', ',') + ' h'
         }
       },

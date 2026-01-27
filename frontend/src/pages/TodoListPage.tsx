@@ -601,14 +601,42 @@ export default function TodoListPage() {
   }, [loadData])
 
   // Handle bulk start date change - preserves relative time offsets between todos
+  // Special case: If a single "project" type todo is selected, also move all its children
   const handleBulkDateChange = useCallback(async () => {
     if (selectedRows.length === 0 || !bulkStartDate) return
     
     // Combine date and time to get the new base start date
     const newBaseDate = new Date(`${bulkStartDate}T${bulkStartTime}:00`)
     
-    // Find the earliest start date among selected todos
-    const todosWithDates = selectedRows
+    // Determine which todos to update
+    let todosToUpdate: PPSTodoWithERPDetails[] = [...selectedRows]
+    
+    // Recursively find all children of a todo
+    const findChildren = (parentId: number): PPSTodoWithERPDetails[] => {
+      const children = allTodos.filter(t => t.parent_todo_id === parentId)
+      let allDescendants: PPSTodoWithERPDetails[] = [...children]
+      for (const child of children) {
+        allDescendants = [...allDescendants, ...findChildren(child.id)]
+      }
+      return allDescendants
+    }
+    
+    // Special case: Single todo selected that has children - include all children recursively
+    if (selectedRows.length === 1) {
+      const selectedTodo = selectedRows[0]
+      const childTodos = findChildren(selectedTodo.id)
+      
+      if (childTodos.length > 0) {
+        todosToUpdate = [selectedTodo, ...childTodos]
+      }
+    }
+    
+    // Find the earliest start date among todos to update (excluding the project itself if single selection)
+    const todosForEarliestCalc = selectedRows.length === 1 
+      ? todosToUpdate.filter(t => t.id !== selectedRows[0].id)  // Exclude project, use children only
+      : todosToUpdate
+    
+    const todosWithDates = todosForEarliestCalc
       .filter(row => row.planned_start)
       .map(row => ({
         ...row,
@@ -624,10 +652,14 @@ export default function TodoListPage() {
     }
     
     try {
-      for (const row of selectedRows) {
+      for (const row of todosToUpdate) {
         let newStartDate: string
         
-        if (earliestDate && row.planned_start) {
+        // For single project selection: project gets the exact date, children get offset
+        if (selectedRows.length === 1 && row.id === selectedRows[0].id) {
+          // This is the project itself - set exact date
+          newStartDate = `${bulkStartDate} ${bulkStartTime}:00`
+        } else if (earliestDate && row.planned_start) {
           // Calculate offset from earliest date (in milliseconds)
           const rowDate = new Date(row.planned_start.replace(' ', 'T'))
           const offsetMs = rowDate.getTime() - earliestDate.getTime()
@@ -635,8 +667,14 @@ export default function TodoListPage() {
           // Apply offset to new base date
           const adjustedDate = new Date(newBaseDate.getTime() + offsetMs)
           
-          // Format as "YYYY-MM-DD HH:MM:SS"
-          newStartDate = adjustedDate.toISOString().slice(0, 19).replace('T', ' ')
+          // Format as "YYYY-MM-DD HH:MM:SS" in LOCAL time (not UTC)
+          const year = adjustedDate.getFullYear()
+          const month = String(adjustedDate.getMonth() + 1).padStart(2, '0')
+          const day = String(adjustedDate.getDate()).padStart(2, '0')
+          const hours = String(adjustedDate.getHours()).padStart(2, '0')
+          const minutes = String(adjustedDate.getMinutes()).padStart(2, '0')
+          const seconds = String(adjustedDate.getSeconds()).padStart(2, '0')
+          newStartDate = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
         } else {
           // No existing date - use base date directly
           newStartDate = `${bulkStartDate} ${bulkStartTime}:00`
@@ -651,7 +689,7 @@ export default function TodoListPage() {
     } catch (err) {
       console.error('Error updating start dates:', err)
     }
-  }, [selectedRows, bulkStartDate, bulkStartTime, loadData])
+  }, [selectedRows, allTodos, bulkStartDate, bulkStartTime, loadData])
 
   return (
     <div style={styles.container}>
