@@ -190,6 +190,11 @@ export default function TodoListPage() {
   // Edit dialog state
   const [editingTodo, setEditingTodo] = useState<PPSTodoWithERPDetails | null>(null)
   
+  // Bulk date edit state
+  const [showDatePicker, setShowDatePicker] = useState(false)
+  const [bulkStartDate, setBulkStartDate] = useState('')
+  const [bulkStartTime, setBulkStartTime] = useState('09:00')
+  
   // Filters
   const [statusFilter, setStatusFilter] = useState<string>('')
   const [employeeFilter, setEmployeeFilter] = useState<string>('')
@@ -374,6 +379,17 @@ export default function TodoListPage() {
 
   // Column definitions with ERP references
   const columnDefs = useMemo<ColDef[]>(() => [
+    {
+      headerName: '',
+      field: 'checkbox',
+      width: 50,
+      checkboxSelection: true,
+      headerCheckboxSelection: true,
+      headerCheckboxSelectionFilteredOnly: true,
+      sortable: false,
+      filter: false,
+      resizable: false,
+    },
     {
       headerName: 'Prio',
       field: 'priority',
@@ -584,6 +600,59 @@ export default function TodoListPage() {
     loadData()
   }, [loadData])
 
+  // Handle bulk start date change - preserves relative time offsets between todos
+  const handleBulkDateChange = useCallback(async () => {
+    if (selectedRows.length === 0 || !bulkStartDate) return
+    
+    // Combine date and time to get the new base start date
+    const newBaseDate = new Date(`${bulkStartDate}T${bulkStartTime}:00`)
+    
+    // Find the earliest start date among selected todos
+    const todosWithDates = selectedRows
+      .filter(row => row.planned_start)
+      .map(row => ({
+        ...row,
+        startDate: new Date(row.planned_start!.replace(' ', 'T'))
+      }))
+    
+    // Calculate the earliest start date
+    let earliestDate: Date | null = null
+    for (const todo of todosWithDates) {
+      if (!earliestDate || todo.startDate < earliestDate) {
+        earliestDate = todo.startDate
+      }
+    }
+    
+    try {
+      for (const row of selectedRows) {
+        let newStartDate: string
+        
+        if (earliestDate && row.planned_start) {
+          // Calculate offset from earliest date (in milliseconds)
+          const rowDate = new Date(row.planned_start.replace(' ', 'T'))
+          const offsetMs = rowDate.getTime() - earliestDate.getTime()
+          
+          // Apply offset to new base date
+          const adjustedDate = new Date(newBaseDate.getTime() + offsetMs)
+          
+          // Format as "YYYY-MM-DD HH:MM:SS"
+          newStartDate = adjustedDate.toISOString().slice(0, 19).replace('T', ' ')
+        } else {
+          // No existing date - use base date directly
+          newStartDate = `${bulkStartDate} ${bulkStartTime}:00`
+        }
+        
+        await updateTodo(row.id, { planned_start: newStartDate })
+      }
+      setShowDatePicker(false)
+      setBulkStartDate('')
+      setBulkStartTime('09:00')
+      loadData()
+    } catch (err) {
+      console.error('Error updating start dates:', err)
+    }
+  }, [selectedRows, bulkStartDate, bulkStartTime, loadData])
+
   return (
     <div style={styles.container}>
       {/* Header */}
@@ -748,6 +817,79 @@ export default function TodoListPage() {
             <button style={styles.buttonDanger} onClick={handleDelete}>
               Löschen
             </button>
+            
+            {/* Bulk date picker */}
+            <div style={{ position: 'relative' }}>
+              <button 
+                style={{ ...styles.button, backgroundColor: '#e3f2fd', borderColor: '#2196f3' }}
+                onClick={() => setShowDatePicker(!showDatePicker)}
+              >
+                Startdatum setzen
+              </button>
+              
+              {showDatePicker && (
+                <div style={{
+                  position: 'absolute',
+                  top: '100%',
+                  left: 0,
+                  marginTop: '4px',
+                  padding: '12px',
+                  backgroundColor: '#ffffff',
+                  border: '1px solid #cccccc',
+                  borderRadius: '4px',
+                  boxShadow: '0 4px 8px rgba(0,0,0,0.15)',
+                  zIndex: 100,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '8px',
+                  minWidth: '220px',
+                }}>
+                  <div style={{ fontSize: '12px', fontWeight: 'bold', marginBottom: '4px' }}>
+                    Startdatum für {selectedRows.length} ToDo(s) setzen:
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <input
+                      type="date"
+                      value={bulkStartDate}
+                      onChange={(e) => setBulkStartDate(e.target.value)}
+                      style={{ ...styles.select, flex: 1 }}
+                    />
+                    <input
+                      type="time"
+                      value={bulkStartTime}
+                      onChange={(e) => setBulkStartTime(e.target.value)}
+                      style={{ ...styles.select, width: '90px' }}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                    <button 
+                      style={styles.button}
+                      onClick={() => {
+                        setShowDatePicker(false)
+                        setBulkStartDate('')
+                        setBulkStartTime('09:00')
+                      }}
+                    >
+                      Abbrechen
+                    </button>
+                    <button 
+                      style={{ 
+                        ...styles.button, 
+                        backgroundColor: '#4caf50', 
+                        color: 'white',
+                        border: '1px solid #388e3c',
+                        opacity: bulkStartDate ? 1 : 0.5,
+                        cursor: bulkStartDate ? 'pointer' : 'not-allowed'
+                      }}
+                      onClick={handleBulkDateChange}
+                      disabled={!bulkStartDate}
+                    >
+                      Anwenden
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           </>
         )}
       </div>

@@ -470,6 +470,7 @@ def generate_todos_from_order(
                         wpd.pos,
                         wpd.setuptime,
                         wpd.unittime,
+                        wpd.stepamount,
                         ws.id as workstep_id,
                         ws.name as workstep_name,
                         qi.id as machine_id,
@@ -500,7 +501,9 @@ def generate_todos_from_order(
                     unit_time_seconds = wp_row.get('unittime') or 0
                     setup_time = setup_time_seconds / 60  # Seconds to minutes
                     unit_time = unit_time_seconds / 60
-                    quantity = wp_row.get('bom_quantity') or article_row['quantity'] or 1
+                    # Use stepamount from workplan_details if available, otherwise fall back to bom_quantity or article quantity
+                    stepamount = wp_row.get('stepamount')
+                    quantity = stepamount if stepamount else (wp_row.get('bom_quantity') or article_row['quantity'] or 1)
                     
                     # Duration formula: setup + (unit_time * quantity)
                     raw_duration = setup_time + (unit_time * quantity)
