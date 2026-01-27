@@ -80,6 +80,9 @@ export default function GanttChart({
   // React state for button display (synced with global gridColumnsCollapsed)
   const [columnsCollapsed, setColumnsCollapsed] = useState(gridColumnsCollapsed)
   
+  // State for expand level (0 = all collapsed, higher = more levels expanded)
+  const [expandLevel, setExpandLevel] = useState(0)
+  
   // Update workingHours ref when it changes
   useEffect(() => {
     workingHoursRef.current = workingHours
@@ -117,7 +120,6 @@ export default function GanttChart({
     gantt.config.duration_unit = 'minute'
     gantt.config.duration_step = 15 // Duration changes in 15-min steps
     gantt.config.round_dnd_dates = true // Round dates during drag & drop to time_step
-    gantt.config.skip_off_time = false // Allow dragging to any time (not just working hours)
     
     // Scale configuration
     gantt.config.scale_unit = 'day'
@@ -554,10 +556,6 @@ export default function GanttChart({
                 const originalSuccessorDuration = data?.data.find(t => t.id === targetId)?.duration
                 const savedDuration = originalSuccessorDuration ?? successorTask.duration
                 
-                // #region agent log
-                fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'GanttChart.tsx:554',message:'successor_duration',data:{targetId,ganttDuration:successorTask.duration,originalDuration:originalSuccessorDuration,usedDuration:savedDuration},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
-                // #endregion
-                
                 // Calculate the new end_date based on new start and saved duration
                 const newEndDate = gantt.calculateEndDate({
                   start_date: sourceEndDate,
@@ -613,10 +611,6 @@ export default function GanttChart({
             duration: originalDurationForEnd,
             task: task
           })
-          
-          // #region agent log
-          fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'GanttChart.tsx:604',message:'draggedTaskEnd_calc',data:{taskId:id,startDate:task.start_date?.toString(),ganttDuration:task.duration,originalDuration:originalDurationForEnd,usedDuration:duration,endDate:draggedTaskEnd?.toString()},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
-          // #endregion
           
           processSuccessors(id, draggedTaskEnd)
           
@@ -734,6 +728,13 @@ export default function GanttChart({
       if (typeof gantt.sort === 'function') {
         gantt.sort('priority', false)  // false = ascending order
       }
+      // Collapse all tasks by default (start with level 0)
+      gantt.eachTask((task: GanttTask) => {
+        if (gantt.hasChild(task.id)) {
+          gantt.close(task.id)
+        }
+      })
+      setExpandLevel(0)
     }, 100)
     
   }, [data, dateFrom, dateTo])
@@ -752,6 +753,44 @@ export default function GanttChart({
     }
     gantt.render()
   }, [configureGantt])
+
+  // Get maximum depth level of all tasks
+  const getMaxLevel = useCallback(() => {
+    let maxLevel = 0
+    gantt.eachTask((task: GanttTask) => {
+      if (task.$level !== undefined && task.$level > maxLevel) {
+        maxLevel = task.$level
+      }
+    })
+    return maxLevel
+  }, [])
+
+  // Expand to a specific level
+  const handleExpandLevel = useCallback(() => {
+    const maxLevel = getMaxLevel()
+    if (expandLevel >= maxLevel) return // Already at max
+    
+    const newLevel = expandLevel + 1
+    gantt.eachTask((task: GanttTask) => {
+      if (gantt.hasChild(task.id) && task.$level !== undefined && task.$level < newLevel) {
+        gantt.open(task.id)
+      }
+    })
+    setExpandLevel(newLevel)
+  }, [expandLevel, getMaxLevel])
+
+  // Collapse to a specific level
+  const handleCollapseLevel = useCallback(() => {
+    if (expandLevel <= 0) return // Already at min
+    
+    const newLevel = expandLevel - 1
+    gantt.eachTask((task: GanttTask) => {
+      if (gantt.hasChild(task.id) && task.$level !== undefined && task.$level >= newLevel) {
+        gantt.close(task.id)
+      }
+    })
+    setExpandLevel(newLevel)
+  }, [expandLevel])
 
   return (
     <div style={{ position: 'relative', height, width: '100%' }}>
@@ -782,54 +821,72 @@ export default function GanttChart({
         {columnsCollapsed ? '►' : '◄'}
       </button>
       
-      {/* Expand/Collapse all tasks buttons */}
+      {/* Expand/Collapse level buttons with level indicator */}
       <div style={{
         position: 'absolute',
         top: '12px',
         left: '8px',
         zIndex: 100,
         display: 'flex',
-        gap: '4px',
+        gap: '2px',
+        alignItems: 'center',
       }}>
         <button
-          onClick={() => expandAll()}
+          onClick={handleCollapseLevel}
           style={{
             width: '26px',
             height: '26px',
             padding: '0',
-            backgroundColor: '#e8e8e8',
+            backgroundColor: expandLevel <= 0 ? '#f5f5f5' : '#e8e8e8',
             border: '1px solid #ccc',
             borderRadius: '3px',
-            cursor: 'pointer',
+            cursor: expandLevel <= 0 ? 'not-allowed' : 'pointer',
             fontSize: '14px',
-            color: '#666',
+            color: expandLevel <= 0 ? '#bbb' : '#666',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
           }}
-          title="Alle Aufträge aufklappen"
-        >
-          +
-        </button>
-        <button
-          onClick={() => collapseAll()}
-          style={{
-            width: '26px',
-            height: '26px',
-            padding: '0',
-            backgroundColor: '#e8e8e8',
-            border: '1px solid #ccc',
-            borderRadius: '3px',
-            cursor: 'pointer',
-            fontSize: '14px',
-            color: '#666',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-          title="Alle Aufträge zuklappen"
+          title="Eine Ebene zuklappen"
+          disabled={expandLevel <= 0}
         >
           −
+        </button>
+        <div style={{
+          minWidth: '24px',
+          height: '26px',
+          padding: '0 4px',
+          backgroundColor: '#fff',
+          border: '1px solid #ccc',
+          borderRadius: '3px',
+          fontSize: '13px',
+          fontWeight: 'bold',
+          color: '#333',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }} title={`Aktuelle Ebene: ${expandLevel}`}>
+          {expandLevel}
+        </div>
+        <button
+          onClick={handleExpandLevel}
+          style={{
+            width: '26px',
+            height: '26px',
+            padding: '0',
+            backgroundColor: '#e8e8e8',
+            border: '1px solid #ccc',
+            borderRadius: '3px',
+            cursor: 'pointer',
+            fontSize: '14px',
+            color: '#666',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+          title="Eine Ebene aufklappen"
+        >
+          +
         </button>
       </div>
       

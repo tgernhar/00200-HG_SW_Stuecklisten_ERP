@@ -18,6 +18,7 @@ import 'ag-grid-community/styles/ag-theme-alpine.css'
 import { getTodosWithERPDetails, getResources, deleteTodo, updateTodo } from '../services/ppsApi'
 import { PPSTodoWithERPDetails, PPSResource, TodoStatus } from '../services/ppsTypes'
 import TodoEditDialog from '../components/pps/TodoEditDialog'
+import TodoGroupedView from '../components/pps/TodoGroupedView'
 
 const styles = {
   container: {
@@ -209,6 +210,9 @@ export default function TodoListPage() {
   // Search
   const [searchText, setSearchText] = useState('')
   const [searchInput, setSearchInput] = useState('')
+  
+  // View mode toggle (flat list vs grouped by order)
+  const [viewMode, setViewMode] = useState<'flat' | 'grouped'>('grouped')
 
   // Check if any cumulative filter is active
   const hasActiveTypeFilter = filterOrders || filterArticles || filterOperations
@@ -696,9 +700,23 @@ export default function TodoListPage() {
       {/* Header */}
       <div style={styles.header}>
         <span style={styles.title}>Auftrags-ToDos</span>
-        <button style={styles.button} onClick={loadData} disabled={loading}>
-          Aktualisieren
-        </button>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          {/* View mode toggle */}
+          <button
+            style={{
+              ...styles.button,
+              backgroundColor: viewMode === 'grouped' ? '#e3f2fd' : '#fff',
+              borderColor: viewMode === 'grouped' ? '#2196f3' : '#ccc',
+            }}
+            onClick={() => setViewMode(v => v === 'flat' ? 'grouped' : 'flat')}
+            title={viewMode === 'flat' ? 'Zur gruppierten Ansicht wechseln' : 'Zur Listenansicht wechseln'}
+          >
+            {viewMode === 'flat' ? 'Gruppiert' : 'Liste'}
+          </button>
+          <button style={styles.button} onClick={loadData} disabled={loading}>
+            Aktualisieren
+          </button>
+        </div>
       </div>
 
       {/* Toolbar - Reihenfolge: Checkboxes | Abteilung | Maschine | Mitarbeiter | Status | Reset | Suche + Filtern */}
@@ -932,21 +950,29 @@ export default function TodoListPage() {
         )}
       </div>
 
-      {/* Grid */}
-      <div style={styles.gridContainer} className="ag-theme-alpine">
-        <AgGridReact
-          rowData={filteredTodos}
-          columnDefs={columnDefs}
-          defaultColDef={defaultColDef}
-          onGridReady={onGridReady}
-          onSelectionChanged={onSelectionChanged}
-          onRowDoubleClicked={onRowDoubleClicked}
-          rowSelection="multiple"
-          animateRows={true}
-          suppressCellFocus={true}
-          getRowId={(params) => String(params.data.id)}
+      {/* Content area - toggles between grid and grouped view */}
+      {viewMode === 'flat' ? (
+        <div style={styles.gridContainer} className="ag-theme-alpine">
+          <AgGridReact
+            rowData={filteredTodos}
+            columnDefs={columnDefs}
+            defaultColDef={defaultColDef}
+            onGridReady={onGridReady}
+            onSelectionChanged={onSelectionChanged}
+            onRowDoubleClicked={onRowDoubleClicked}
+            rowSelection="multiple"
+            animateRows={true}
+            suppressCellFocus={true}
+            getRowId={(params) => String(params.data.id)}
+          />
+        </div>
+      ) : (
+        <TodoGroupedView
+          todos={filteredTodos}
+          resources={resources}
+          onTodoDoubleClick={(todo) => setEditingTodo(todo)}
         />
-      </div>
+      )}
 
       {/* Status bar */}
       <div style={styles.statusBar}>
