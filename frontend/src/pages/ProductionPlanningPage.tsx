@@ -18,7 +18,6 @@ import {
   getGanttData,
   syncGanttData,
   getResources,
-  syncResources,
   getConflicts,
   checkConflicts,
   fixDependencyConflicts,
@@ -179,6 +178,38 @@ const styles = {
     borderRadius: '3px',
     fontSize: '12px',
   },
+  searchGroup: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    marginLeft: '12px',
+  },
+  searchInput: {
+    padding: '5px 10px',
+    border: '1px solid #ccc',
+    borderRadius: '3px',
+    fontSize: '12px',
+    width: '180px',
+  },
+  searchResults: {
+    fontSize: '11px',
+    color: '#666',
+    minWidth: '80px',
+  },
+  searchResultsActive: {
+    fontSize: '11px',
+    color: '#ff9900',
+    fontWeight: 'bold' as const,
+    minWidth: '80px',
+  },
+  searchNavButton: {
+    padding: '4px 8px',
+    backgroundColor: '#fff',
+    border: '1px solid #ccc',
+    borderRadius: '3px',
+    cursor: 'pointer',
+    fontSize: '12px',
+  },
   error: {
     padding: '20px',
     backgroundColor: '#ffeeee',
@@ -209,6 +240,11 @@ export default function ProductionPlanningPage() {
   
   // Edit dialog state
   const [editingTodo, setEditingTodo] = useState<PPSTodoWithERPDetails | null>(null)
+  
+  // Search state
+  const [searchText, setSearchText] = useState('')
+  const [searchResults, setSearchResults] = useState<number[]>([])  // Task IDs that match
+  const [currentSearchIndex, setCurrentSearchIndex] = useState(0)
   
   // Date filter state - initialize with default range (today -3 to today +7 days)
   const [dateFrom, setDateFrom] = useState<string>(() => {
@@ -319,6 +355,60 @@ export default function ProductionPlanningPage() {
       }
     }
     setSelectedResourceIds(resourceIds)
+  }, [])
+
+  // Search functionality
+  const handleSearch = useCallback((text: string) => {
+    setSearchText(text)
+    
+    if (!text.trim() || !ganttData || !ganttData.data) {
+      setSearchResults([])
+      setCurrentSearchIndex(0)
+      setSelectedTaskIds([])
+      return
+    }
+    
+    // Search in task titles (case-insensitive)
+    const searchLower = text.toLowerCase()
+    const matchingIds = ganttData.data
+      .filter(task => task.text.toLowerCase().includes(searchLower))
+      .map(task => task.id)
+    
+    setSearchResults(matchingIds)
+    setCurrentSearchIndex(0)
+    
+    // Select and scroll to first result
+    if (matchingIds.length > 0) {
+      setSelectedTaskIds([matchingIds[0]])
+      scrollToTask(matchingIds[0])
+    } else {
+      setSelectedTaskIds([])
+    }
+  }, [ganttData])
+
+  const handleSearchNext = useCallback(() => {
+    if (searchResults.length === 0) return
+    
+    const nextIndex = (currentSearchIndex + 1) % searchResults.length
+    setCurrentSearchIndex(nextIndex)
+    setSelectedTaskIds([searchResults[nextIndex]])
+    scrollToTask(searchResults[nextIndex])
+  }, [searchResults, currentSearchIndex])
+
+  const handleSearchPrev = useCallback(() => {
+    if (searchResults.length === 0) return
+    
+    const prevIndex = currentSearchIndex === 0 ? searchResults.length - 1 : currentSearchIndex - 1
+    setCurrentSearchIndex(prevIndex)
+    setSelectedTaskIds([searchResults[prevIndex]])
+    scrollToTask(searchResults[prevIndex])
+  }, [searchResults, currentSearchIndex])
+
+  const handleSearchClear = useCallback(() => {
+    setSearchText('')
+    setSearchResults([])
+    setCurrentSearchIndex(0)
+    setSelectedTaskIds([])
   }, [])
 
   // Handle task update from Gantt - immediately sync to server
@@ -432,20 +522,6 @@ export default function ProductionPlanningPage() {
       setIsSyncing(false)
     }
   }, [loadData])
-
-  // Sync resources
-  const handleSyncResources = useCallback(async () => {
-    setIsSyncing(true)
-    try {
-      await syncResources()
-      const resourcesResponse = await getResources({ is_active: true, max_level: resourceLevelFilter })
-      setResources(resourcesResponse)
-    } catch (err) {
-      console.error('Error syncing resources:', err)
-    } finally {
-      setIsSyncing(false)
-    }
-  }, [resourceLevelFilter])
 
   // Check conflicts
   const handleCheckConflicts = useCallback(async () => {
@@ -703,15 +779,59 @@ export default function ProductionPlanningPage() {
           + Aus Auftrag generieren
         </button>
         
-        <div style={styles.toolbarSeparator} />
+        {/* Search */}
+        <div style={styles.searchGroup}>
+          <span style={{ fontSize: '12px', color: '#666' }}>🔍</span>
+          <input
+            type="text"
+            placeholder="Aufgabe suchen..."
+            value={searchText}
+            onChange={e => handleSearch(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                handleSearchNext()
+              } else if (e.key === 'Escape') {
+                handleSearchClear()
+              }
+            }}
+            style={styles.searchInput}
+          />
+          {searchResults.length > 0 && (
+            <>
+              <button
+                style={styles.searchNavButton}
+                onClick={handleSearchPrev}
+                title="Vorheriger Treffer"
+              >
+                ◄
+              </button>
+              <button
+                style={styles.searchNavButton}
+                onClick={handleSearchNext}
+                title="Nächster Treffer"
+              >
+                ►
+              </button>
+            </>
+          )}
+          <span style={searchResults.length > 0 ? styles.searchResultsActive : styles.searchResults}>
+            {searchText && (searchResults.length > 0 
+              ? `${currentSearchIndex + 1}/${searchResults.length}` 
+              : 'Keine Treffer')}
+          </span>
+          {searchText && (
+            <button
+              style={styles.searchNavButton}
+              onClick={handleSearchClear}
+              title="Suche löschen"
+            >
+              ×
+            </button>
+          )}
+        </div>
         
-        <button
-          style={styles.toolbarButton}
-          onClick={handleSyncResources}
-          disabled={isSyncing}
-        >
-          Ressourcen sync
-        </button>
+        <div style={styles.toolbarSeparator} />
         
         <button
           style={styles.toolbarButton}

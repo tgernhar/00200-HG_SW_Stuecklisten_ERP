@@ -67,6 +67,27 @@ app.include_router(orders_data.router, prefix=f"{settings.API_V1_STR}/orders-dat
 app.include_router(images.router, prefix=settings.API_V1_STR, tags=["images"])
 
 
+@app.on_event("startup")
+async def startup_event():
+    """Sync resources from HUGWAWI on backend startup"""
+    from app.core.database import SessionLocal
+    from app.services.pps_sync_service import sync_resources_from_hugwawi
+    
+    print("Backend starting - syncing resources from HUGWAWI...", flush=True)
+    
+    try:
+        db = SessionLocal()
+        result = sync_resources_from_hugwawi(db)
+        db.close()
+        
+        if result.success:
+            print(f"Resource sync complete: {result.synced_count} synced, {result.added_count} added, {result.updated_count} updated", flush=True)
+        else:
+            print(f"Resource sync failed: {result.errors}", flush=True)
+    except Exception as e:
+        print(f"Resource sync error: {e}", flush=True)
+
+
 @app.get("/")
 async def root():
     return {"message": "Stücklisten-ERP System API", "version": "1.0.0"}

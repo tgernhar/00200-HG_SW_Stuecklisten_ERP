@@ -205,7 +205,7 @@ export default function TodoGeneratorModal({
   const [search, setSearch] = useState('')
   const [showOnlyNew, setShowOnlyNew] = useState(true)
   const [selectedOrderIds, setSelectedOrderIds] = useState<Set<number>>(new Set())
-  const [includeWorkplan, setIncludeWorkplan] = useState(false)  // Default: off
+  const [includeWorkplan, setIncludeWorkplan] = useState(true)  // Default: on - Arbeitsgänge importieren
   const [includeBomItems, setIncludeBomItems] = useState(false)  // Default: off
   const [workplanLevel, setWorkplanLevel] = useState(1)  // Default: Level 1 (CNC-Maschinen)
   const [hoveredOrderId, setHoveredOrderId] = useState<number | null>(null)
