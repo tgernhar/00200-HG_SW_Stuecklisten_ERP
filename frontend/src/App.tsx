@@ -23,6 +23,13 @@ const CRMLeadPipelinePage = React.lazy(() => import('./pages/CRMLeadPipelinePage
 const CRMTasksPage = React.lazy(() => import('./pages/CRMTasksPage'))
 const CRMSearchPage = React.lazy(() => import('./pages/CRMSearchPage'))
 
+// Auftragsdaten Pages
+const AuftragsdatenGesamtListePage = React.lazy(() => import('./pages/AuftragsdatenGesamtListePage'))
+const AuftragsdatenAuftraegePage = React.lazy(() => import('./pages/AuftragsdatenAuftraegePage'))
+const AuftragsdatenAngebotePage = React.lazy(() => import('./pages/AuftragsdatenAngebotePage'))
+const AuftragsdatenBestellungenPage = React.lazy(() => import('./pages/AuftragsdatenBestellungenPage'))
+const AuftragsdatenBeistellungenPage = React.lazy(() => import('./pages/AuftragsdatenBeistellungenPage'))
+
 function App() {
   const { isAuthenticated, isLoading } = useAuth()
 
@@ -138,6 +145,47 @@ function App() {
             element={
               <React.Suspense fallback={<div style={{ padding: 20 }}>Lade Suche...</div>}>
                 <CRMSearchPage />
+              </React.Suspense>
+            } 
+          />
+          {/* Auftragsdaten Routes */}
+          <Route 
+            path="auftragsdaten/gesamtliste" 
+            element={
+              <React.Suspense fallback={<div style={{ padding: 20 }}>Lade GesamtListe...</div>}>
+                <AuftragsdatenGesamtListePage />
+              </React.Suspense>
+            } 
+          />
+          <Route 
+            path="auftragsdaten/auftraege" 
+            element={
+              <React.Suspense fallback={<div style={{ padding: 20 }}>Lade Aufträge...</div>}>
+                <AuftragsdatenAuftraegePage />
+              </React.Suspense>
+            } 
+          />
+          <Route 
+            path="auftragsdaten/angebote" 
+            element={
+              <React.Suspense fallback={<div style={{ padding: 20 }}>Lade Angebote...</div>}>
+                <AuftragsdatenAngebotePage />
+              </React.Suspense>
+            } 
+          />
+          <Route 
+            path="auftragsdaten/bestellungen" 
+            element={
+              <React.Suspense fallback={<div style={{ padding: 20 }}>Lade Bestellungen...</div>}>
+                <AuftragsdatenBestellungenPage />
+              </React.Suspense>
+            } 
+          />
+          <Route 
+            path="auftragsdaten/beistellungen" 
+            element={
+              <React.Suspense fallback={<div style={{ padding: 20 }}>Lade Beistellungen...</div>}>
+                <AuftragsdatenBeistellungenPage />
               </React.Suspense>
             } 
           />

@@ -1530,6 +1530,69 @@ Ein Suchfeld ermöglicht die Freitextsuche über alle Ressourcennamen.
 - `frontend/src/components/pps/ResourcePanel.tsx` → `filteredResources`, `selectedDeptErpIds`, `groupedResources`
 - `frontend/src/pages/ProductionPlanningPage.tsx` → `resourceLevelFilter`, `onLevelChange`
 
+## Auftragsdaten-Modul
+
+Das Auftragsdaten-Modul bietet Zugriff auf Aufträge, Angebote, Bestellungen, Beistellungen und Anfragen aus der HUGWAWI `ordertable`.
+
+### Menü-Struktur
+
+- **Auftragsdaten** (Hauptmenüpunkt)
+  - GesamtListe (alle Dokumenttypen)
+  - Aufträge (orderType = 0)
+  - Angebote (orderType = 3)
+  - Bestellungen (orderType = 5)
+  - Beistellungen (orderType = 14)
+
+### API-Endpunkte
+
+- `GET /api/orders-data/document-types` - Liste aller Dokumenttypen
+- `GET /api/orders-data/statuses?order_type=3` - Status-Optionen
+- `GET /api/orders-data/addresses?kid=123` - Adressen eines Kunden
+- `GET /api/orders-data/contacts?kid=123` - Kontakte eines Kunden
+- `GET /api/orders-data/backoffice-users` - Mitarbeiter-Liste (gruppiert)
+- `GET /api/orders-data/customers?q=...` - Kundensuche
+- `GET /api/orders-data/search` - Hauptsuche mit Filtern und Pagination
+
+### Suchfilter
+
+| Filter | Beschreibung |
+|--------|--------------|
+| order_types | Kommagetrennte Dokumenttyp-IDs |
+| year | Jahr (Standard: aktuelles Jahr) |
+| name | Dokumentnummer |
+| text | Freitext |
+| customer | Kundenname oder Kundennummer |
+| price_min/price_max | Preisbereich |
+| date_from/date_to | Lieferdatum-Bereich |
+| backoffice_id | Bearbeiter |
+| status_ids | Mehrfachauswahl Status |
+
+### Dateien
+
+**Backend:**
+- `backend/app/services/orders_data_service.py` - Service-Layer mit SQL-Queries
+- `backend/app/api/routes/orders_data.py` - API-Endpunkte
+
+**Frontend:**
+- `frontend/src/services/ordersDataApi.ts` - API-Service
+- `frontend/src/components/orders/OrderDataTable.tsx` - Wiederverwendbare Tabellenkomponente
+- `frontend/src/pages/AuftragsdatenGesamtListePage.tsx`
+- `frontend/src/pages/AuftragsdatenAuftraegePage.tsx`
+- `frontend/src/pages/AuftragsdatenAngebotePage.tsx`
+- `frontend/src/pages/AuftragsdatenBestellungenPage.tsx`
+- `frontend/src/pages/AuftragsdatenBeistellungenPage.tsx`
+
+### Datenbank-Relationen (HUGWAWI)
+
+| Relation | Verknüpfung |
+|----------|-------------|
+| Dokumenttyp | `billing_documenttype.id` → `ordertable.orderType` |
+| Kunde | `adrbase.id` → `ordertable.kid` |
+| Adresse | `adrline.id` → `ordertable.billingline` |
+| Kontakt | `adrcont.id` → `ordertable.techcont/commercialcont` |
+| Bearbeiter | `userlogin.id` → `ordertable.infoBackoffice` |
+| Status | `order_status.id` → `ordertable.status` |
+
 ## Nächste Schritte
 
 1. Projektstruktur erstellen

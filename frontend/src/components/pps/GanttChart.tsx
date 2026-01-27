@@ -152,16 +152,13 @@ export default function GanttChart({
     gantt.config.row_height = 35
     gantt.config.task_height = 24
     
-    // Enable grid resizing (allow user to resize columns and grid)
-    gantt.config.grid_resize = true
-    
     // Disable vertical movement between rows - only horizontal drag allowed
     gantt.config.order_branch = false
     gantt.config.order_branch_free = false
     
     // Base column (always visible)
     const baseColumns = [
-      { name: 'text', label: 'Aufgabe', tree: true, width: 200, resize: true },
+      { name: 'text', label: 'Aufgabe', tree: true, width: 200 },
     ]
     
     // Additional columns (collapsible)
@@ -191,7 +188,7 @@ export default function GanttChart({
           return Math.round(task.progress * 100) + '%'
         }
       },
-      { name: 'resource_name', label: 'Ressource', width: 100, resize: true },
+      { name: 'resource_name', label: 'Ressource', width: 100 },
     ]
     
     // Grid columns - show all or only base based on collapsed state
@@ -765,6 +762,57 @@ export default function GanttChart({
         {columnsCollapsed ? '►' : '◄'}
       </button>
       
+      {/* Expand/Collapse all tasks buttons */}
+      <div style={{
+        position: 'absolute',
+        top: '12px',
+        left: '8px',
+        zIndex: 100,
+        display: 'flex',
+        gap: '4px',
+      }}>
+        <button
+          onClick={() => expandAll()}
+          style={{
+            width: '26px',
+            height: '26px',
+            padding: '0',
+            backgroundColor: '#e8e8e8',
+            border: '1px solid #ccc',
+            borderRadius: '3px',
+            cursor: 'pointer',
+            fontSize: '14px',
+            color: '#666',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+          title="Alle Aufträge aufklappen"
+        >
+          +
+        </button>
+        <button
+          onClick={() => collapseAll()}
+          style={{
+            width: '26px',
+            height: '26px',
+            padding: '0',
+            backgroundColor: '#e8e8e8',
+            border: '1px solid #ccc',
+            borderRadius: '3px',
+            cursor: 'pointer',
+            fontSize: '14px',
+            color: '#666',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+          title="Alle Aufträge zuklappen"
+        >
+          −
+        </button>
+      </div>
+      
       <div 
         ref={containerRef} 
         style={{ 
@@ -833,17 +881,21 @@ export function scrollToDate(date: Date) {
 }
 
 export function expandAll() {
+  // Use gantt.open() API method with hasChild() check
   gantt.eachTask((task: GanttTask) => {
-    task.open = true
+    if (gantt.hasChild(task.id)) {
+      gantt.open(task.id)
+    }
   })
-  gantt.render()
 }
 
 export function collapseAll() {
+  // Use gantt.close() API method with hasChild() check
   gantt.eachTask((task: GanttTask) => {
-    task.open = false
+    if (gantt.hasChild(task.id)) {
+      gantt.close(task.id)
+    }
   })
-  gantt.render()
 }
 
 export function zoomIn() {

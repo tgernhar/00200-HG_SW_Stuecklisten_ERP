@@ -89,6 +89,37 @@ const menuItems: MenuItem[] = [
     ]
   },
   {
+    id: 'auftragsdaten',
+    label: 'Auftragsdaten',
+    children: [
+      {
+        id: 'auftragsdaten-gesamtliste',
+        label: 'GesamtListe',
+        path: '/menu/auftragsdaten/gesamtliste'
+      },
+      {
+        id: 'auftragsdaten-auftraege',
+        label: 'Aufträge',
+        path: '/menu/auftragsdaten/auftraege'
+      },
+      {
+        id: 'auftragsdaten-angebote',
+        label: 'Angebote',
+        path: '/menu/auftragsdaten/angebote'
+      },
+      {
+        id: 'auftragsdaten-bestellungen',
+        label: 'Bestellungen',
+        path: '/menu/auftragsdaten/bestellungen'
+      },
+      {
+        id: 'auftragsdaten-beistellungen',
+        label: 'Beistellungen',
+        path: '/menu/auftragsdaten/beistellungen'
+      }
+    ]
+  },
+  {
     id: 'administration',
     label: 'Administration',
     children: [
@@ -175,7 +206,7 @@ const styles = {
 }
 
 export default function Sidebar() {
-  const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set(['stuecklisten', 'fertigungsplanung', 'produktionsplanung', 'crm']))
+  const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set(['stuecklisten', 'fertigungsplanung', 'produktionsplanung', 'crm', 'auftragsdaten']))
   const [hoveredItem, setHoveredItem] = useState<string | null>(null)
   
   const navigate = useNavigate()
