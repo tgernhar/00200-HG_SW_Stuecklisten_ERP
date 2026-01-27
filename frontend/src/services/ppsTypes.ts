@@ -285,6 +285,7 @@ export interface GenerateTodosRequest {
   erp_order_article_ids?: number[]
   include_workplan?: boolean  // Generate operation todos (default: false)
   include_bom_items?: boolean  // Generate BOM item todos (default: false)
+  workplan_level?: number  // Maximum level for workplan import (1-5, default: 1)
 }
 
 export interface GenerateTodosResponse {

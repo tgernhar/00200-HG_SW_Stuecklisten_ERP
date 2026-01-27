@@ -8,10 +8,12 @@
  * - Editing existing todos
  * - Creating new todos from ERP hierarchy via "+" buttons
  */
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import { updateTodo, getResources, deleteTodo, createTodo, getTodoDependencies, createDependency, deleteDependency } from '../../services/ppsApi'
 import { PPSTodoWithERPDetails, PPSTodoUpdate, PPSTodoCreate, PPSResource, TodoStatus, TodoType, OrderArticleOption, BomItemOption, WorkstepOption, AllWorkstepOption, PPSTodo } from '../../services/ppsTypes'
 import ErpPickerDialog, { PickerType } from './ErpPickerDialog'
+import RichTextEditor from './RichTextEditor'
+import axios from 'axios'
 
 interface TodoEditDialogProps {
   todo: PPSTodoWithERPDetails
@@ -40,7 +42,7 @@ const styles = {
     backgroundColor: '#ffffff',
     borderRadius: '4px',
     boxShadow: '0 4px 20px rgba(0, 0, 0, 0.3)',
-    width: '520px',
+    width: '650px',  // Increased width for article image
     maxHeight: '90vh',
     display: 'flex',
     flexDirection: 'column' as const,
@@ -478,6 +480,10 @@ export default function TodoEditDialog({
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  
+  // Article image state
+  const [articleImage, setArticleImage] = useState<string | null>(null)
+  const [imageLoading, setImageLoading] = useState(false)
 
   // Load resources
   useEffect(() => {
@@ -515,6 +521,45 @@ export default function TodoEditDialog({
       loadDependencies()
     }
   }, [activeTab, todo.id])
+
+  // Load article image if order_article or packingnote_details is linked
+  useEffect(() => {
+    const loadArticleImage = async () => {
+      // Determine article type and ID
+      let articleType: string | null = null
+      let articleId: number | null = null
+      
+      if (todo.erp_packingnote_details_id) {
+        articleType = 'packingnote_details'
+        articleId = todo.erp_packingnote_details_id
+      } else if (todo.erp_order_article_id) {
+        articleType = 'order_article'
+        articleId = todo.erp_order_article_id
+      }
+      
+      if (!articleType || !articleId) {
+        setArticleImage(null)
+        return
+      }
+      
+      setImageLoading(true)
+      try {
+        const response = await axios.get(`/api/pps/article-image/${articleType}/${articleId}`)
+        if (response.data.image) {
+          setArticleImage(response.data.image)
+        } else {
+          setArticleImage(null)
+        }
+      } catch (err: any) {
+        // No image found or error - that's ok
+        setArticleImage(null)
+      } finally {
+        setImageLoading(false)
+      }
+    }
+    
+    loadArticleImage()
+  }, [todo.erp_order_article_id, todo.erp_packingnote_details_id])
 
   // Calculate end date from start and duration
   const calculateEndDate = (): string => {
@@ -780,17 +825,80 @@ export default function TodoEditDialog({
           {/* Details Tab */}
           {activeTab === 'details' && (
             <>
-              {/* Priority */}
-              <div style={styles.formGroup}>
-                <label style={styles.label}>Priorität</label>
-                <input
-                  type="number"
-                  value={priority}
-                  onChange={handlePriorityChange}
-                  onBlur={handlePriorityBlur}
-                  style={{ ...styles.input, width: '80px' }}
-                  min={1}
-                  max={100}
+              {/* Top row: Priority + Article Image */}
+              <div style={{ display: 'flex', gap: '20px', marginBottom: '10px' }}>
+                {/* Left side: Priority */}
+                <div style={{ flex: 1 }}>
+                  <div style={styles.formGroup}>
+                    <label style={styles.label}>Priorität</label>
+                    <input
+                      type="number"
+                      value={priority}
+                      onChange={handlePriorityChange}
+                      onBlur={handlePriorityBlur}
+                      style={{ ...styles.input, width: '80px' }}
+                      min={1}
+                      max={100}
+                    />
+                  </div>
+                  
+                  {/* ToDo field (previously title/description) */}
+                  <div style={styles.formGroup}>
+                    <label style={styles.label}>ToDo</label>
+                    <input
+                      type="text"
+                      value={title}
+                      onChange={e => setTitle(e.target.value)}
+                      style={styles.input}
+                      placeholder="Aufgabentitel..."
+                    />
+                  </div>
+                </div>
+                
+                {/* Right side: Article Image */}
+                <div style={{ 
+                  width: '150px', 
+                  minHeight: '100px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  border: '1px solid #e0e0e0',
+                  borderRadius: '4px',
+                  backgroundColor: '#f9f9f9',
+                  padding: '8px',
+                }}>
+                  {imageLoading ? (
+                    <span style={{ fontSize: '11px', color: '#999' }}>Lade Bild...</span>
+                  ) : articleImage ? (
+                    <img 
+                      src={articleImage} 
+                      alt="Artikelbild"
+                      style={{
+                        maxWidth: '100%',
+                        maxHeight: '100px',
+                        objectFit: 'contain',
+                      }}
+                    />
+                  ) : (
+                    <span style={{ fontSize: '11px', color: '#999', textAlign: 'center' }}>
+                      {(todo.erp_order_article_id || todo.erp_packingnote_details_id) 
+                        ? 'Kein Bild' 
+                        : 'Kein Artikel verknüpft'}
+                    </span>
+                  )}
+                </div>
+              </div>
+              
+              {/* Description field with Rich Text Editor */}
+              <div style={{ ...styles.formGroup, marginBottom: '15px' }}>
+                <label style={styles.label}>Beschreibung</label>
+                <RichTextEditor
+                  value={description}
+                  onChange={setDescription}
+                  placeholder="Beschreibung eingeben..."
+                  minHeight={80}
+                  maxHeight={200}
                 />
               </div>
 
@@ -1253,8 +1361,8 @@ export default function TodoEditDialog({
             // For generic_workstep: Update title in current dialog, don't create new todo
             if (currentPickerType === 'generic_workstep' && selectedItems.length > 0) {
               const workstep = selectedItems[0] as AllWorkstepOption
-              // Update title with workstep name
-              setTitle(`AG: ${workstep.name}`)
+              // Update title with workstep name (ohne AG: Präfix)
+              setTitle(workstep.name)
               // Don't close dialog - let user continue editing
               return
             }

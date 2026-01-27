@@ -207,6 +207,7 @@ export default function TodoGeneratorModal({
   const [selectedOrderIds, setSelectedOrderIds] = useState<Set<number>>(new Set())
   const [includeWorkplan, setIncludeWorkplan] = useState(false)  // Default: off
   const [includeBomItems, setIncludeBomItems] = useState(false)  // Default: off
+  const [workplanLevel, setWorkplanLevel] = useState(1)  // Default: Level 1 (CNC-Maschinen)
   const [hoveredOrderId, setHoveredOrderId] = useState<number | null>(null)
 
   // Toggle order selection
@@ -277,6 +278,7 @@ export default function TodoGeneratorModal({
             erp_order_id: orderId,
             include_workplan: includeWorkplan,
             include_bom_items: includeBomItems,
+            workplan_level: workplanLevel,
           })
           
           if (result.success) {
@@ -453,6 +455,27 @@ export default function TodoGeneratorModal({
                 />
                 Arbeitspläne einbeziehen (Arbeitsgänge sequentiell als ToDos)
               </label>
+              
+              {/* Level Filter for workplan import */}
+              <div style={{ marginTop: '12px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span style={{ fontSize: '12px', color: '#666' }}>Maschinen-Level:</span>
+                <select
+                  value={workplanLevel}
+                  onChange={e => setWorkplanLevel(parseInt(e.target.value))}
+                  style={{
+                    padding: '4px 8px',
+                    fontSize: '12px',
+                    border: '1px solid #cccccc',
+                    borderRadius: '3px',
+                  }}
+                >
+                  <option value={1}>Level 1 - CNC-Maschinen</option>
+                  <option value={2}>Level 2 - Hauptmaschinen / Konstruktion</option>
+                  <option value={3}>Level 3 - Handmaschinen / Hilfsmittel</option>
+                  <option value={4}>Level 4 - Seltene Maschinen</option>
+                  <option value={5}>Level 5 - Spezielle Projekte</option>
+                </select>
+              </div>
             </div>
           )}
 

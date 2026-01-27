@@ -711,9 +711,13 @@ export default function GanttChart({
       gantt.config.end_date = null
     }
     
-    // Render
+    // Render and sort by priority
     setTimeout(() => {
       gantt.render()
+      // Sort by priority ascending (1 = highest priority at top)
+      if (typeof gantt.sort === 'function') {
+        gantt.sort('priority', false)  // false = ascending order
+      }
     }, 100)
     
   }, [data, dateFrom, dateTo])
@@ -942,4 +946,12 @@ export function setZoom(level: string) {
   }
   
   gantt.render()
+}
+
+// Sort tasks by priority (ascending: 1 = highest priority at top)
+export function sortByPriority() {
+  if (typeof gantt.sort === 'function') {
+    gantt.sort('priority', false)  // false = ascending order
+    gantt.render()
+  }
 }

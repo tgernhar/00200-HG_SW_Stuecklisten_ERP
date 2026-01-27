@@ -655,7 +655,7 @@ export default function ProductionPlanningPage() {
             const genericWorkstep = item as AllWorkstepOption
             newTodo = {
               todo_type: 'operation',
-              title: `AG: ${genericWorkstep.name}`.slice(0, 255),
+              title: genericWorkstep.name.slice(0, 255),
               erp_order_id: editingTodo.erp_order_id,
               erp_order_article_id: editingTodo.erp_order_article_id,
               parent_todo_id: editingTodo.id,

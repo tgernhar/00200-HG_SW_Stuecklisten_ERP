@@ -332,6 +332,7 @@ def generate_todos_from_order(
     erp_order_article_ids: Optional[List[int]] = None,
     include_workplan: bool = False,
     include_bom_items: bool = False,
+    workplan_level: int = 1,
 ) -> GenerateTodosResponse:
     """
     Generate todos from an ERP order.
@@ -473,6 +474,7 @@ def generate_todos_from_order(
                         ws.name as workstep_name,
                         qi.id as machine_id,
                         qi.name as machine_name,
+                        qi.level as machine_level,
                         pd.id as packingnote_details_id,
                         pd.quantity as bom_quantity,
                         art.articlenumber as bom_articlenumber,
@@ -565,6 +567,11 @@ def generate_todos_from_order(
             if include_workplan and workplan_rows:
                 for wp_row in workplan_rows:
                     detail_id = wp_row['detail_id']
+                    
+                    # Filter by workplan level - only include machines with level <= workplan_level
+                    machine_level = wp_row.get('machine_level') or 1
+                    if machine_level > workplan_level:
+                        continue  # Skip this workstep due to level filter
                     
                     # Check if operation already exists
                     existing_op = db.query(PPSTodo).filter(

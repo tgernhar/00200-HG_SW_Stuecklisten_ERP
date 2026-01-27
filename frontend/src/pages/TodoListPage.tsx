@@ -193,8 +193,10 @@ export default function TodoListPage() {
   // Filters
   const [statusFilter, setStatusFilter] = useState<string>('')
   const [employeeFilter, setEmployeeFilter] = useState<string>('')
+  const [departmentFilter, setDepartmentFilter] = useState<string>('')
+  const [machineFilter, setMachineFilter] = useState<string>('')
   
-  // Cumulative type filters (OR logic)
+  // Cumulative type filters (OR logic) - now based on ERP fields, not todo_type
   const [filterOrders, setFilterOrders] = useState(false)
   const [filterArticles, setFilterArticles] = useState(false)
   const [filterOperations, setFilterOperations] = useState(false)
@@ -206,6 +208,7 @@ export default function TodoListPage() {
   // Check if any cumulative filter is active
   const hasActiveTypeFilter = filterOrders || filterArticles || filterOperations
   const hasActiveSearch = searchText.length > 0
+  const hasActiveDepartmentOrMachine = departmentFilter !== '' || machineFilter !== ''
 
   // Load data from API
   const loadData = useCallback(async () => {
@@ -244,18 +247,36 @@ export default function TodoListPage() {
     loadData()
   }, [loadData])
 
-  // Apply local filters (type checkboxes + search)
+  // Apply local filters (type checkboxes + department/machine + search)
   useEffect(() => {
     let result = [...allTodos]
     
-    // Apply type filters (cumulative OR logic)
+    // Apply type filters (cumulative OR logic) - based on ERP fields, not todo_type
     if (hasActiveTypeFilter) {
       result = result.filter(todo => {
-        if (filterOrders && todo.todo_type === 'container_order') return true
-        if (filterArticles && (todo.todo_type === 'container_article' || todo.erp_packingnote_details_id)) return true
-        if (filterOperations && todo.todo_type === 'operation') return true
+        // Auftrag: order_name is not empty
+        if (filterOrders && todo.order_name && todo.order_name.trim() !== '') return true
+        // Artikel: order_article_number OR bom_article_number is not empty
+        if (filterArticles && (
+          (todo.order_article_number && todo.order_article_number.trim() !== '') ||
+          (todo.bom_article_number && todo.bom_article_number.trim() !== '')
+        )) return true
+        // Arbeitsgang: workstep_name is not empty
+        if (filterOperations && todo.workstep_name && todo.workstep_name.trim() !== '') return true
         return false
       })
+    }
+    
+    // Apply department filter
+    if (departmentFilter) {
+      const deptId = parseInt(departmentFilter)
+      result = result.filter(todo => todo.assigned_department_id === deptId)
+    }
+    
+    // Apply machine filter
+    if (machineFilter) {
+      const machId = parseInt(machineFilter)
+      result = result.filter(todo => todo.assigned_machine_id === machId)
     }
     
     // Apply text search
@@ -297,7 +318,21 @@ export default function TodoListPage() {
     }
     
     setFilteredTodos(result)
-  }, [allTodos, filterOrders, filterArticles, filterOperations, searchText, hasActiveTypeFilter])
+  }, [allTodos, filterOrders, filterArticles, filterOperations, departmentFilter, machineFilter, searchText, hasActiveTypeFilter])
+
+  // Get departments for filter dropdown
+  const departments = useMemo(() => {
+    return resources.filter(r => r.resource_type === 'department')
+  }, [resources])
+
+  // Get machines for filter dropdown (filtered by department if selected)
+  const machines = useMemo(() => {
+    const allMachines = resources.filter(r => r.resource_type === 'machine')
+    if (!departmentFilter) return allMachines
+    // Filter machines by department
+    const deptId = parseInt(departmentFilter)
+    return allMachines.filter(m => m.erp_department_id === deptId)
+  }, [resources, departmentFilter])
 
   // Get employees for filter dropdown
   const employees = useMemo(() => {
@@ -328,6 +363,8 @@ export default function TodoListPage() {
   const handleResetFilters = useCallback(() => {
     setStatusFilter('')
     setEmployeeFilter('')
+    setDepartmentFilter('')
+    setMachineFilter('')
     setFilterOrders(false)
     setFilterArticles(false)
     setFilterOperations(false)
@@ -557,11 +594,10 @@ export default function TodoListPage() {
         </button>
       </div>
 
-      {/* Toolbar */}
+      {/* Toolbar - Reihenfolge: Checkboxes | Abteilung | Maschine | Mitarbeiter | Status | Reset | Suche + Filtern */}
       <div style={styles.toolbar}>
-        {/* Type filters (cumulative) */}
+        {/* Type filters (cumulative) - based on ERP fields */}
         <div style={styles.filterSection}>
-          <span style={styles.labelBold}>Typ-Filter:</span>
           <label style={styles.filterCheckbox}>
             <input
               type="checkbox"
@@ -588,38 +624,41 @@ export default function TodoListPage() {
           </label>
         </div>
 
-        {/* Search section */}
-        <div style={styles.searchSection}>
-          <span style={styles.labelBold}>Suche:</span>
-          <input
-            type="text"
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            onKeyDown={handleSearchKeyDown}
-            style={styles.searchInput}
-            placeholder={hasActiveTypeFilter ? 'In gewählten Feldern...' : 'In allen Feldern...'}
-          />
-          <button style={styles.buttonFilter} onClick={handleFilter}>
-            Filtern
-          </button>
-        </div>
-
-        <div style={styles.separator} />
-
-        {/* Status filter */}
+        {/* Department filter */}
         <div style={styles.filterGroup}>
-          <span style={styles.label}>Status:</span>
+          <span style={styles.label}>Abteilung:</span>
           <select
             style={styles.select}
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
+            value={departmentFilter}
+            onChange={(e) => {
+              setDepartmentFilter(e.target.value)
+              // Reset machine filter when department changes
+              setMachineFilter('')
+            }}
           >
             <option value="">Alle</option>
-            <option value="new">Neu</option>
-            <option value="planned">Geplant</option>
-            <option value="in_progress">In Arbeit</option>
-            <option value="completed">Erledigt</option>
-            <option value="blocked">Blockiert</option>
+            {departments.map(d => (
+              <option key={d.id} value={d.id}>
+                {d.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Machine filter (filtered by department) */}
+        <div style={styles.filterGroup}>
+          <span style={styles.label}>Maschine:</span>
+          <select
+            style={styles.select}
+            value={machineFilter}
+            onChange={(e) => setMachineFilter(e.target.value)}
+          >
+            <option value="">Alle</option>
+            {machines.map(m => (
+              <option key={m.id} value={m.id}>
+                {m.name}
+              </option>
+            ))}
           </select>
         </div>
 
@@ -640,12 +679,44 @@ export default function TodoListPage() {
           </select>
         </div>
 
+        {/* Status filter */}
+        <div style={styles.filterGroup}>
+          <span style={styles.label}>Status:</span>
+          <select
+            style={styles.select}
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+          >
+            <option value="">Alle</option>
+            <option value="new">Neu</option>
+            <option value="planned">Geplant</option>
+            <option value="in_progress">In Arbeit</option>
+            <option value="completed">Erledigt</option>
+            <option value="blocked">Blockiert</option>
+          </select>
+        </div>
+
         {/* Reset filters button */}
-        {(hasActiveTypeFilter || statusFilter || employeeFilter || hasActiveSearch) && (
+        {(hasActiveTypeFilter || statusFilter || employeeFilter || departmentFilter || machineFilter || hasActiveSearch) && (
           <button style={styles.buttonReset} onClick={handleResetFilters}>
-            Filter zurücksetzen
+            ✕
           </button>
         )}
+
+        {/* Search section */}
+        <div style={styles.searchSection}>
+          <input
+            type="text"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            onKeyDown={handleSearchKeyDown}
+            style={styles.searchInput}
+            placeholder={hasActiveTypeFilter ? 'In gewählten Feldern...' : 'In allen Feldern...'}
+          />
+          <button style={styles.buttonFilter} onClick={handleFilter}>
+            Filtern
+          </button>
+        </div>
 
         <div style={styles.separator} />
 
@@ -704,6 +775,7 @@ export default function TodoListPage() {
           {allTodos.length !== filteredTodos.length && ` (von ${allTodos.length})`}
           {selectedRows.length > 0 && ` | ${selectedRows.length} ausgewählt`}
           {hasActiveTypeFilter && ' | Typ-Filter aktiv'}
+          {hasActiveDepartmentOrMachine && ' | Ressourcen-Filter aktiv'}
           {hasActiveSearch && ` | Suche: "${searchText}"`}
         </span>
         <span>

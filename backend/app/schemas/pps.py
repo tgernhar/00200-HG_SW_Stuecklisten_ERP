@@ -394,6 +394,7 @@ class GenerateTodosRequest(BaseModel):
     erp_order_article_ids: Optional[List[int]] = None  # None = all articles
     include_workplan: bool = False  # Generate operation todos from workplan (default: off)
     include_bom_items: bool = False  # Generate BOM item todos (default: off)
+    workplan_level: int = 1  # Maximum level for workplan import (1-5, default: 1 = CNC machines)
 
 
 class GenerateTodosResponse(BaseModel):
