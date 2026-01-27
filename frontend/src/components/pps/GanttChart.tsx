@@ -550,8 +550,13 @@ export default function GanttChart({
               if (successorTask.start_date < sourceEndDate) {
                 processedIds.add(targetId)
                 
-                // Save original duration BEFORE any modification
-                const savedDuration = successorTask.duration
+                // Use original duration from backend data, not Gantt's calculated duration
+                const originalSuccessorDuration = data?.data.find(t => t.id === targetId)?.duration
+                const savedDuration = originalSuccessorDuration ?? successorTask.duration
+                
+                // #region agent log
+                fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'GanttChart.tsx:554',message:'successor_duration',data:{targetId,ganttDuration:successorTask.duration,originalDuration:originalSuccessorDuration,usedDuration:savedDuration},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
+                // #endregion
                 
                 // Calculate the new end_date based on new start and saved duration
                 const newEndDate = gantt.calculateEndDate({
@@ -601,11 +606,17 @@ export default function GanttChart({
           }
           
           // Start processing from the dragged task
+          // Use original duration from backend data for correct end calculation
+          const originalDurationForEnd = data?.data.find(t => t.id === id)?.duration || duration
           const draggedTaskEnd = gantt.calculateEndDate({
             start_date: task.start_date,
-            duration: duration,
+            duration: originalDurationForEnd,
             task: task
           })
+          
+          // #region agent log
+          fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'GanttChart.tsx:604',message:'draggedTaskEnd_calc',data:{taskId:id,startDate:task.start_date?.toString(),ganttDuration:task.duration,originalDuration:originalDurationForEnd,usedDuration:duration,endDate:draggedTaskEnd?.toString()},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
+          // #endregion
           
           processSuccessors(id, draggedTaskEnd)
           
