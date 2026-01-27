@@ -1007,7 +1007,9 @@ export default function TodoEditDialog({
                           setPlannedStart(e.target.value + 'T09:00:00')
                         }
                       }}
-                      style={{ ...styles.input, width: '140px' }}
+                      style={{ ...styles.input, width: '140px', ...(ganttType === 'project' ? { backgroundColor: '#f5f5f5', cursor: 'not-allowed' } : {}) }}
+                      disabled={ganttType === 'project'}
+                      title={ganttType === 'project' ? 'Projekt-Datum wird aus Kinder-Aufgaben berechnet' : undefined}
                     />
                     
                     <input
@@ -1022,7 +1024,9 @@ export default function TodoEditDialog({
                           setPlannedStart(today + 'T' + e.target.value + ':00')
                         }
                       }}
-                      style={{ ...styles.input, width: '80px' }}
+                      style={{ ...styles.input, width: '80px', ...(ganttType === 'project' ? { backgroundColor: '#f5f5f5', cursor: 'not-allowed' } : {}) }}
+                      disabled={ganttType === 'project'}
+                      title={ganttType === 'project' ? 'Projekt-Zeit wird aus Kinder-Aufgaben berechnet' : undefined}
                     />
 
                     <span style={styles.timeLabel}>Dauer:</span>
@@ -1032,8 +1036,10 @@ export default function TodoEditDialog({
                       value={totalDurationMinutes}
                       onChange={e => handleDurationChange(e.target.value)}
                       onBlur={handleDurationBlur}
-                      style={{ ...styles.timeInput, width: '80px' }}
+                      style={{ ...styles.timeInput, width: '80px', ...(ganttType === 'project' ? { backgroundColor: '#f5f5f5', cursor: 'not-allowed' } : {}) }}
                       min={0}
+                      disabled={ganttType === 'project'}
+                      title={ganttType === 'project' ? 'Projekt-Dauer wird aus Kinder-Aufgaben berechnet' : undefined}
                     />
                     <span style={styles.timeLabel}>Min. → {calculateEndDate()}</span>
                   </div>
