@@ -37,6 +37,8 @@ services:
       - ./backend:/app
       - uploads_data:/app/uploads
       - C:/Thomas/Solidworks:/mnt/solidworks:ro
+      # Mount for original files (PDFs, images) - uses named volume with CIFS
+      - arbeitsunterlagen:/mnt/files:ro
     depends_on:
       mysql:
         condition: service_healthy
@@ -58,3 +60,9 @@ services:
 volumes:
   mysql_data:
   uploads_data:
+  arbeitsunterlagen:
+    driver: local
+    driver_opts:
+      type: cifs
+      device: "//10.233.153.11/Produktion/Arbeitsunterlagen"
+      o: "username=${SMB_USER},password=${SMB_PASSWORD},domain=hug-intra,vers=2.0,sec=ntlmssp,iocharset=utf8"

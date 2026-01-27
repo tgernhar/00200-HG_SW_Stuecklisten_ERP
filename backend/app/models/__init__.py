@@ -33,6 +33,8 @@ from app.models.crm import (
     CRMAssignmentRule,
     CRMAuditLog,
 )
+# Image Management
+from app.models.entity_image import EntityImage
 
 __all__ = [
     "Project", "Bom", "Article", "Order", "Document", "DocumentGenerationFlag",
@@ -44,4 +46,6 @@ __all__ = [
     "CRMMailbox", "CRMCommunicationEntry", "CRMCommunicationAttachment",
     "CRMCommunicationLink", "CRMTag", "CRMCustomerTag", "CRMLead", "CRMLeadTag",
     "CRMTask", "CRMEmailTemplate", "CRMUserSignature", "CRMAssignmentRule", "CRMAuditLog",
+    # Image Management
+    "EntityImage",
 ]

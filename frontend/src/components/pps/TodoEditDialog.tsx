@@ -13,7 +13,7 @@ import { updateTodo, getResources, deleteTodo, createTodo, getTodoDependencies, 
 import { PPSTodoWithERPDetails, PPSTodoUpdate, PPSTodoCreate, PPSResource, TodoStatus, TodoType, OrderArticleOption, BomItemOption, WorkstepOption, AllWorkstepOption, PPSTodo } from '../../services/ppsTypes'
 import ErpPickerDialog, { PickerType } from './ErpPickerDialog'
 import RichTextEditor from './RichTextEditor'
-import axios from 'axios'
+import EntityImageField from '../common/EntityImageField'
 
 interface TodoEditDialogProps {
   todo: PPSTodoWithERPDetails
@@ -42,7 +42,7 @@ const styles = {
     backgroundColor: '#ffffff',
     borderRadius: '4px',
     boxShadow: '0 4px 20px rgba(0, 0, 0, 0.3)',
-    width: '650px',  // Increased width for article image
+    width: '850px',  // Wider dialog for larger article image
     maxHeight: '90vh',
     display: 'flex',
     flexDirection: 'column' as const,
@@ -480,10 +480,6 @@ export default function TodoEditDialog({
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  
-  // Article image state
-  const [articleImage, setArticleImage] = useState<string | null>(null)
-  const [imageLoading, setImageLoading] = useState(false)
 
   // Load resources
   useEffect(() => {
@@ -522,44 +518,6 @@ export default function TodoEditDialog({
     }
   }, [activeTab, todo.id])
 
-  // Load article image if order_article or packingnote_details is linked
-  useEffect(() => {
-    const loadArticleImage = async () => {
-      // Determine article type and ID
-      let articleType: string | null = null
-      let articleId: number | null = null
-      
-      if (todo.erp_packingnote_details_id) {
-        articleType = 'packingnote_details'
-        articleId = todo.erp_packingnote_details_id
-      } else if (todo.erp_order_article_id) {
-        articleType = 'order_article'
-        articleId = todo.erp_order_article_id
-      }
-      
-      if (!articleType || !articleId) {
-        setArticleImage(null)
-        return
-      }
-      
-      setImageLoading(true)
-      try {
-        const response = await axios.get(`/api/pps/article-image/${articleType}/${articleId}`)
-        if (response.data.image) {
-          setArticleImage(response.data.image)
-        } else {
-          setArticleImage(null)
-        }
-      } catch (err: any) {
-        // No image found or error - that's ok
-        setArticleImage(null)
-      } finally {
-        setImageLoading(false)
-      }
-    }
-    
-    loadArticleImage()
-  }, [todo.erp_order_article_id, todo.erp_packingnote_details_id])
 
   // Calculate end date from start and duration
   const calculateEndDate = (): string => {
@@ -825,10 +783,11 @@ export default function TodoEditDialog({
           {/* Details Tab */}
           {activeTab === 'details' && (
             <>
-              {/* Top row: Priority + Article Image */}
+              {/* Main layout: Left column (form fields) + Right column (large image) */}
               <div style={{ display: 'flex', gap: '20px', marginBottom: '10px' }}>
-                {/* Left side: Priority */}
-                <div style={{ flex: 1 }}>
+                {/* Left column: All form fields */}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  {/* Priority row */}
                   <div style={styles.formGroup}>
                     <label style={styles.label}>Priorität</label>
                     <input
@@ -842,7 +801,7 @@ export default function TodoEditDialog({
                     />
                   </div>
                   
-                  {/* ToDo field (previously title/description) */}
+                  {/* ToDo field */}
                   <div style={styles.formGroup}>
                     <label style={styles.label}>ToDo</label>
                     <input
@@ -853,40 +812,163 @@ export default function TodoEditDialog({
                       placeholder="Aufgabentitel..."
                     />
                   </div>
+
+                  {/* ERP Reference Fields - moved here, under ToDo */}
+                  {(hasErpData || todo.erp_order_id) && (
+                    <div style={{ ...styles.erpSection, marginTop: '8px', marginBottom: '10px' }}>
+                      {/* Auftrag */}
+                      <div style={styles.erpRow}>
+                        <span style={styles.erpLabel}>Auftrag:</span>
+                        <span style={todo.order_name ? styles.erpValue : styles.erpValueEmpty}>
+                          {todo.order_name || '-'}
+                        </span>
+                      </div>
+                      
+                      {/* Auftragsartikel */}
+                      <div style={styles.erpRow}>
+                        {todo.erp_order_id && onCreateFromPicker && (
+                          <button
+                            style={{
+                              ...styles.plusButton,
+                              ...(hoveredPlusButton === 'article' ? styles.plusButtonHover : {}),
+                              ...(todo.order_article_number ? styles.plusButtonDisabled : {}),
+                            }}
+                            onClick={() => {
+                              if (!todo.order_article_number && todo.erp_order_id) {
+                                setPickerType('article')
+                                setPickerParentId(todo.erp_order_id)
+                              }
+                            }}
+                            onMouseEnter={() => setHoveredPlusButton('article')}
+                            onMouseLeave={() => setHoveredPlusButton(null)}
+                            disabled={!!todo.order_article_number}
+                            title={todo.order_article_number ? 'Auftragsartikel bereits vorhanden' : 'Auftragsartikel auswählen'}
+                          >
+                            +
+                          </button>
+                        )}
+                        <span style={styles.erpLabel}>Auftragsartikel:</span>
+                        <span style={todo.order_article_number ? styles.erpValue : styles.erpValueEmpty}>
+                          {todo.order_article_number || '-'}
+                        </span>
+                        {todo.order_article_path && (
+                          <button
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              fontSize: '14px',
+                              cursor: 'pointer',
+                              padding: '2px 6px',
+                              marginLeft: '4px',
+                              borderRadius: '3px',
+                              color: '#666',
+                            }}
+                            onClick={() => copyToClipboard(todo.order_article_path!)}
+                            title={`Pfad kopieren: ${todo.order_article_path}`}
+                          >
+                            📁
+                          </button>
+                        )}
+                      </div>
+                      
+                      {/* Stücklistenartikel */}
+                      <div style={styles.erpRow}>
+                        {todo.erp_order_article_id && onCreateFromPicker && (
+                          <button
+                            style={{
+                              ...styles.plusButton,
+                              ...(hoveredPlusButton === 'bom' ? styles.plusButtonHover : {}),
+                              ...(todo.bom_article_number ? styles.plusButtonDisabled : {}),
+                            }}
+                            onClick={() => {
+                              if (!todo.bom_article_number && todo.erp_order_article_id) {
+                                setPickerType('bom')
+                                setPickerParentId(todo.erp_order_article_id)
+                              }
+                            }}
+                            onMouseEnter={() => setHoveredPlusButton('bom')}
+                            onMouseLeave={() => setHoveredPlusButton(null)}
+                            disabled={!!todo.bom_article_number}
+                            title={todo.bom_article_number ? 'Stücklistenartikel bereits vorhanden' : 'Stücklistenartikel auswählen'}
+                          >
+                            +
+                          </button>
+                        )}
+                        <span style={styles.erpLabel}>Stücklistenartikel:</span>
+                        <span style={todo.bom_article_number ? styles.erpValue : styles.erpValueEmpty}>
+                          {todo.bom_article_number || '-'}
+                        </span>
+                        {todo.bom_article_path && (
+                          <button
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              fontSize: '14px',
+                              cursor: 'pointer',
+                              padding: '2px 6px',
+                              marginLeft: '4px',
+                              borderRadius: '3px',
+                              color: '#666',
+                            }}
+                            onClick={() => copyToClipboard(todo.bom_article_path!)}
+                            title={`Pfad kopieren: ${todo.bom_article_path}`}
+                          >
+                            📁
+                          </button>
+                        )}
+                      </div>
+                      
+                      {/* Arbeitsgang */}
+                      <div style={styles.erpRow}>
+                        {((todo.erp_packingnote_details_id || todo.erp_order_article_id) && onCreateFromPicker) && (
+                          <button
+                            style={{
+                              ...styles.plusButton,
+                              ...(hoveredPlusButton === 'workstep' ? styles.plusButtonHover : {}),
+                              ...(todo.workstep_name ? styles.plusButtonDisabled : {}),
+                            }}
+                            onClick={() => {
+                              if (!todo.workstep_name) {
+                                if (todo.erp_packingnote_details_id) {
+                                  setPickerType('workstep')
+                                  setPickerParentId(todo.erp_packingnote_details_id)
+                                } else if (todo.erp_order_article_id) {
+                                  setPickerType('generic_workstep')
+                                  setPickerParentId(0)
+                                }
+                              }
+                            }}
+                            onMouseEnter={() => setHoveredPlusButton('workstep')}
+                            onMouseLeave={() => setHoveredPlusButton(null)}
+                            disabled={!!todo.workstep_name}
+                            title={todo.workstep_name 
+                              ? 'Arbeitsgang bereits vorhanden' 
+                              : (todo.erp_packingnote_details_id 
+                                  ? 'Arbeitsgang aus Workplan auswählen' 
+                                  : 'Generischen Arbeitsgang auswählen')}
+                          >
+                            +
+                          </button>
+                        )}
+                        <span style={styles.erpLabel}>Arbeitsgang:</span>
+                        <span style={todo.workstep_name ? styles.erpValue : styles.erpValueEmpty}>
+                          {todo.workstep_name || '-'}
+                        </span>
+                      </div>
+                    </div>
+                  )}
                 </div>
                 
-                {/* Right side: Article Image */}
-                <div style={{ 
-                  width: '150px', 
-                  minHeight: '100px',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  border: '1px solid #e0e0e0',
-                  borderRadius: '4px',
-                  backgroundColor: '#f9f9f9',
-                  padding: '8px',
-                }}>
-                  {imageLoading ? (
-                    <span style={{ fontSize: '11px', color: '#999' }}>Lade Bild...</span>
-                  ) : articleImage ? (
-                    <img 
-                      src={articleImage} 
-                      alt="Artikelbild"
-                      style={{
-                        maxWidth: '100%',
-                        maxHeight: '100px',
-                        objectFit: 'contain',
-                      }}
-                    />
-                  ) : (
-                    <span style={{ fontSize: '11px', color: '#999', textAlign: 'center' }}>
-                      {(todo.erp_order_article_id || todo.erp_packingnote_details_id) 
-                        ? 'Kein Bild' 
-                        : 'Kein Artikel verknüpft'}
-                    </span>
-                  )}
+                {/* Right column: Large Article Image (300x300) */}
+                <div style={{ flexShrink: 0 }}>
+                  <EntityImageField
+                    entityType="article"
+                    entityId={todo.erp_order_article_id || todo.erp_packingnote_details_id || undefined}
+                    size="large"
+                    width={300}
+                    height={300}
+                    editable={true}
+                  />
                 </div>
               </div>
               
@@ -901,173 +983,6 @@ export default function TodoEditDialog({
                   maxHeight={200}
                 />
               </div>
-
-          {/* ERP Reference Fields - always show hierarchy with "+" buttons for creating sub-todos */}
-          {(hasErpData || todo.erp_order_id) && (
-            <div style={styles.erpSection}>
-              {/* Auftrag - always shown if erp_order_id exists, no "+" button */}
-              <div style={styles.erpRow}>
-                <span style={styles.erpLabel}>Auftrag:</span>
-                <span style={todo.order_name ? styles.erpValue : styles.erpValueEmpty}>
-                  {todo.order_name || '-'}
-                </span>
-              </div>
-              
-              {/* Auftragsartikel - with "+" button to create from order articles */}
-              <div style={styles.erpRow}>
-                {todo.erp_order_id && onCreateFromPicker && (
-                  <button
-                    style={{
-                      ...styles.plusButton,
-                      ...(hoveredPlusButton === 'article' ? styles.plusButtonHover : {}),
-                      ...(todo.order_article_number ? styles.plusButtonDisabled : {}),
-                    }}
-                    onClick={() => {
-                      if (!todo.order_article_number && todo.erp_order_id) {
-                        setPickerType('article')
-                        setPickerParentId(todo.erp_order_id)
-                      }
-                    }}
-                    onMouseEnter={() => setHoveredPlusButton('article')}
-                    onMouseLeave={() => setHoveredPlusButton(null)}
-                    disabled={!!todo.order_article_number}
-                    title={todo.order_article_number ? 'Auftragsartikel bereits vorhanden' : 'Auftragsartikel auswählen'}
-                  >
-                    +
-                  </button>
-                )}
-                <span style={styles.erpLabel}>Auftragsartikel:</span>
-                <span style={todo.order_article_number ? styles.erpValue : styles.erpValueEmpty}>
-                  {todo.order_article_number || '-'}
-                </span>
-                {todo.order_article_path && (
-                  <button
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      fontSize: '14px',
-                      cursor: 'pointer',
-                      padding: '2px 6px',
-                      marginLeft: '4px',
-                      borderRadius: '3px',
-                      color: '#666',
-                    }}
-                    onClick={() => copyToClipboard(todo.order_article_path!)}
-                    title={`Pfad kopieren: ${todo.order_article_path}`}
-                  >
-                    📁
-                  </button>
-                )}
-              </div>
-              
-              {/* Stücklistenartikel - with "+" button to create from BOM items */}
-              <div style={styles.erpRow}>
-                {todo.erp_order_article_id && onCreateFromPicker && (
-                  <button
-                    style={{
-                      ...styles.plusButton,
-                      ...(hoveredPlusButton === 'bom' ? styles.plusButtonHover : {}),
-                      ...(todo.bom_article_number ? styles.plusButtonDisabled : {}),
-                    }}
-                    onClick={() => {
-                      if (!todo.bom_article_number && todo.erp_order_article_id) {
-                        setPickerType('bom')
-                        setPickerParentId(todo.erp_order_article_id)
-                      }
-                    }}
-                    onMouseEnter={() => setHoveredPlusButton('bom')}
-                    onMouseLeave={() => setHoveredPlusButton(null)}
-                    disabled={!!todo.bom_article_number}
-                    title={todo.bom_article_number ? 'Stücklistenartikel bereits vorhanden' : 'Stücklistenartikel auswählen'}
-                  >
-                    +
-                  </button>
-                )}
-                <span style={styles.erpLabel}>Stücklistenartikel:</span>
-                <span style={todo.bom_article_number ? styles.erpValue : styles.erpValueEmpty}>
-                  {todo.bom_article_number || '-'}
-                </span>
-                {todo.bom_article_path && (
-                  <button
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      fontSize: '14px',
-                      cursor: 'pointer',
-                      padding: '2px 6px',
-                      marginLeft: '4px',
-                      borderRadius: '3px',
-                      color: '#666',
-                    }}
-                    onClick={() => copyToClipboard(todo.bom_article_path!)}
-                    title={`Pfad kopieren: ${todo.bom_article_path}`}
-                  >
-                    📁
-                  </button>
-                )}
-              </div>
-              
-              {/* Arbeitsgang - with "+" button to create from worksteps */}
-              <div style={styles.erpRow}>
-                {/* Show + button if:
-                    1. Has BOM item (erp_packingnote_details_id) -> use workplan worksteps
-                    2. Has order article but no BOM item -> use generic worksteps */}
-                {((todo.erp_packingnote_details_id || todo.erp_order_article_id) && onCreateFromPicker) && (
-                  <button
-                    style={{
-                      ...styles.plusButton,
-                      ...(hoveredPlusButton === 'workstep' ? styles.plusButtonHover : {}),
-                      ...(todo.workstep_name ? styles.plusButtonDisabled : {}),
-                    }}
-                    onClick={() => {
-                      if (!todo.workstep_name) {
-                        if (todo.erp_packingnote_details_id) {
-                          // Has BOM item -> use workplan worksteps
-                          setPickerType('workstep')
-                          setPickerParentId(todo.erp_packingnote_details_id)
-                        } else if (todo.erp_order_article_id) {
-                          // No BOM item but has article -> use generic worksteps
-                          setPickerType('generic_workstep')
-                          setPickerParentId(0)  // Not used for generic_workstep
-                        }
-                      }
-                    }}
-                    onMouseEnter={() => setHoveredPlusButton('workstep')}
-                    onMouseLeave={() => setHoveredPlusButton(null)}
-                    disabled={!!todo.workstep_name}
-                    title={todo.workstep_name 
-                      ? 'Arbeitsgang bereits vorhanden' 
-                      : (todo.erp_packingnote_details_id 
-                          ? 'Arbeitsgang aus Workplan auswählen' 
-                          : 'Generischen Arbeitsgang auswählen')}
-                  >
-                    +
-                  </button>
-                )}
-                <span style={styles.erpLabel}>Arbeitsgang:</span>
-                <span style={todo.workstep_name ? styles.erpValue : styles.erpValueEmpty}>
-                  {todo.workstep_name || '-'}
-                </span>
-              </div>
-            </div>
-          )}
-
-          {/* Type (Backend) */}
-          <div style={styles.formGroup}>
-            <label style={styles.label}>Typ</label>
-            <select
-              value={todoType}
-              onChange={e => setTodoType(e.target.value as TodoType)}
-              style={styles.select}
-              disabled // Type should not be editable
-            >
-              {typeOptions.map(opt => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </div>
 
           {/* Gantt Type (Display) - only show in Planboard context */}
           {showGanttType && (
@@ -1084,17 +999,6 @@ export default function TodoEditDialog({
               </select>
             </div>
           )}
-
-          {/* Description */}
-          <div style={styles.formGroup}>
-            <label style={styles.label}>Beschreibung</label>
-            <textarea
-              value={description}
-              onChange={e => setDescription(e.target.value)}
-              style={styles.textarea}
-              placeholder={todo.title}
-            />
-          </div>
 
           {/* Status */}
           <div style={styles.formGroup}>
