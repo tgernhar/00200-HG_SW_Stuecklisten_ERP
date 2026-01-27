@@ -17,6 +17,7 @@ interface EntityImageFieldProps {
   height?: number  // Custom height in pixels (overrides size-based height)
   editable?: boolean
   style?: React.CSSProperties
+  basePath?: string  // Base folder path for drag & drop (e.g., order_article_path)
 }
 
 interface ImageData {
@@ -38,6 +39,7 @@ const EntityImageField: React.FC<EntityImageFieldProps> = ({
   height: customHeight,
   editable = true,
   style,
+  basePath,
 }) => {
   const [imageData, setImageData] = useState<ImageData | null>(null)
   const [loading, setLoading] = useState(false)
@@ -254,6 +256,7 @@ const EntityImageField: React.FC<EntityImageFieldProps> = ({
           entityType={entityType}
           entityId={entityId}
           entityReference={entityReference}
+          basePath={basePath}
         />
       </div>
     )
@@ -304,6 +307,7 @@ const EntityImageField: React.FC<EntityImageFieldProps> = ({
           entityType={entityType}
           entityId={entityId}
           entityReference={entityReference}
+          basePath={basePath}
         />
       </div>
     )
@@ -332,6 +336,7 @@ const EntityImageField: React.FC<EntityImageFieldProps> = ({
         entityType={entityType}
         entityId={entityId}
         entityReference={entityReference}
+        basePath={basePath}
       />
     </div>
   )

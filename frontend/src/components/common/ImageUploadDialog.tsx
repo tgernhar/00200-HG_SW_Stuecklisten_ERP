@@ -2,7 +2,7 @@
  * Image Upload Dialog
  * 
  * Modal dialog for uploading images to entities (articles, BOM items, worksteps).
- * Supports file path input via copy/paste or file selection.
+ * Supports file path input via copy/paste or drag & drop with path combination.
  */
 import React, { useState } from 'react'
 
@@ -13,6 +13,7 @@ interface ImageUploadDialogProps {
   entityType: string
   entityId?: number
   entityReference?: string
+  basePath?: string  // Base folder path from database (e.g., order_article_path)
 }
 
 const ImageUploadDialog: React.FC<ImageUploadDialogProps> = ({
@@ -22,13 +23,68 @@ const ImageUploadDialog: React.FC<ImageUploadDialogProps> = ({
   entityType,
   entityId,
   entityReference,
+  basePath,
 }) => {
   const [filepath, setFilepath] = useState('')
   const [thumbnailSize, setThumbnailSize] = useState<'small' | 'medium' | 'large'>('medium')
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [isDragOver, setIsDragOver] = useState(false)
 
   if (!isOpen) return null
+
+  // Handle drag & drop - combine basePath with dropped filename
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (!uploading) {
+      setIsDragOver(true)
+    }
+  }
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragOver(false)
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragOver(false)
+
+    if (uploading) return
+
+    const files = e.dataTransfer.files
+    if (files.length > 0) {
+      const file = files[0]
+      const filename = file.name
+
+      // Validate file extension
+      const ext = filename.toLowerCase().split('.').pop()
+      const validExtensions = ['pdf', 'png', 'jpg', 'jpeg', 'gif', 'webp']
+      if (!ext || !validExtensions.includes(ext)) {
+        setError(`Ungültiger Dateityp: ${filename}. Unterstützt: ${validExtensions.join(', ').toUpperCase()}`)
+        return
+      }
+
+      if (basePath) {
+        // Combine basePath with filename
+        // Ensure basePath ends with a separator
+        let fullPath = basePath
+        if (!fullPath.endsWith('\\') && !fullPath.endsWith('/')) {
+          fullPath += '\\'
+        }
+        fullPath += filename
+        setFilepath(fullPath)
+        setError(null)
+      } else {
+        // No basePath available - just show the filename
+        setFilepath(filename)
+        setError('Kein Basispfad verfügbar. Bitte vollständigen Pfad manuell eingeben.')
+      }
+    }
+  }
 
   const handleUpload = async () => {
     if (!filepath.trim()) {
@@ -173,6 +229,47 @@ const ImageUploadDialog: React.FC<ImageUploadDialogProps> = ({
       color: '#666',
       marginBottom: '16px',
     },
+    dropZone: {
+      border: '2px dashed #ccc',
+      borderRadius: '8px',
+      padding: '20px',
+      textAlign: 'center' as const,
+      marginBottom: '16px',
+      cursor: 'pointer',
+      transition: 'all 0.2s',
+      backgroundColor: '#fafafa',
+    },
+    dropZoneActive: {
+      border: '2px dashed #ff9900',
+      backgroundColor: '#fff8e6',
+    },
+    dropZoneDisabled: {
+      opacity: 0.5,
+      cursor: 'not-allowed',
+    },
+    dropZoneIcon: {
+      fontSize: '32px',
+      marginBottom: '8px',
+    },
+    dropZoneText: {
+      fontSize: '13px',
+      color: '#666',
+      marginBottom: '4px',
+    },
+    dropZoneHint: {
+      fontSize: '11px',
+      color: '#999',
+    },
+    basePathInfo: {
+      backgroundColor: '#e8f4e8',
+      border: '1px solid #c8e6c8',
+      padding: '8px 10px',
+      borderRadius: '4px',
+      fontSize: '11px',
+      color: '#2e7d32',
+      marginBottom: '12px',
+      wordBreak: 'break-all' as const,
+    },
   }
 
   return (
@@ -193,19 +290,49 @@ const ImageUploadDialog: React.FC<ImageUploadDialogProps> = ({
             </div>
           )}
 
+          {/* Drag & Drop Zone - only shown when basePath is available */}
+          {basePath && (
+            <>
+              <div style={styles.basePathInfo}>
+                <strong>Basispfad:</strong> {basePath}
+              </div>
+              <div
+                style={{
+                  ...styles.dropZone,
+                  ...(isDragOver ? styles.dropZoneActive : {}),
+                  ...(uploading ? styles.dropZoneDisabled : {}),
+                }}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+              >
+                <div style={styles.dropZoneIcon}>📁</div>
+                <div style={styles.dropZoneText}>
+                  {isDragOver ? 'Datei hier ablegen...' : 'Datei hierher ziehen'}
+                </div>
+                <div style={styles.dropZoneHint}>
+                  Der Dateiname wird mit dem Basispfad kombiniert
+                </div>
+              </div>
+            </>
+          )}
+
           <div style={styles.formGroup}>
             <label style={styles.label}>Dateipfad</label>
             <input
               type="text"
               value={filepath}
               onChange={e => setFilepath(e.target.value)}
-              placeholder="Z.B. G:\Arbeitsunterlagen\Bilder\artikel.pdf"
+              placeholder={basePath ? "Pfad wird bei Drag & Drop automatisch ausgefüllt" : "Z.B. G:\\Arbeitsunterlagen\\Bilder\\artikel.pdf"}
               style={styles.input}
               disabled={uploading}
             />
             <div style={styles.hint}>
-              Vollständigen Pfad zur Datei eingeben oder per Copy/Paste einfügen.
-              Unterstützte Formate: PDF, PNG, JPG, GIF, WebP
+              {basePath 
+                ? 'Datei per Drag & Drop ablegen oder Pfad manuell eingeben/einfügen.'
+                : 'Vollständigen Pfad zur Datei eingeben oder per Copy/Paste einfügen.'
+              }
+              {' '}Unterstützte Formate: PDF, PNG, JPG, GIF, WebP
             </div>
           </div>
 

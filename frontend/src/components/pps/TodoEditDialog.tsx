@@ -42,8 +42,9 @@ const styles = {
     backgroundColor: '#ffffff',
     borderRadius: '4px',
     boxShadow: '0 4px 20px rgba(0, 0, 0, 0.3)',
-    width: '850px',  // Wider dialog for larger article image
-    maxHeight: '90vh',
+    width: '1000px',  // Wide dialog for large article image
+    minHeight: '700px',  // Taller dialog
+    maxHeight: '95vh',
     display: 'flex',
     flexDirection: 'column' as const,
     overflow: 'hidden',
@@ -783,25 +784,60 @@ export default function TodoEditDialog({
           {/* Details Tab */}
           {activeTab === 'details' && (
             <>
-              {/* Main layout: Left column (form fields) + Right column (large image) */}
+              {/* Main layout: Left column (form fields) + Right column (image at top) */}
               <div style={{ display: 'flex', gap: '20px', marginBottom: '10px' }}>
                 {/* Left column: All form fields */}
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  {/* Priority row */}
-                  <div style={styles.formGroup}>
-                    <label style={styles.label}>Priorität</label>
-                    <input
-                      type="number"
-                      value={priority}
-                      onChange={handlePriorityChange}
-                      onBlur={handlePriorityBlur}
-                      style={{ ...styles.input, width: '80px' }}
-                      min={1}
-                      max={100}
-                    />
+                  {/* Top row: Priority, Status, Gantt-Typ */}
+                  <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-end', marginBottom: '10px' }}>
+                    {/* Priority - 100px */}
+                    <div style={{ width: '100px', flexShrink: 0 }}>
+                      <label style={styles.label}>Priorität</label>
+                      <input
+                        type="number"
+                        value={priority}
+                        onChange={handlePriorityChange}
+                        onBlur={handlePriorityBlur}
+                        style={styles.input}
+                        min={1}
+                        max={100}
+                      />
+                    </div>
+                    
+                    {/* Status - 100px */}
+                    <div style={{ width: '100px', flexShrink: 0 }}>
+                      <label style={styles.label}>Status</label>
+                      <select
+                        value={status}
+                        onChange={e => setStatus(e.target.value as TodoStatus)}
+                        style={styles.select}
+                      >
+                        {statusOptions.map(opt => (
+                          <option key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    
+                    {/* Gantt Type - only in Planboard context, 120px */}
+                    {showGanttType && (
+                      <div style={{ width: '120px', flexShrink: 0 }}>
+                        <label style={styles.label}>Gantt-Typ</label>
+                        <select
+                          value={ganttType}
+                          onChange={e => setGanttType(e.target.value as 'task' | 'project' | 'milestone')}
+                          style={styles.select}
+                        >
+                          <option value="task">Aufgabe</option>
+                          <option value="project">Projekt</option>
+                          <option value="milestone">Meilenstein</option>
+                        </select>
+                      </div>
+                    )}
                   </div>
-                  
-                  {/* ToDo field */}
+
+                  {/* ToDo field - full width */}
                   <div style={styles.formGroup}>
                     <label style={styles.label}>ToDo</label>
                     <input
@@ -813,7 +849,7 @@ export default function TodoEditDialog({
                     />
                   </div>
 
-                  {/* ERP Reference Fields - moved here, under ToDo */}
+                  {/* ERP Reference Fields */}
                   {(hasErpData || todo.erp_order_id) && (
                     <div style={{ ...styles.erpSection, marginTop: '8px', marginBottom: '10px' }}>
                       {/* Auftrag */}
@@ -957,17 +993,62 @@ export default function TodoEditDialog({
                       </div>
                     </div>
                   )}
+
+                  {/* Time Section - below ERP section */}
+                  <div style={styles.timeSection}>
+                    <input
+                      type="date"
+                      value={plannedStart ? plannedStart.slice(0, 10) : ''}
+                      onChange={e => {
+                        if (e.target.value && plannedStart) {
+                          const newDate = e.target.value + plannedStart.slice(10)
+                          setPlannedStart(newDate)
+                        } else if (e.target.value) {
+                          setPlannedStart(e.target.value + 'T09:00:00')
+                        }
+                      }}
+                      style={{ ...styles.input, width: '140px' }}
+                    />
+                    
+                    <input
+                      type="time"
+                      value={plannedStart ? plannedStart.slice(11, 16) : '09:00'}
+                      onChange={e => {
+                        if (e.target.value && plannedStart) {
+                          const newDate = plannedStart.slice(0, 11) + e.target.value + ':00'
+                          setPlannedStart(newDate)
+                        } else if (e.target.value) {
+                          const today = new Date().toISOString().slice(0, 10)
+                          setPlannedStart(today + 'T' + e.target.value + ':00')
+                        }
+                      }}
+                      style={{ ...styles.input, width: '80px' }}
+                    />
+
+                    <span style={styles.timeLabel}>Dauer:</span>
+                    
+                    <input
+                      type="number"
+                      value={totalDurationMinutes}
+                      onChange={e => handleDurationChange(e.target.value)}
+                      onBlur={handleDurationBlur}
+                      style={{ ...styles.timeInput, width: '80px' }}
+                      min={0}
+                    />
+                    <span style={styles.timeLabel}>Min. → {calculateEndDate()}</span>
+                  </div>
                 </div>
                 
-                {/* Right column: Large Article Image (300x300) */}
-                <div style={{ flexShrink: 0 }}>
+                {/* Right column: Large Article Image (350x300) - aligned to top */}
+                <div style={{ flexShrink: 0, alignSelf: 'flex-start' }}>
                   <EntityImageField
                     entityType="article"
                     entityId={todo.erp_order_article_id || todo.erp_packingnote_details_id || undefined}
                     size="large"
-                    width={300}
+                    width={350}
                     height={300}
                     editable={true}
+                    basePath={todo.order_article_path || todo.bom_article_path}
                   />
                 </div>
               </div>
@@ -979,90 +1060,10 @@ export default function TodoEditDialog({
                   value={description}
                   onChange={setDescription}
                   placeholder="Beschreibung eingeben..."
-                  minHeight={80}
-                  maxHeight={200}
+                  minHeight={180}
+                  maxHeight={300}
                 />
               </div>
-
-          {/* Gantt Type (Display) - only show in Planboard context */}
-          {showGanttType && (
-            <div style={styles.formGroup}>
-              <label style={styles.label}>Gantt-Typ</label>
-              <select
-                value={ganttType}
-                onChange={e => setGanttType(e.target.value as 'task' | 'project' | 'milestone')}
-                style={styles.select}
-              >
-                <option value="task">Aufgabe</option>
-                <option value="project">Projekt/Container</option>
-                <option value="milestone">Meilenstein</option>
-              </select>
-            </div>
-          )}
-
-          {/* Status */}
-          <div style={styles.formGroup}>
-            <label style={styles.label}>Status</label>
-            <select
-              value={status}
-              onChange={e => setStatus(e.target.value as TodoStatus)}
-              style={styles.select}
-            >
-              {statusOptions.map(opt => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Time Section */}
-          <div style={styles.timeSection}>
-            <input
-              type="date"
-              value={plannedStart ? plannedStart.slice(0, 10) : ''}
-              onChange={e => {
-                if (e.target.value && plannedStart) {
-                  // Replace date part, keep time
-                  const newDate = e.target.value + plannedStart.slice(10)
-                  setPlannedStart(newDate)
-                } else if (e.target.value) {
-                  // No plannedStart yet, create new with default time
-                  setPlannedStart(e.target.value + 'T09:00:00')
-                }
-              }}
-              style={{ ...styles.input, width: '140px' }}
-            />
-            
-            <input
-              type="time"
-              value={plannedStart ? plannedStart.slice(11, 16) : '09:00'}
-              onChange={e => {
-                if (e.target.value && plannedStart) {
-                  // Keep date part, replace time
-                  const newDate = plannedStart.slice(0, 11) + e.target.value + ':00'
-                  setPlannedStart(newDate)
-                } else if (e.target.value) {
-                  // No plannedStart yet, create with today's date
-                  const today = new Date().toISOString().slice(0, 10)
-                  setPlannedStart(today + 'T' + e.target.value + ':00')
-                }
-              }}
-              style={{ ...styles.input, width: '80px' }}
-            />
-
-            <span style={styles.timeLabel}>Dauer:</span>
-            
-            <input
-              type="number"
-              value={totalDurationMinutes}
-              onChange={e => handleDurationChange(e.target.value)}
-              onBlur={handleDurationBlur}
-              style={{ ...styles.timeInput, width: '80px' }}
-              min={0}
-            />
-            <span style={styles.timeLabel}>Min. → {calculateEndDate()}</span>
-          </div>
 
           {/* Progress Slider */}
           <div style={{ ...styles.formGroup, marginTop: '10px' }}>

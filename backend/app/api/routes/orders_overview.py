@@ -156,8 +156,8 @@ class WorkplanResponse(BaseModel):
 
 # Valid status IDs for orders to be displayed (defaults)
 # 1=Offen, 3=Gestoppt, 4=Geliefert, 14=Teilgeliefert, 15=Geliefert(BOOKING), 
-# 16=Email Versendet, 33=Zum liefern bereit, 37=Offen_TG30_geprüft
-VALID_ORDER_STATUS_IDS = (1, 3, 4, 14, 15, 16, 33, 37)
+# 16=Email Versendet, 26=Teilrechnung gestellt, 33=Zum liefern bereit, 37=Offen_TG30_geprüft
+VALID_ORDER_STATUS_IDS = (1, 3, 4, 14, 15, 16, 26, 33, 37)
 
 
 class OrderOverviewResponse(BaseModel):

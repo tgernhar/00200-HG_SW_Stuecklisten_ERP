@@ -230,7 +230,7 @@ def get_available_orders_for_todos(
             LEFT JOIN order_article_ref oar ON oar.orderid = o.id
             LEFT JOIN order_type ot ON ot.id = o.orderType
             WHERE ot.name = 'ORDER'
-              AND o.status IN (1, 3, 4, 14, 15, 16, 33, 37)
+              AND o.status IN (1, 3, 4, 14, 15, 16, 26, 33, 37)
               AND o.created > '2024-01-01'
         """
         
