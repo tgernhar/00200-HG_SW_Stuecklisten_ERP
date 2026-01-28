@@ -510,7 +510,11 @@ function GroupThumbnails({ articleIds, articleNumbers }: { articleIds: number[];
 }
 
 // Single row thumbnail with lazy loading and hover preview
-function TodoRowThumbnail({ articleId, articleNumber }: { articleId?: number; articleNumber?: string }) {
+function TodoRowThumbnail({ articleId, articleNumber, articleDescription }: { 
+  articleId?: number; 
+  articleNumber?: string;
+  articleDescription?: string;
+}) {
   const [imageData, setImageData] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [hasImage, setHasImage] = useState(false)
@@ -537,9 +541,14 @@ function TodoRowThumbnail({ articleId, articleNumber }: { articleId?: number; ar
     loadImage()
   }, [articleId])
   
-  // Show article number text, with optional thumbnail
+  // Truncate description to ~50 characters
+  const truncatedDescription = articleDescription 
+    ? (articleDescription.length > 50 ? articleDescription.substring(0, 50) + '...' : articleDescription)
+    : null
+  
+  // Show article number text, with optional thumbnail and description
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
       {articleId && (
         <>
           {loading ? (
@@ -551,7 +560,82 @@ function TodoRowThumbnail({ articleId, articleNumber }: { articleId?: number; ar
           )}
         </>
       )}
-      <span>{articleNumber || '-'}</span>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+        <span style={{ fontWeight: 500 }}>{articleNumber || '-'}</span>
+        {truncatedDescription && (
+          <span 
+            style={{ 
+              fontSize: '11px', 
+              color: '#666',
+              lineHeight: '1.3',
+            }}
+            title={articleDescription}
+          >
+            {truncatedDescription}
+          </span>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// Component for displaying todo description (Rich-Text) in table cell
+function TodoDescriptionCell({ description }: { description?: string }) {
+  const [expanded, setExpanded] = useState(false)
+  
+  if (!description) {
+    return <span style={{ color: '#ccc' }}>-</span>
+  }
+  
+  // Strip HTML tags for preview
+  const plainText = description.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
+  const isLong = plainText.length > 60
+  const truncated = isLong ? plainText.substring(0, 60) + '...' : plainText
+  
+  return (
+    <div 
+      style={{ 
+        maxWidth: '200px',
+        position: 'relative',
+      }}
+      onClick={(e) => {
+        if (isLong) {
+          e.stopPropagation()
+          setExpanded(!expanded)
+        }
+      }}
+    >
+      {expanded ? (
+        <div 
+          style={{
+            position: 'absolute',
+            top: '-8px',
+            left: 0,
+            zIndex: 1000,
+            backgroundColor: '#fff',
+            border: '1px solid #ddd',
+            borderRadius: '4px',
+            padding: '8px',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+            maxWidth: '300px',
+            maxHeight: '200px',
+            overflow: 'auto',
+            cursor: 'pointer',
+          }}
+          dangerouslySetInnerHTML={{ __html: description }}
+        />
+      ) : (
+        <span 
+          style={{ 
+            color: '#555',
+            fontSize: '12px',
+            cursor: isLong ? 'pointer' : 'default',
+          }}
+          title={isLong ? 'Klicken zum Erweitern' : plainText}
+        >
+          {truncated}
+        </span>
+      )}
     </div>
   )
 }
@@ -655,12 +739,19 @@ export default function TodoGroupedView({ todos, resources, onTodoDoubleClick, o
     }
   }, [selectedForLinking, onDataChanged])
 
-  // Get resource name by ID
+  // Get resource name by ID (legacy - kept for potential future use)
   const getResourceName = useCallback((departmentId?: number, machineId?: number, employeeId?: number) => {
     const id = machineId || employeeId || departmentId
     if (!id) return '-'
     const resource = resources.find(r => r.id === id)
     return resource?.name || '-'
+  }, [resources])
+
+  // Get machine name by ID
+  const getMachineName = useCallback((machineId?: number) => {
+    if (!machineId) return '-'
+    const machine = resources.find(r => r.id === machineId && r.resource_type === 'machine')
+    return machine?.name || '-'
   }, [resources])
 
   // Group todos by order_name and sort by priority
@@ -1001,14 +1092,13 @@ export default function TodoGroupedView({ todos, resources, onTodoDoubleClick, o
                       />
                     </th>
                     <th style={{ ...styles.tableHeader, width: '50px' }}>Prio</th>
-                    <th style={{ ...styles.tableHeader, width: '30%' }}>Titel</th>
-                    <th style={{ ...styles.tableHeader, width: '100px' }}>Status</th>
-                    <th style={styles.tableHeader}>Artikel</th>
+                    <th style={{ ...styles.tableHeader, minWidth: '200px' }}>Artikel</th>
+                    <th style={{ ...styles.tableHeader, minWidth: '150px' }}>Zusatzinfos</th>
                     <th style={{ ...styles.tableHeader, width: '40px', textAlign: 'center' }} title="Ordnerpfad kopieren">📁</th>
-                    <th style={styles.tableHeader}>Arbeitsgang</th>
+                    <th style={{ ...styles.tableHeader, width: '100px' }}>Status</th>
                     <th style={{ ...styles.tableHeader, width: '100px' }}>Start</th>
                     <th style={{ ...styles.tableHeader, width: '80px' }}>Dauer</th>
-                    <th style={styles.tableHeader}>Ressource</th>
+                    <th style={{ ...styles.tableHeader, minWidth: '100px' }}>Maschine</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1052,21 +1142,15 @@ export default function TodoGroupedView({ todos, resources, onTodoDoubleClick, o
                         <td style={styles.tableCell}>
                           <PriorityBadge priority={todo.priority} />
                         </td>
-                        <td style={styles.tableCell}>{todo.title}</td>
-                        <td style={styles.tableCell}>
-                          <span style={styles.statusCell}>
-                            <span style={{
-                              ...styles.statusDot,
-                              backgroundColor: statusColors[todo.status] || '#888',
-                            }} />
-                            {statusLabels[todo.status] || todo.status}
-                          </span>
-                        </td>
                         <td style={styles.tableCell}>
                           <TodoRowThumbnail 
                             articleId={todo.erp_order_article_id || todo.erp_packingnote_details_id}
                             articleNumber={todo.order_article_number || todo.bom_article_number}
+                            articleDescription={todo.article_description}
                           />
+                        </td>
+                        <td style={styles.tableCell}>
+                          <TodoDescriptionCell description={todo.description} />
                         </td>
                         <td style={{ ...styles.tableCell, textAlign: 'center' }}>
                           {(todo.order_article_path || todo.bom_article_path) ? (
@@ -1089,7 +1173,13 @@ export default function TodoGroupedView({ todos, resources, onTodoDoubleClick, o
                           )}
                         </td>
                         <td style={styles.tableCell}>
-                          {todo.workstep_name || '-'}
+                          <span style={styles.statusCell}>
+                            <span style={{
+                              ...styles.statusDot,
+                              backgroundColor: statusColors[todo.status] || '#888',
+                            }} />
+                            {statusLabels[todo.status] || todo.status}
+                          </span>
                         </td>
                         <td style={styles.tableCell}>
                           {formatDate(todo.planned_start)}
@@ -1098,11 +1188,7 @@ export default function TodoGroupedView({ todos, resources, onTodoDoubleClick, o
                           {formatDuration(todo.total_duration_minutes)}
                         </td>
                         <td style={styles.tableCell}>
-                          {getResourceName(
-                            todo.assigned_department_id,
-                            todo.assigned_machine_id,
-                            todo.assigned_employee_id
-                          )}
+                          {getMachineName(todo.assigned_machine_id)}
                         </td>
                       </tr>
                     )

@@ -19,6 +19,11 @@ import { getTodosWithERPDetails, getResources, deleteTodo, updateTodo } from '..
 import { PPSTodoWithERPDetails, PPSResource, TodoStatus } from '../services/ppsTypes'
 import TodoEditDialog from '../components/pps/TodoEditDialog'
 import TodoGroupedView from '../components/pps/TodoGroupedView'
+import { 
+  FilterPreset, FilterPresetConfig,
+  getFilterPresets, getFavoritePreset, createFilterPreset, 
+  updateFilterPreset, deleteFilterPreset, setFavoritePreset 
+} from '../services/filterPresetApi'
 
 const styles = {
   container: {
@@ -214,6 +219,16 @@ export default function TodoListPage() {
   // View mode toggle (flat list vs grouped by order)
   const [viewMode, setViewMode] = useState<'flat' | 'grouped'>('grouped')
 
+  // Filter presets
+  const [presets, setPresets] = useState<FilterPreset[]>([])
+  const [selectedPresetId, setSelectedPresetId] = useState<number | null>(null)
+  const [presetName, setPresetName] = useState('')
+  const [showPresetSave, setShowPresetSave] = useState(false)
+  const [presetsLoading, setPresetsLoading] = useState(false)
+  
+  // Simulated user ID (in production this would come from auth context)
+  const userId = 1  // TODO: Replace with actual user ID from auth
+
   // Check if any cumulative filter is active
   const hasActiveTypeFilter = filterOrders || filterArticles || filterOperations
   const hasActiveSearch = searchText.length > 0
@@ -255,6 +270,109 @@ export default function TodoListPage() {
   useEffect(() => {
     loadData()
   }, [loadData])
+
+  // Load filter presets on mount
+  const loadPresets = useCallback(async () => {
+    setPresetsLoading(true)
+    try {
+      const [presetsData, favoriteData] = await Promise.all([
+        getFilterPresets('todo_list', userId),
+        getFavoritePreset('todo_list', userId)
+      ])
+      setPresets(presetsData)
+      
+      // Apply favorite preset if exists
+      if (favoriteData) {
+        applyPreset(favoriteData)
+        setSelectedPresetId(favoriteData.id)
+      }
+    } catch (err) {
+      console.error('Error loading presets:', err)
+    }
+    setPresetsLoading(false)
+  }, [userId])
+
+  useEffect(() => {
+    loadPresets()
+  }, [loadPresets])
+
+  // Apply preset filters
+  const applyPreset = useCallback((preset: FilterPreset) => {
+    const config = preset.filter_config
+    setDepartmentFilter(config.departmentFilter || '')
+    setMachineFilter(config.machineFilter || '')
+    setEmployeeFilter(config.employeeFilter || '')
+    setStatusFilter(config.statusFilter || '')
+    setViewMode((config.viewMode as 'flat' | 'grouped') || 'grouped')
+    setSelectedPresetId(preset.id)
+  }, [])
+
+  // Get current filter config
+  const getCurrentFilterConfig = useCallback((): FilterPresetConfig => ({
+    departmentFilter,
+    machineFilter,
+    employeeFilter,
+    statusFilter,
+    viewMode,
+  }), [departmentFilter, machineFilter, employeeFilter, statusFilter, viewMode])
+
+  // Save current filters as new preset
+  const handleSavePreset = useCallback(async () => {
+    if (!presetName.trim()) return
+    try {
+      const newPreset = await createFilterPreset({
+        name: presetName.trim(),
+        page: 'todo_list',
+        filter_config: getCurrentFilterConfig()
+      }, userId)
+      setPresets(prev => [...prev, newPreset])
+      setSelectedPresetId(newPreset.id)
+      setPresetName('')
+      setShowPresetSave(false)
+    } catch (err) {
+      console.error('Error saving preset:', err)
+    }
+  }, [presetName, getCurrentFilterConfig, userId])
+
+  // Update existing preset with current filters
+  const handleUpdatePreset = useCallback(async () => {
+    if (!selectedPresetId) return
+    try {
+      const updated = await updateFilterPreset(selectedPresetId, {
+        filter_config: getCurrentFilterConfig()
+      }, userId)
+      setPresets(prev => prev.map(p => p.id === updated.id ? updated : p))
+    } catch (err) {
+      console.error('Error updating preset:', err)
+    }
+  }, [selectedPresetId, getCurrentFilterConfig, userId])
+
+  // Delete preset
+  const handleDeletePreset = useCallback(async (presetId: number) => {
+    if (!window.confirm('Preset wirklich löschen?')) return
+    try {
+      await deleteFilterPreset(presetId, userId)
+      setPresets(prev => prev.filter(p => p.id !== presetId))
+      if (selectedPresetId === presetId) {
+        setSelectedPresetId(null)
+      }
+    } catch (err) {
+      console.error('Error deleting preset:', err)
+    }
+  }, [selectedPresetId, userId])
+
+  // Set as favorite
+  const handleSetFavorite = useCallback(async (presetId: number) => {
+    try {
+      await setFavoritePreset(presetId, userId)
+      setPresets(prev => prev.map(p => ({
+        ...p,
+        is_favorite: p.id === presetId
+      })))
+    } catch (err) {
+      console.error('Error setting favorite:', err)
+    }
+  }, [userId])
 
   // Apply local filters (type checkboxes + department/machine + search)
   useEffect(() => {
@@ -338,15 +456,27 @@ export default function TodoListPage() {
   const machines = useMemo(() => {
     const allMachines = resources.filter(r => r.resource_type === 'machine')
     if (!departmentFilter) return allMachines
-    // Filter machines by department
+    // Filter machines by department - use erp_id of the selected department
     const deptId = parseInt(departmentFilter)
-    return allMachines.filter(m => m.erp_department_id === deptId)
-  }, [resources, departmentFilter])
+    const selectedDepartment = departments.find(d => d.id === deptId)
+    if (!selectedDepartment) return allMachines
+    // Compare machine's erp_department_id with department's erp_id
+    const filtered = allMachines.filter(m => m.erp_department_id === selectedDepartment.erp_id)
+    return filtered.length > 0 ? filtered : allMachines
+  }, [resources, departmentFilter, departments])
 
-  // Get employees for filter dropdown
+  // Get employees for filter dropdown (filtered by department if selected)
   const employees = useMemo(() => {
-    return resources.filter(r => r.resource_type === 'employee')
-  }, [resources])
+    const allEmployees = resources.filter(r => r.resource_type === 'employee')
+    if (!departmentFilter) return allEmployees
+    // Filter employees by department - use erp_id of the selected department
+    const deptId = parseInt(departmentFilter)
+    const selectedDepartment = departments.find(d => d.id === deptId)
+    if (!selectedDepartment) return allEmployees
+    // Compare employee's erp_department_id with department's erp_id
+    const filtered = allEmployees.filter(e => e.erp_department_id === selectedDepartment.erp_id)
+    return filtered.length > 0 ? filtered : allEmployees
+  }, [resources, departmentFilter, departments])
 
   // Get resource name by ID
   const getResourceName = useCallback((departmentId?: number, machineId?: number, employeeId?: number) => {
@@ -701,6 +831,82 @@ export default function TodoListPage() {
       <div style={styles.header}>
         <span style={styles.title}>Auftrags-ToDos</span>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          {/* Filter Presets */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <select
+              style={{ ...styles.select, minWidth: '150px' }}
+              value={selectedPresetId || ''}
+              onChange={(e) => {
+                const id = e.target.value ? parseInt(e.target.value) : null
+                setSelectedPresetId(id)
+                if (id) {
+                  const preset = presets.find(p => p.id === id)
+                  if (preset) applyPreset(preset)
+                }
+              }}
+              disabled={presetsLoading}
+            >
+              <option value="">Filter-Preset...</option>
+              {presets.map(p => (
+                <option key={p.id} value={p.id}>
+                  {p.is_favorite ? '⭐ ' : ''}{p.name}
+                </option>
+              ))}
+            </select>
+            
+            {selectedPresetId && (
+              <>
+                <button 
+                  style={styles.button} 
+                  onClick={handleUpdatePreset}
+                  title="Aktuelles Preset mit aktuellen Filtern aktualisieren"
+                >
+                  💾
+                </button>
+                <button 
+                  style={styles.button} 
+                  onClick={() => handleSetFavorite(selectedPresetId)}
+                  title="Als Standard-Preset festlegen"
+                >
+                  ⭐
+                </button>
+                <button 
+                  style={{ ...styles.button, color: '#cc0000' }} 
+                  onClick={() => handleDeletePreset(selectedPresetId)}
+                  title="Preset löschen"
+                >
+                  🗑
+                </button>
+              </>
+            )}
+            
+            {showPresetSave ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <input
+                  type="text"
+                  value={presetName}
+                  onChange={(e) => setPresetName(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleSavePreset()}
+                  placeholder="Preset-Name..."
+                  style={{ ...styles.searchInput, width: '120px' }}
+                  autoFocus
+                />
+                <button style={styles.button} onClick={handleSavePreset}>✓</button>
+                <button style={styles.button} onClick={() => { setShowPresetSave(false); setPresetName('') }}>✕</button>
+              </div>
+            ) : (
+              <button 
+                style={styles.button} 
+                onClick={() => setShowPresetSave(true)}
+                title="Aktuelle Filter als neues Preset speichern"
+              >
+                + Preset
+              </button>
+            )}
+          </div>
+          
+          <div style={styles.separator} />
+          
           {/* View mode toggle */}
           <button
             style={{

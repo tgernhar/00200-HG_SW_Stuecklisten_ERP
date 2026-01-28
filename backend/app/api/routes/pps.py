@@ -1638,6 +1638,47 @@ async def get_workstep_machines(workstep_id: int, db: Session = Depends(get_db))
         raise HTTPException(status_code=500, detail=f"Fehler beim Laden der Maschinen: {str(e)}")
 
 
+@router.get("/workplan-details/{workplan_detail_id}/qualified-machines", response_model=List[MachineOption])
+async def get_qualified_machines_for_workplan_detail(workplan_detail_id: int, db: Session = Depends(get_db)):
+    """
+    Get all machines (qualificationitem) that are qualified to perform a specific workplan_detail.
+    
+    Logic:
+    1. Get the workstep(s) associated with the workplan_detail's qualificationitem
+    2. Find all qualificationitems (machines) that can perform those worksteps
+    """
+    from app.core.database import get_erp_db_connection
+    
+    try:
+        erp_conn = get_erp_db_connection()
+        cursor = erp_conn.cursor(dictionary=True)
+        
+        # Get the workstep(s) for this workplan_detail via its qualificationitem
+        cursor.execute("""
+            SELECT DISTINCT qi.id, qi.name, qi.description, qi.department
+            FROM workplan_details wpd
+            JOIN qualificationitem orig_qi ON orig_qi.id = wpd.qualificationitem
+            JOIN qualificationitem_workstep orig_qiws ON orig_qiws.item = orig_qi.id
+            JOIN qualificationitem_workstep qiws ON qiws.workstep = orig_qiws.workstep
+            JOIN qualificationitem qi ON qi.id = qiws.item
+            WHERE wpd.id = %s
+            ORDER BY qi.name
+        """, (workplan_detail_id,))
+        
+        rows = cursor.fetchall()
+        cursor.close()
+        erp_conn.close()
+        
+        return [MachineOption(
+            id=row['id'], 
+            name=row['name'] or 'Unbekannt',
+            description=row['description']
+        ) for row in rows]
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Fehler beim Laden der qualifizierten Maschinen: {str(e)}")
+
+
 # ============== Batch Operations ==============
 
 @router.post("/todos/batch-update", response_model=BatchUpdateResponse)

@@ -9,7 +9,8 @@
  * - Creating new todos from ERP hierarchy via "+" buttons
  */
 import React, { useState, useEffect, useMemo, useCallback } from 'react'
-import { updateTodo, getResources, deleteTodo, createTodo, getTodoDependencies, createDependency, deleteDependency } from '../../services/ppsApi'
+import { updateTodo, getResources, deleteTodo, createTodo, getTodoDependencies, createDependency, deleteDependency, getQualifiedMachinesForWorkplanDetail } from '../../services/ppsApi'
+import { MachineOption } from '../../services/ppsTypes'
 import { PPSTodoWithERPDetails, PPSTodoUpdate, PPSTodoCreate, PPSResource, TodoStatus, TodoType, OrderArticleOption, BomItemOption, WorkstepOption, AllWorkstepOption, PPSTodo } from '../../services/ppsTypes'
 import ErpPickerDialog, { PickerType } from './ErpPickerDialog'
 import RichTextEditor from './RichTextEditor'
@@ -485,6 +486,8 @@ export default function TodoEditDialog({
   const [departments, setDepartments] = useState<PPSResource[]>([])
   const [machines, setMachines] = useState<PPSResource[]>([])
   const [employees, setEmployees] = useState<PPSResource[]>([])
+  // Qualified machines based on workplan_detail (workstep)
+  const [qualifiedMachineIds, setQualifiedMachineIds] = useState<Set<number> | null>(null)
   
   // State
   const [saving, setSaving] = useState(false)
@@ -508,6 +511,26 @@ export default function TodoEditDialog({
     }
     loadResources()
   }, [])
+  
+  // Load qualified machines if todo has a workplan_detail (workstep)
+  useEffect(() => {
+    const loadQualifiedMachines = async () => {
+      if (!todo.erp_workplan_detail_id) {
+        setQualifiedMachineIds(null)
+        return
+      }
+      try {
+        const qualifiedMachines = await getQualifiedMachinesForWorkplanDetail(todo.erp_workplan_detail_id)
+        // Convert to Set of ERP IDs (qualificationitem.id = erp_id in our resource cache)
+        const erpIds = new Set(qualifiedMachines.map(m => m.id))
+        setQualifiedMachineIds(erpIds)
+      } catch (err) {
+        console.error('Error loading qualified machines:', err)
+        setQualifiedMachineIds(null)
+      }
+    }
+    loadQualifiedMachines()
+  }, [todo.erp_workplan_detail_id])
 
   // Load dependencies when dependencies tab is selected
   useEffect(() => {
@@ -663,25 +686,33 @@ export default function TodoEditDialog({
   const hasErpData = todo.order_name || todo.order_article_number || 
                      todo.bom_article_number || todo.workstep_name
 
-  // Filter machines based on selected department
-  // If no department selected, show all machines
-  // If department selected, show only machines belonging to that department
-  // Fallback: If no machines match (e.g. erp_department_id not synced), show all machines
+  // Filter machines based on:
+  // 1. Selected department (if any)
+  // 2. Qualified machines for the workstep (if todo has erp_workplan_detail_id)
+  // The final result is the intersection of both filters
   const filteredMachines = useMemo(() => {
-    if (!assignedDepartmentId) {
-      return machines
+    let result = machines
+    
+    // Filter by qualification (workstep) if available
+    if (qualifiedMachineIds && qualifiedMachineIds.size > 0) {
+      result = result.filter(m => qualifiedMachineIds.has(m.erp_id))
     }
-    // Find the department's erp_id to match against machine's erp_department_id
-    const selectedDepartment = departments.find(d => d.id === assignedDepartmentId)
-    if (!selectedDepartment) {
-      return machines
+    
+    // Filter by department if selected
+    if (assignedDepartmentId) {
+      const selectedDepartment = departments.find(d => d.id === assignedDepartmentId)
+      if (selectedDepartment) {
+        const deptFiltered = result.filter(m => m.erp_department_id === selectedDepartment.erp_id)
+        // Only apply department filter if it produces results
+        if (deptFiltered.length > 0) {
+          result = deptFiltered
+        }
+      }
     }
-    const result = machines.filter(m => m.erp_department_id === selectedDepartment.erp_id)
 
-    // Fallback: If no machines match the department filter (e.g. erp_department_id not synced yet),
-    // show all machines instead of an empty list
+    // Fallback: If no machines match any filter, show all machines
     return result.length > 0 ? result : machines
-  }, [machines, departments, assignedDepartmentId])
+  }, [machines, departments, assignedDepartmentId, qualifiedMachineIds])
 
   // Filter employees based on selected department (same logic as machines)
   // If no department selected, show all employees
@@ -1070,11 +1101,11 @@ export default function TodoEditDialog({
               
               {/* Description field with Rich Text Editor */}
               <div style={{ ...styles.formGroup, marginBottom: '15px' }}>
-                <label style={styles.label}>Beschreibung</label>
+                <label style={styles.label}>Zusatzinfos</label>
                 <RichTextEditor
                   value={description}
                   onChange={setDescription}
-                  placeholder="Beschreibung eingeben..."
+                  placeholder="Zusatzinfos eingeben..."
                   minHeight={180}
                   maxHeight={300}
                 />

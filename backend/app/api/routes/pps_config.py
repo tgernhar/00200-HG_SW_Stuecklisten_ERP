@@ -3,15 +3,19 @@ PPS Configuration API Routes
 
 Endpoints for production planning configuration:
 - Working hours (core time) management
+- Filter presets for PPS pages
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 from datetime import time, datetime
 
 from app.core.database import get_db
-from app.models.pps_todo import PPSWorkingHours
-from app.schemas.pps import WorkingHours, WorkingHoursUpdate, WorkingHoursListResponse
+from app.models.pps_todo import PPSWorkingHours, PPSUserFilterPreset
+from app.schemas.pps import (
+    WorkingHours, WorkingHoursUpdate, WorkingHoursListResponse,
+    FilterPreset, FilterPresetCreate, FilterPresetUpdate, FilterPresetList, FilterPresetConfig
+)
 
 
 router = APIRouter(prefix="/pps/config", tags=["PPS Configuration"])
@@ -147,3 +151,183 @@ async def update_working_hours(
     # Sort by day_of_week and convert to schema
     result_items.sort(key=lambda x: x.day_of_week)
     return WorkingHoursListResponse(items=[_db_to_schema(h) for h in result_items])
+
+
+# ============== Filter Presets ==============
+
+@router.get("/filter-presets", response_model=FilterPresetList)
+async def get_filter_presets(
+    page: str,
+    user_id: int = Header(alias="X-User-ID"),
+    db: Session = Depends(get_db)
+):
+    """Get all filter presets for a user on a specific page.
+    
+    Args:
+        page: Page identifier (e.g., "todo_list", "planboard")
+        user_id: User ID from header
+    """
+    presets = db.query(PPSUserFilterPreset).filter(
+        PPSUserFilterPreset.user_id == user_id,
+        PPSUserFilterPreset.page == page
+    ).order_by(
+        PPSUserFilterPreset.is_favorite.desc(),
+        PPSUserFilterPreset.name
+    ).all()
+    
+    return FilterPresetList(items=presets)
+
+
+@router.get("/filter-presets/favorite", response_model=Optional[FilterPreset])
+async def get_favorite_preset(
+    page: str,
+    user_id: int = Header(alias="X-User-ID"),
+    db: Session = Depends(get_db)
+):
+    """Get the favorite preset for a user on a specific page.
+    
+    Returns None if no favorite is set.
+    """
+    preset = db.query(PPSUserFilterPreset).filter(
+        PPSUserFilterPreset.user_id == user_id,
+        PPSUserFilterPreset.page == page,
+        PPSUserFilterPreset.is_favorite == True
+    ).first()
+    
+    if not preset:
+        return None
+    
+    return preset
+
+
+@router.post("/filter-presets", response_model=FilterPreset)
+async def create_filter_preset(
+    payload: FilterPresetCreate,
+    user_id: int = Header(alias="X-User-ID"),
+    db: Session = Depends(get_db)
+):
+    """Create a new filter preset.
+    
+    The first preset for a page is automatically set as favorite.
+    """
+    # Check if this is the first preset for this page
+    existing_count = db.query(PPSUserFilterPreset).filter(
+        PPSUserFilterPreset.user_id == user_id,
+        PPSUserFilterPreset.page == payload.page
+    ).count()
+    
+    preset = PPSUserFilterPreset(
+        user_id=user_id,
+        name=payload.name,
+        page=payload.page,
+        is_favorite=(existing_count == 0),  # First one is favorite
+        filter_config=payload.filter_config.model_dump(),
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow()
+    )
+    
+    db.add(preset)
+    db.commit()
+    db.refresh(preset)
+    
+    return preset
+
+
+@router.patch("/filter-presets/{preset_id}", response_model=FilterPreset)
+async def update_filter_preset(
+    preset_id: int,
+    payload: FilterPresetUpdate,
+    user_id: int = Header(alias="X-User-ID"),
+    db: Session = Depends(get_db)
+):
+    """Update a filter preset (partial update)."""
+    preset = db.query(PPSUserFilterPreset).filter(
+        PPSUserFilterPreset.id == preset_id,
+        PPSUserFilterPreset.user_id == user_id  # Security: only own presets
+    ).first()
+    
+    if not preset:
+        raise HTTPException(status_code=404, detail="Preset nicht gefunden")
+    
+    if payload.name is not None:
+        preset.name = payload.name
+    
+    if payload.filter_config is not None:
+        preset.filter_config = payload.filter_config.model_dump()
+    
+    if payload.is_favorite is not None:
+        preset.is_favorite = payload.is_favorite
+    
+    preset.updated_at = datetime.utcnow()
+    
+    db.commit()
+    db.refresh(preset)
+    
+    return preset
+
+
+@router.delete("/filter-presets/{preset_id}")
+async def delete_filter_preset(
+    preset_id: int,
+    user_id: int = Header(alias="X-User-ID"),
+    db: Session = Depends(get_db)
+):
+    """Delete a filter preset."""
+    preset = db.query(PPSUserFilterPreset).filter(
+        PPSUserFilterPreset.id == preset_id,
+        PPSUserFilterPreset.user_id == user_id  # Security: only own presets
+    ).first()
+    
+    if not preset:
+        raise HTTPException(status_code=404, detail="Preset nicht gefunden")
+    
+    was_favorite = preset.is_favorite
+    page = preset.page
+    
+    db.delete(preset)
+    db.commit()
+    
+    # If deleted preset was favorite, make another one favorite
+    if was_favorite:
+        next_preset = db.query(PPSUserFilterPreset).filter(
+            PPSUserFilterPreset.user_id == user_id,
+            PPSUserFilterPreset.page == page
+        ).first()
+        
+        if next_preset:
+            next_preset.is_favorite = True
+            db.commit()
+    
+    return {"message": "Preset gelöscht", "id": preset_id}
+
+
+@router.post("/filter-presets/{preset_id}/set-favorite", response_model=FilterPreset)
+async def set_favorite_preset(
+    preset_id: int,
+    user_id: int = Header(alias="X-User-ID"),
+    db: Session = Depends(get_db)
+):
+    """Set a preset as favorite (removes favorite from others on same page)."""
+    preset = db.query(PPSUserFilterPreset).filter(
+        PPSUserFilterPreset.id == preset_id,
+        PPSUserFilterPreset.user_id == user_id
+    ).first()
+    
+    if not preset:
+        raise HTTPException(status_code=404, detail="Preset nicht gefunden")
+    
+    # Remove favorite from all other presets on same page
+    db.query(PPSUserFilterPreset).filter(
+        PPSUserFilterPreset.user_id == user_id,
+        PPSUserFilterPreset.page == preset.page,
+        PPSUserFilterPreset.id != preset_id
+    ).update({"is_favorite": False})
+    
+    # Set this one as favorite
+    preset.is_favorite = True
+    preset.updated_at = datetime.utcnow()
+    
+    db.commit()
+    db.refresh(preset)
+    
+    return preset

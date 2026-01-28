@@ -286,3 +286,17 @@ class PPSAuditLog(Base):
     old_values = Column(JSON, nullable=True)
     new_values = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+class PPSUserFilterPreset(Base):
+    """User-specific filter presets for PPS pages"""
+    __tablename__ = "pps_user_filter_presets"
+    
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id = Column(Integer, nullable=False, index=True)  # userlogin.id
+    name = Column(String(100), nullable=False)  # Preset display name
+    page = Column(String(50), nullable=False, index=True)  # "todo_list", "planboard", etc.
+    is_favorite = Column(Boolean, nullable=False, default=False)  # Auto-load on page open
+    filter_config = Column(JSON, nullable=False)  # Serialized filter settings
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

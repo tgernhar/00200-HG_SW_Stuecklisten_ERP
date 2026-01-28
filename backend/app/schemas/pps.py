@@ -175,6 +175,7 @@ class TodoWithERPDetails(Todo):
     order_article_path: Optional[str] = None  # article.customtext7 via order_article (folder path)
     bom_article_number: Optional[str] = None  # article.articlenumber via packingnote_details
     bom_article_path: Optional[str] = None  # article.customtext7 via packingnote_details (folder path)
+    article_description: Optional[str] = None  # article.description from HUGWAWI
     workstep_name: Optional[str] = None  # qualificationitem.name via workplan_details
     # Link status for display
     has_predecessor: bool = False  # Has incoming link (is successor)
@@ -550,6 +551,54 @@ class TodoDependenciesResponse(BaseModel):
     """Response containing predecessors and successors of a todo"""
     predecessors: List[Todo]
     successors: List[Todo]
+
+
+# ============== Filter Preset Schemas ==============
+
+class FilterPresetConfig(BaseModel):
+    """Filter configuration stored in preset"""
+    departmentFilter: Optional[str] = ""
+    machineFilter: Optional[str] = ""
+    employeeFilter: Optional[str] = ""
+    statusFilter: Optional[str] = ""
+    viewMode: Optional[str] = "grouped"
+    # Additional filters can be added here
+
+
+class FilterPresetBase(BaseModel):
+    """Base schema for filter preset"""
+    name: str
+    page: str  # "todo_list", "planboard", etc.
+    filter_config: FilterPresetConfig
+
+
+class FilterPresetCreate(FilterPresetBase):
+    """Create a new filter preset"""
+    pass
+
+
+class FilterPresetUpdate(BaseModel):
+    """Update filter preset (partial)"""
+    name: Optional[str] = None
+    filter_config: Optional[FilterPresetConfig] = None
+    is_favorite: Optional[bool] = None
+
+
+class FilterPreset(FilterPresetBase):
+    """Filter preset response"""
+    id: int
+    user_id: int
+    is_favorite: bool = False
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class FilterPresetList(BaseModel):
+    """List of filter presets"""
+    items: List[FilterPreset]
 
 
 # Forward references for self-referencing models

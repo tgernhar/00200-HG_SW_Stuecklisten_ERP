@@ -294,6 +294,11 @@ export async function getWorkstepMachines(workstepId: number): Promise<MachineOp
   return response.data
 }
 
+export async function getQualifiedMachinesForWorkplanDetail(workplanDetailId: number): Promise<MachineOption[]> {
+  const response = await api.get(`${BASE_URL}/workplan-details/${workplanDetailId}/qualified-machines`)
+  return response.data
+}
+
 // ============== Batch Operations ==============
 
 export interface BatchUpdateItem {
@@ -381,6 +386,7 @@ export const ppsApi = {
   getBomWorksteps,
   getAllWorksteps,
   getWorkstepMachines,
+  getQualifiedMachinesForWorkplanDetail,
   // Batch operations
   batchUpdateTodos,
   shiftAllTodos,

@@ -85,8 +85,10 @@ def resolve_erp_details_for_todos(todos: List[PPSTodo]) -> List[Dict[str, Any]]:
     order_names: Dict[int, str] = {}
     order_article_numbers: Dict[int, str] = {}
     order_article_paths: Dict[int, str] = {}
+    order_article_descriptions: Dict[int, str] = {}
     bom_article_numbers: Dict[int, str] = {}
     bom_article_paths: Dict[int, str] = {}
+    bom_article_descriptions: Dict[int, str] = {}
     workstep_names: Dict[int, str] = {}
     
     erp_conn = None
@@ -103,11 +105,11 @@ def resolve_erp_details_for_todos(todos: List[PPSTodo]) -> List[Dict[str, Any]]:
             for row in cursor.fetchall():
                 order_names[row['id']] = row['name']
         
-        # Get order article numbers and folder paths (via article table)
+        # Get order article numbers, folder paths and descriptions (via article table)
         if order_article_ids:
             placeholders = ','.join(['%s'] * len(order_article_ids))
             cursor.execute(f"""
-                SELECT oa.id, art.articlenumber, art.customtext7 as folder_path
+                SELECT oa.id, art.articlenumber, art.customtext7 as folder_path, art.description
                 FROM order_article oa
                 JOIN article art ON oa.articleid = art.id
                 WHERE oa.id IN ({placeholders})
@@ -116,12 +118,14 @@ def resolve_erp_details_for_todos(todos: List[PPSTodo]) -> List[Dict[str, Any]]:
                 order_article_numbers[row['id']] = row['articlenumber']
                 if row['folder_path']:
                     order_article_paths[row['id']] = row['folder_path']
+                if row['description']:
+                    order_article_descriptions[row['id']] = row['description']
         
-        # Get BOM article numbers and folder paths (via packingnote_details -> article)
+        # Get BOM article numbers, folder paths and descriptions (via packingnote_details -> article)
         if packingnote_details_ids:
             placeholders = ','.join(['%s'] * len(packingnote_details_ids))
             cursor.execute(f"""
-                SELECT pd.id, art.articlenumber, art.customtext7 as folder_path
+                SELECT pd.id, art.articlenumber, art.customtext7 as folder_path, art.description
                 FROM packingnote_details pd
                 LEFT JOIN article art ON art.id = pd.article
                 WHERE pd.id IN ({placeholders})
@@ -131,6 +135,8 @@ def resolve_erp_details_for_todos(todos: List[PPSTodo]) -> List[Dict[str, Any]]:
                     bom_article_numbers[row['id']] = row['articlenumber']
                 if row['folder_path']:
                     bom_article_paths[row['id']] = row['folder_path']
+                if row['description']:
+                    bom_article_descriptions[row['id']] = row['description']
         
         # Get workstep names (via workplan_details -> qualificationitem)
         if workplan_detail_ids:
@@ -195,6 +201,12 @@ def resolve_erp_details_for_todos(todos: List[PPSTodo]) -> List[Dict[str, Any]]:
             'order_article_path': order_article_paths.get(todo.erp_order_article_id) if todo.erp_order_article_id else None,
             'bom_article_number': bom_article_numbers.get(todo.erp_packingnote_details_id) if todo.erp_packingnote_details_id else None,
             'bom_article_path': bom_article_paths.get(todo.erp_packingnote_details_id) if todo.erp_packingnote_details_id else None,
+            # Article description - prefer order_article, fallback to bom_article
+            'article_description': (
+                order_article_descriptions.get(todo.erp_order_article_id) if todo.erp_order_article_id 
+                else bom_article_descriptions.get(todo.erp_packingnote_details_id) if todo.erp_packingnote_details_id 
+                else None
+            ),
             'workstep_name': workstep_names.get(todo.erp_workplan_detail_id) if todo.erp_workplan_detail_id else None,
         }
         result.append(todo_dict)
