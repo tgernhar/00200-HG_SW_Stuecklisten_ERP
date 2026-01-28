@@ -11,8 +11,8 @@ import React, { useEffect, useRef, useCallback, useState } from 'react'
 // @ts-ignore - DHTMLX Gantt doesn't have official TS types
 import { gantt } from 'dhtmlx-gantt'
 import 'dhtmlx-gantt/codebase/dhtmlxgantt.css'
-import { GanttTask, GanttLink, GanttData } from '../../services/ppsTypes'
-import { WorkingHours } from '../../services/ppsApi'
+import { GanttTask, GanttLink, GanttData, TodoTypeConfig } from '../../services/ppsTypes'
+import { WorkingHours, getTodoTypeConfigs } from '../../services/ppsApi'
 
 interface BatchUpdateItem {
   id: number
@@ -83,6 +83,58 @@ export default function GanttChart({
   // State for expand level (0 = all collapsed, higher = more levels expanded)
   const [expandLevel, setExpandLevel] = useState(0)
   
+  // State for todo type color configuration (loaded from database)
+  const [todoTypeConfigs, setTodoTypeConfigs] = useState<TodoTypeConfig[]>([])
+  
+  // Load todo type configurations on mount
+  useEffect(() => {
+    getTodoTypeConfigs()
+      .then(configs => setTodoTypeConfigs(configs))
+      .catch(err => console.warn('Failed to load todo type configs:', err))
+  }, [])
+  
+  // Generate dynamic CSS for todo type colors from database config
+  useEffect(() => {
+    if (todoTypeConfigs.length === 0) return
+    
+    // Helper to darken a hex color for progress bar
+    const darkenColor = (hex: string, percent: number = 20): string => {
+      const num = parseInt(hex.replace('#', ''), 16)
+      const r = Math.max(0, (num >> 16) - Math.round(255 * percent / 100))
+      const g = Math.max(0, ((num >> 8) & 0x00FF) - Math.round(255 * percent / 100))
+      const b = Math.max(0, (num & 0x0000FF) - Math.round(255 * percent / 100))
+      return `#${(r << 16 | g << 8 | b).toString(16).padStart(6, '0')}`
+    }
+    
+    // Generate CSS for each todo type from DB config
+    const cssRules = todoTypeConfigs
+      .filter(cfg => cfg.is_active && cfg.gantt_color)
+      .map(cfg => `
+        .todo-type-${cfg.todo_type} .gantt_task_content {
+          background-color: ${cfg.gantt_color} !important;
+        }
+        .todo-type-${cfg.todo_type} .gantt_task_progress {
+          background-color: ${darkenColor(cfg.gantt_color)} !important;
+        }
+      `).join('\n')
+    
+    // Create or update style element
+    const styleId = 'gantt-todo-type-colors'
+    let styleEl = document.getElementById(styleId) as HTMLStyleElement
+    if (!styleEl) {
+      styleEl = document.createElement('style')
+      styleEl.id = styleId
+      document.head.appendChild(styleEl)
+    }
+    styleEl.textContent = cssRules
+    
+    return () => {
+      // Cleanup on unmount
+      const el = document.getElementById(styleId)
+      if (el) el.remove()
+    }
+  }, [todoTypeConfigs])
+  
   // Update workingHours ref when it changes
   useEffect(() => {
     workingHoursRef.current = workingHours
@@ -150,23 +202,37 @@ export default function GanttChart({
     gantt.config.drag_progress = !readOnly  // Allow dragging progress bar
     gantt.config.drag_links = !readOnly
     
-    // Task appearance
-    gantt.config.row_height = 35
-    gantt.config.task_height = 24
+    // Task appearance (compact)
+    gantt.config.row_height = 23
+    gantt.config.task_height = 16
     
     // Disable vertical movement between rows - only horizontal drag allowed
     gantt.config.order_branch = false
     gantt.config.order_branch_free = false
     
-    // Base column (always visible)
+    // Base column (always visible) - wider for "Aufgabe"
     const baseColumns = [
-      { name: 'text', label: 'Aufgabe', tree: true, width: 200 },
+      { name: 'text', label: 'Aufgabe', tree: true, width: 340 },
     ]
     
-    // Additional columns (collapsible)
+    // Additional columns (collapsible) - resource_name removed
     const additionalColumns = [
       { name: 'priority', label: 'Prio', align: 'center', width: 50 },
-      { name: 'start_date', label: 'Start', align: 'center', width: 90 },
+      { 
+        name: 'start_date', 
+        label: 'Start', 
+        align: 'center', 
+        width: 70,
+        template: (task: GanttTask) => {
+          // Format date as dd-mm-yy
+          if (!task.start_date) return '-'
+          const date = new Date(task.start_date)
+          const day = String(date.getDate()).padStart(2, '0')
+          const month = String(date.getMonth() + 1).padStart(2, '0')
+          const year = String(date.getFullYear()).slice(-2)
+          return `${day}-${month}-${year}`
+        }
+      },
       { 
         name: 'duration', 
         label: 'Dauer', 
@@ -195,7 +261,6 @@ export default function GanttChart({
           return Math.round(task.progress * 100) + '%'
         }
       },
-      { name: 'resource_name', label: 'Ressource', width: 100 },
     ]
     
     // Grid columns - show all or only base based on collapsed state
@@ -352,6 +417,13 @@ export default function GanttChart({
     // Add custom CSS for conflicts, working hours, and scrollbars
     const style = document.createElement('style')
     style.textContent = `
+      /* Smaller font size for gantt grid (compact) */
+      .gantt_grid, .gantt_grid_scale, .gantt_task_scale {
+        font-size: 9px !important;
+      }
+      .gantt_grid_head_cell, .gantt_cell {
+        font-size: 9px !important;
+      }
       /* Custom scrollbar styling for gantt wrapper */
       .gantt-wrapper::-webkit-scrollbar {
         width: 15px;
@@ -392,31 +464,12 @@ export default function GanttChart({
       .gantt_task_line.gantt_selected {
         box-shadow: 0 0 5px #4a90d9;
       }
-      /* Todo type color coding */
-      .todo-type-container_order .gantt_task_content {
-        background-color: #4CAF50 !important; /* Green - Auftrag */
-      }
-      .todo-type-container_order .gantt_task_progress {
-        background-color: #388E3C !important;
-      }
-      .todo-type-container_article .gantt_task_content {
-        background-color: #8BC34A !important; /* Light Green - Auftragsartikel */
-      }
-      .todo-type-container_article .gantt_task_progress {
-        background-color: #689F38 !important;
-      }
-      .todo-type-bom_item .gantt_task_content {
-        background-color: #FF9800 !important; /* Orange - Stücklistenartikel */
-      }
-      .todo-type-bom_item .gantt_task_progress {
-        background-color: #F57C00 !important;
-      }
-      .todo-type-operation .gantt_task_content {
-        background-color: #2196F3 !important; /* Blue - Arbeitsgang */
-      }
-      .todo-type-operation .gantt_task_progress {
-        background-color: #1976D2 !important;
-      }
+      /* Todo type color coding - dynamically generated from database config */
+      /* Fallback colors if DB config not loaded yet */
+      .todo-type-container_order .gantt_task_content { background-color: #4CAF50 !important; }
+      .todo-type-container_article .gantt_task_content { background-color: #8BC34A !important; }
+      .todo-type-bom_item .gantt_task_content { background-color: #FF9800 !important; }
+      .todo-type-operation .gantt_task_content { background-color: #2196F3 !important; }
       /* Non-working time styling (outside core hours) */
       .non-working-time {
         background-color: #f0f0f0 !important;
@@ -724,6 +777,14 @@ export default function GanttChart({
   useEffect(() => {
     if (!initialized.current || !data) return
     
+    // Build color map from todo type configs
+    const colorMap: Record<string, string> = {}
+    todoTypeConfigs.forEach(cfg => {
+      if (cfg.gantt_color) {
+        colorMap[cfg.todo_type] = cfg.gantt_color
+      }
+    })
+    
     // Clear and reload
     gantt.clearAll()
     
@@ -734,6 +795,8 @@ export default function GanttChart({
         // Convert string dates to Date objects
         start_date: task.start_date ? new Date(task.start_date.replace(' ', 'T')) : null,
         end_date: task.end_date ? new Date(task.end_date.replace(' ', 'T')) : null,
+        // Set color from todo type config (DHTMLX Gantt uses this for inline styles)
+        color: task.todo_type && colorMap[task.todo_type] ? colorMap[task.todo_type] : undefined,
       })),
       links: data.links,
     })
@@ -766,7 +829,7 @@ export default function GanttChart({
       setExpandLevel(0)
     }, 100)
     
-  }, [data, dateFrom, dateTo])
+  }, [data, dateFrom, dateTo, todoTypeConfigs])
 
   // Toggle grid columns collapsed state
   const handleToggleColumns = useCallback(() => {

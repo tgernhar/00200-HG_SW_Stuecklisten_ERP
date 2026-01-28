@@ -224,6 +224,7 @@ export interface GanttTask {
   priority: number
   delivery_date?: string
   todo_type?: string  // 'container_order', 'container_article', 'bom_item', 'operation'
+  color?: string  // Hex color for Gantt bar (from pps_todo_type_config)
 }
 
 export interface GanttLink {
@@ -364,4 +365,22 @@ export interface MachineOption {
   id: number  // qualificationitem.id
   name: string
   description?: string
+}
+
+// ============== Todo Type Configuration ==============
+
+export interface TodoTypeConfig {
+  id: number
+  todo_type: string
+  display_name: string
+  title_prefix?: string
+  title_template: string
+  gantt_color: string  // Hex color for Gantt chart
+  gantt_type: string  // 'task' or 'project'
+  hierarchy_level: number
+  default_duration_minutes: number
+  is_active: boolean
+  sort_order: number
+  created_at?: string
+  updated_at?: string
 }

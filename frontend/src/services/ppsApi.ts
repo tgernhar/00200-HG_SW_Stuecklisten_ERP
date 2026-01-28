@@ -33,6 +33,7 @@ import {
   WorkstepOption,
   AllWorkstepOption,
   MachineOption,
+  TodoTypeConfig,
 } from './ppsTypes'
 
 const BASE_URL = '/pps'
@@ -355,6 +356,13 @@ export async function autoLinkSelectedTodos(todoIds: number[]): Promise<AutoLink
   return response.data
 }
 
+// ============== Todo Type Configuration ==============
+
+export async function getTodoTypeConfigs(): Promise<TodoTypeConfig[]> {
+  const response = await api.get<{ items: TodoTypeConfig[] }>(`${BASE_URL}/config/todo-types`)
+  return response.data.items
+}
+
 // Export all functions as a single object for convenience
 export const ppsApi = {
   getTodos,
@@ -392,6 +400,8 @@ export const ppsApi = {
   shiftAllTodos,
   getTodoDependencies,
   autoLinkSelectedTodos,
+  // Configuration
+  getTodoTypeConfigs,
 }
 
 export default ppsApi

@@ -48,6 +48,20 @@ class PPSTodoTypeConfig(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class PPSGanttConfig(Base):
+    """Configuration for Gantt chart display and calculation settings"""
+    __tablename__ = "pps_gantt_config"
+    
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    config_key = Column(String(50), nullable=False, unique=True)  # Configuration key
+    config_value = Column(String(200), nullable=False)  # Configuration value
+    config_type = Column(String(20), nullable=False, default='string')  # string, int, float, bool
+    description = Column(String(500), nullable=True)  # German description
+    category = Column(String(50), nullable=False, default='general')  # duration, time, display, colors
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class PPSResourceCache(Base):
     """Cached resources from HUGWAWI (departments, machines, employees)"""
     __tablename__ = "pps_resource_cache"

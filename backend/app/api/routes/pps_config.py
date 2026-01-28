@@ -427,3 +427,86 @@ def format_todo_title(config: PPSTodoTypeConfig, **kwargs) -> str:
         result = result.replace(f"{{{key}}}", str(value) if value is not None else "")
     
     return result.strip()
+
+
+# ============== Gantt Configuration ==============
+
+from app.models.pps_todo import PPSGanttConfig
+from app.schemas.pps import GanttConfig, GanttConfigList, GanttConfigDict, GanttConfigUpdate
+
+
+@router.get("/gantt-config", response_model=GanttConfigList)
+async def get_gantt_configs(
+    category: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """Get all Gantt configuration settings."""
+    query = db.query(PPSGanttConfig)
+    
+    if category:
+        query = query.filter(PPSGanttConfig.category == category)
+    
+    configs = query.order_by(PPSGanttConfig.category, PPSGanttConfig.config_key).all()
+    return GanttConfigList(items=configs)
+
+
+@router.get("/gantt-config/dict", response_model=GanttConfigDict)
+async def get_gantt_config_dict(
+    db: Session = Depends(get_db)
+):
+    """Get Gantt config as key-value dictionary for easy frontend access.
+    
+    Values are automatically converted to their proper types (int, float, bool).
+    """
+    configs = db.query(PPSGanttConfig).all()
+    
+    result = {}
+    for cfg in configs:
+        # Convert value to proper type
+        if cfg.config_type == 'int':
+            result[cfg.config_key] = int(cfg.config_value)
+        elif cfg.config_type == 'float':
+            result[cfg.config_key] = float(cfg.config_value)
+        elif cfg.config_type == 'bool':
+            result[cfg.config_key] = cfg.config_value.lower() in ('true', '1', 'yes')
+        else:
+            result[cfg.config_key] = cfg.config_value
+    
+    return GanttConfigDict(config=result)
+
+
+@router.get("/gantt-config/{config_key}", response_model=GanttConfig)
+async def get_gantt_config(
+    config_key: str,
+    db: Session = Depends(get_db)
+):
+    """Get specific Gantt config by key."""
+    config = db.query(PPSGanttConfig).filter(
+        PPSGanttConfig.config_key == config_key
+    ).first()
+    
+    if not config:
+        raise HTTPException(status_code=404, detail=f"Gantt-Konfiguration '{config_key}' nicht gefunden")
+    
+    return config
+
+
+@router.put("/gantt-config/{config_key}", response_model=GanttConfig)
+async def update_gantt_config(
+    config_key: str,
+    data: GanttConfigUpdate,
+    db: Session = Depends(get_db)
+):
+    """Update Gantt config value."""
+    config = db.query(PPSGanttConfig).filter(
+        PPSGanttConfig.config_key == config_key
+    ).first()
+    
+    if not config:
+        raise HTTPException(status_code=404, detail=f"Gantt-Konfiguration '{config_key}' nicht gefunden")
+    
+    config.config_value = data.config_value
+    db.commit()
+    db.refresh(config)
+    
+    return config

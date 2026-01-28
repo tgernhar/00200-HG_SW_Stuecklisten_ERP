@@ -653,6 +653,47 @@ class TodoTypeConfigList(BaseModel):
     items: List[TodoTypeConfig]
 
 
+# ============== Gantt Configuration Schemas ==============
+
+class GanttConfigBase(BaseModel):
+    """Base schema for Gantt configuration"""
+    config_key: str = Field(..., max_length=50, description="Configuration key")
+    config_value: str = Field(..., max_length=200, description="Configuration value")
+    config_type: str = Field(default='string', max_length=20, description="Value type: string, int, float, bool")
+    description: Optional[str] = Field(None, max_length=500, description="German description")
+    category: str = Field(default='general', max_length=50, description="Category: duration, time, display")
+
+
+class GanttConfigCreate(GanttConfigBase):
+    """Schema for creating Gantt config"""
+    pass
+
+
+class GanttConfigUpdate(BaseModel):
+    """Schema for updating Gantt config (only value)"""
+    config_value: str = Field(..., max_length=200)
+
+
+class GanttConfig(GanttConfigBase):
+    """Gantt config response"""
+    id: int
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class GanttConfigList(BaseModel):
+    """List of Gantt configs"""
+    items: List[GanttConfig]
+
+
+class GanttConfigDict(BaseModel):
+    """Gantt config as key-value dict for easy frontend access"""
+    config: Dict[str, Any]
+
+
 # ============== Todo from Selection Schemas ==============
 
 class TodoFromSelectionRequest(BaseModel):
