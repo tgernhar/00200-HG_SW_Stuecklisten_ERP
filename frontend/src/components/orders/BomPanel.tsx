@@ -10,6 +10,10 @@ import remarksApi from '../../services/remarksApi'
 
 interface BomPanelProps {
   orderArticleId: number
+  selectedBomItemIds?: Set<number>
+  onBomItemSelectionChange?: (bomItemIds: number[], selected: boolean) => void
+  selectedWorkstepIds?: Set<number>
+  onWorkstepSelectionChange?: (workstepIds: number[], selected: boolean) => void
 }
 
 const styles = {
@@ -102,12 +106,20 @@ const truncateText = (text: string, maxLength: number = 35): string => {
   return text.substring(0, maxLength - 3) + '...'
 }
 
-export default function BomPanel({ orderArticleId }: BomPanelProps) {
+export default function BomPanel({ 
+  orderArticleId,
+  selectedBomItemIds,
+  onBomItemSelectionChange,
+  selectedWorkstepIds,
+  onWorkstepSelectionChange
+}: BomPanelProps) {
   const [items, setItems] = useState<BomItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [expandedItems, setExpandedItems] = useState<Set<number>>(new Set())
-  const [selectedItems, setSelectedItems] = useState<Set<number>>(new Set())
+  // Use external selection if provided, otherwise use local state
+  const [localSelectedItems, setLocalSelectedItems] = useState<Set<number>>(new Set())
+  const selectedItems = selectedBomItemIds || localSelectedItems
   const [remarks, setRemarks] = useState<Map<number, HierarchyRemark>>(new Map())
   const [editingRemark, setEditingRemark] = useState<number | null>(null)
   const [remarkText, setRemarkText] = useState('')
@@ -180,25 +192,36 @@ export default function BomPanel({ orderArticleId }: BomPanelProps) {
   }
 
   const toggleSelect = (detailId: number) => {
-    setSelectedItems(prev => {
-      const next = new Set(prev)
-      if (next.has(detailId)) {
-        next.delete(detailId)
-      } else {
-        next.add(detailId)
-      }
-      return next
-    })
+    const isSelected = selectedItems.has(detailId)
+    if (onBomItemSelectionChange) {
+      onBomItemSelectionChange([detailId], !isSelected)
+    } else {
+      setLocalSelectedItems(prev => {
+        const next = new Set(prev)
+        if (next.has(detailId)) {
+          next.delete(detailId)
+        } else {
+          next.add(detailId)
+        }
+        return next
+      })
+    }
   }
 
   const toggleSelectAll = () => {
-    if (selectedItems.size === items.length) {
-      setSelectedItems(new Set())
+    const allIds = items
+      .map(i => i.detail_id)
+      .filter((id): id is number => id !== null)
+    
+    if (onBomItemSelectionChange) {
+      const allSelected = allIds.every(id => selectedItems.has(id))
+      onBomItemSelectionChange(allIds, !allSelected)
     } else {
-      const allIds = items
-        .map(i => i.detail_id)
-        .filter((id): id is number => id !== null)
-      setSelectedItems(new Set(allIds))
+      if (selectedItems.size === items.length) {
+        setLocalSelectedItems(new Set())
+      } else {
+        setLocalSelectedItems(new Set(allIds))
+      }
     }
   }
 
@@ -375,7 +398,11 @@ export default function BomPanel({ orderArticleId }: BomPanelProps) {
                 {isExpanded && item.detail_id && (
                   <tr>
                     <td colSpan={10} style={{ padding: 0, backgroundColor: '#f5faff' }}>
-                      <WorkplanPanel detailId={item.detail_id} />
+                      <WorkplanPanel 
+                        detailId={item.detail_id}
+                        selectedWorkstepIds={selectedWorkstepIds}
+                        onWorkstepSelectionChange={onWorkstepSelectionChange}
+                      />
                     </td>
                   </tr>
                 )}

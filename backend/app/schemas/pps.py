@@ -14,6 +14,7 @@ from enum import Enum
 class TodoType(str, Enum):
     CONTAINER_ORDER = "container_order"
     CONTAINER_ARTICLE = "container_article"
+    BOM_ITEM = "bom_item"  # Stücklistenartikel (BOM item)
     OPERATION = "operation"
     EIGENE = "eigene"  # Employee-specific personal todos
     TASK = "task"  # Generic task
@@ -22,6 +23,7 @@ class TodoType(str, Enum):
 
 class TodoStatus(str, Enum):
     NEW = "new"
+    PENDING = "pending"  # Legacy status, equivalent to "new"
     PLANNED = "planned"
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
@@ -308,6 +310,7 @@ class GanttTask(BaseModel):
     has_conflict: bool = False
     priority: int = 0
     delivery_date: Optional[str] = None
+    todo_type: Optional[str] = None  # 'container_order', 'container_article', 'bom_item', 'operation'
 
 
 class GanttLink(BaseModel):
@@ -599,6 +602,72 @@ class FilterPreset(FilterPresetBase):
 class FilterPresetList(BaseModel):
     """List of filter presets"""
     items: List[FilterPreset]
+
+
+# ============== Todo Type Config Schemas ==============
+
+class TodoTypeConfigBase(BaseModel):
+    """Base schema for todo type configuration"""
+    todo_type: str
+    display_name: str
+    title_prefix: Optional[str] = ""
+    title_template: str
+    gantt_color: str
+    gantt_type: str = "task"
+    hierarchy_level: int
+    default_duration_minutes: int = 60
+    is_active: bool = True
+    sort_order: int = 0
+
+
+class TodoTypeConfigCreate(TodoTypeConfigBase):
+    """Create todo type config"""
+    pass
+
+
+class TodoTypeConfigUpdate(BaseModel):
+    """Update todo type config (partial)"""
+    display_name: Optional[str] = None
+    title_prefix: Optional[str] = None
+    title_template: Optional[str] = None
+    gantt_color: Optional[str] = None
+    gantt_type: Optional[str] = None
+    hierarchy_level: Optional[int] = None
+    default_duration_minutes: Optional[int] = None
+    is_active: Optional[bool] = None
+    sort_order: Optional[int] = None
+
+
+class TodoTypeConfig(TodoTypeConfigBase):
+    """Todo type config response"""
+    id: int
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class TodoTypeConfigList(BaseModel):
+    """List of todo type configs"""
+    items: List[TodoTypeConfig]
+
+
+# ============== Todo from Selection Schemas ==============
+
+class TodoFromSelectionRequest(BaseModel):
+    """Request to create todos from multi-level selection"""
+    order_ids: List[int] = []          # Create container_order todos
+    order_article_ids: List[int] = []  # Create container_article todos
+    bom_item_ids: List[int] = []       # Create bom_item todos (packingnote_details)
+    workstep_ids: List[int] = []       # Create operation todos (workplan_detail)
+
+
+class TodoFromSelectionResponse(BaseModel):
+    """Response with created todos"""
+    created_count: int
+    created_todo_ids: List[int]
+    errors: List[str] = []
 
 
 # Forward references for self-referencing models

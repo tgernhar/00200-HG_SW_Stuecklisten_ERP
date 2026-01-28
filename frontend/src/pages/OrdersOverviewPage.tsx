@@ -159,12 +159,89 @@ const styles = {
     cursor: 'pointer',
     fontSize: '11px',
     fontFamily: 'Arial, sans-serif'
+  },
+  selectionBar: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+    padding: '8px 12px',
+    marginBottom: '10px',
+    backgroundColor: '#e3f2fd',
+    border: '1px solid #90caf9',
+    borderRadius: '4px'
+  },
+  createTodosButton: {
+    padding: '6px 14px',
+    backgroundColor: '#4CAF50',
+    color: 'white',
+    border: 'none',
+    borderRadius: '4px',
+    cursor: 'pointer',
+    fontSize: '12px',
+    fontWeight: 'bold' as const,
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px'
+  },
+  createTodosButtonDisabled: {
+    backgroundColor: '#9e9e9e',
+    cursor: 'not-allowed'
+  },
+  selectionSummary: {
+    fontSize: '12px',
+    color: '#1565c0'
+  },
+  clearSelectionButton: {
+    padding: '4px 8px',
+    backgroundColor: 'transparent',
+    border: '1px solid #90caf9',
+    borderRadius: '3px',
+    cursor: 'pointer',
+    fontSize: '11px',
+    color: '#1565c0'
+  },
+  resultMessage: {
+    padding: '4px 10px',
+    borderRadius: '3px',
+    fontSize: '12px'
+  },
+  resultSuccess: {
+    backgroundColor: '#c8e6c9',
+    color: '#2e7d32'
+  },
+  resultError: {
+    backgroundColor: '#ffcdd2',
+    color: '#c62828'
+  },
+  loadMoreContainer: {
+    display: 'flex',
+    justifyContent: 'center',
+    padding: '15px',
+    borderTop: '1px solid #e0e0e0'
+  },
+  loadMoreButton: {
+    padding: '8px 24px',
+    backgroundColor: '#1976d2',
+    color: 'white',
+    border: 'none',
+    borderRadius: '4px',
+    cursor: 'pointer',
+    fontSize: '13px',
+    fontWeight: 'bold' as const
+  },
+  loadMoreButtonDisabled: {
+    backgroundColor: '#9e9e9e',
+    cursor: 'not-allowed'
   }
 }
+
+// Pagination constants
+const PAGE_SIZE = 100
 
 export default function OrdersOverviewPage() {
   const [orders, setOrders] = useState<OrderOverviewItem[]>([])
   const [loading, setLoading] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [total, setTotal] = useState(0)
   const [filters, setFilters] = useState<FilterValues>(initialFilters)
@@ -176,6 +253,30 @@ export default function OrdersOverviewPage() {
   const [childRemarksPopup, setChildRemarksPopup] = useState<ChildRemarksSummary | null>(null)
   // Deep search results table
   const [deepSearchResults, setDeepSearchResults] = useState<DeepSearchResultItem[] | null>(null)
+  // Selected items from deep search table
+  const [selectedDeepSearchItems, setSelectedDeepSearchItems] = useState<DeepSearchResultItem[]>([])
+  // Multi-level selection states for todo generation
+  const [selectedArticleIds, setSelectedArticleIds] = useState<Set<number>>(new Set())
+  const [selectedBomItemIds, setSelectedBomItemIds] = useState<Set<number>>(new Set())
+  const [selectedWorkstepIds, setSelectedWorkstepIds] = useState<Set<number>>(new Set())
+
+  // Build filter params for API call
+  const buildFilterParams = useCallback((activeFilters: FilterValues) => {
+    const params: Record<string, string | number> = {}
+    if (activeFilters.dateFrom) params.date_from = activeFilters.dateFrom
+    if (activeFilters.dateTo) params.date_to = activeFilters.dateTo
+    if (activeFilters.responsible) params.responsible = activeFilters.responsible
+    if (activeFilters.customer) params.customer = activeFilters.customer
+    if (activeFilters.orderName) params.order_name = activeFilters.orderName
+    if (activeFilters.text) params.text = activeFilters.text
+    if (activeFilters.reference) params.reference = activeFilters.reference
+    if (activeFilters.statusIds && activeFilters.statusIds.length > 0) {
+      params.status_ids = activeFilters.statusIds.join(',')
+    }
+    if (activeFilters.articleSearch) params.article_search = activeFilters.articleSearch
+    if (activeFilters.workstepSearch) params.workstep_search = activeFilters.workstepSearch
+    return params
+  }, [])
 
   // Load orders from API - accepts optional filter override
   const loadOrders = useCallback(async (filterOverride?: FilterValues) => {
@@ -186,19 +287,9 @@ export default function OrdersOverviewPage() {
     const activeFilters = filterOverride !== undefined ? filterOverride : filters
 
     try {
-      const params: Record<string, string> = {}
-      if (activeFilters.dateFrom) params.date_from = activeFilters.dateFrom
-      if (activeFilters.dateTo) params.date_to = activeFilters.dateTo
-      if (activeFilters.responsible) params.responsible = activeFilters.responsible
-      if (activeFilters.customer) params.customer = activeFilters.customer
-      if (activeFilters.orderName) params.order_name = activeFilters.orderName
-      if (activeFilters.text) params.text = activeFilters.text
-      if (activeFilters.reference) params.reference = activeFilters.reference
-      if (activeFilters.statusIds && activeFilters.statusIds.length > 0) {
-        params.status_ids = activeFilters.statusIds.join(',')
-      }
-      if (activeFilters.articleSearch) params.article_search = activeFilters.articleSearch
-      if (activeFilters.workstepSearch) params.workstep_search = activeFilters.workstepSearch
+      const params = buildFilterParams(activeFilters)
+      params.skip = 0
+      params.limit = PAGE_SIZE
 
       const response = await api.get('/orders/overview', { params })
       const data = response.data
@@ -217,7 +308,8 @@ export default function OrdersOverviewPage() {
           .map((o: OrderOverviewItem) => o.order_id as number)
         setExpandedOrders(new Set(ordersToExpand))
         
-        // Load deep search results table
+        // Load deep search results table - include all pre-filters so deep search
+        // only searches within filtered results when other filters are active
         try {
           const deepParams: Record<string, string> = {}
           if (activeFilters.articleSearch) deepParams.article_search = activeFilters.articleSearch
@@ -225,6 +317,14 @@ export default function OrdersOverviewPage() {
           if (activeFilters.statusIds && activeFilters.statusIds.length > 0) {
             deepParams.status_ids = activeFilters.statusIds.join(',')
           }
+          // Pass all pre-filters so deep search respects them
+          if (activeFilters.dateFrom) deepParams.date_from = activeFilters.dateFrom
+          if (activeFilters.dateTo) deepParams.date_to = activeFilters.dateTo
+          if (activeFilters.responsible) deepParams.responsible = activeFilters.responsible
+          if (activeFilters.customer) deepParams.customer = activeFilters.customer
+          if (activeFilters.orderName) deepParams.order_name = activeFilters.orderName
+          if (activeFilters.text) deepParams.text = activeFilters.text
+          if (activeFilters.reference) deepParams.reference = activeFilters.reference
           
           const deepResponse = await api.get('/orders/deep-search-results', { params: deepParams })
           setDeepSearchResults(deepResponse.data.items || [])
@@ -261,7 +361,48 @@ export default function OrdersOverviewPage() {
     } finally {
       setLoading(false)
     }
-  }, [filters])
+  }, [filters, buildFilterParams])
+
+  // Load more orders (pagination)
+  const loadMoreOrders = useCallback(async () => {
+    if (loadingMore || orders.length >= total) return
+    
+    setLoadingMore(true)
+    
+    try {
+      const params = buildFilterParams(filters)
+      params.skip = orders.length
+      params.limit = PAGE_SIZE
+
+      const response = await api.get('/orders/overview', { params })
+      const data = response.data
+      const newOrders = data.items || []
+      
+      // Append to existing orders
+      setOrders(prev => [...prev, ...newOrders])
+      
+      // Load remarks for new orders
+      const newOrderIds = newOrders
+        .map((o: OrderOverviewItem) => o.order_id)
+        .filter((id: number | null): id is number => id !== null)
+      if (newOrderIds.length > 0) {
+        try {
+          const remarksResponse = await remarksApi.getRemarksByLevel('order', newOrderIds)
+          setOrderRemarks(prev => {
+            const next = new Map(prev)
+            remarksResponse.items.forEach(r => next.set(r.hugwawi_id, r))
+            return next
+          })
+        } catch (remarksErr) {
+          console.error('Error loading order remarks for new orders:', remarksErr)
+        }
+      }
+    } catch (err: any) {
+      console.error('Error loading more orders:', err)
+    } finally {
+      setLoadingMore(false)
+    }
+  }, [orders.length, total, loadingMore, filters, buildFilterParams])
 
   // Load on mount
   useEffect(() => {
@@ -344,6 +485,117 @@ export default function OrdersOverviewPage() {
     })
   }, [])
 
+  // Selection callbacks for multi-level hierarchy
+  const handleArticleSelectionChange = useCallback((articleIds: number[], selected: boolean) => {
+    setSelectedArticleIds(prev => {
+      const next = new Set(prev)
+      if (selected) {
+        articleIds.forEach(id => next.add(id))
+      } else {
+        articleIds.forEach(id => next.delete(id))
+      }
+      return next
+    })
+  }, [])
+
+  const handleBomItemSelectionChange = useCallback((bomItemIds: number[], selected: boolean) => {
+    setSelectedBomItemIds(prev => {
+      const next = new Set(prev)
+      if (selected) {
+        bomItemIds.forEach(id => next.add(id))
+      } else {
+        bomItemIds.forEach(id => next.delete(id))
+      }
+      return next
+    })
+  }, [])
+
+  const handleWorkstepSelectionChange = useCallback((workstepIds: number[], selected: boolean) => {
+    setSelectedWorkstepIds(prev => {
+      const next = new Set(prev)
+      if (selected) {
+        workstepIds.forEach(id => next.add(id))
+      } else {
+        workstepIds.forEach(id => next.delete(id))
+      }
+      return next
+    })
+  }, [])
+
+  // Total selected items count (including deep search items)
+  const totalSelectedItems = selectedOrders.size + selectedArticleIds.size + selectedBomItemIds.size + selectedWorkstepIds.size + selectedDeepSearchItems.length
+
+  // State for creating todos
+  const [creatingTodos, setCreatingTodos] = useState(false)
+  const [todoCreationResult, setTodoCreationResult] = useState<{ success: boolean; message: string } | null>(null)
+
+  // Create todos from selection
+  const handleCreateTodosFromSelection = useCallback(async () => {
+    if (totalSelectedItems === 0) return
+    
+    setCreatingTodos(true)
+    setTodoCreationResult(null)
+    
+    try {
+      // Collect BOM item IDs from deep search selection (items with bom_detail_id)
+      const deepSearchBomIds = selectedDeepSearchItems
+        .filter(item => item.bom_detail_id !== null)
+        .map(item => item.bom_detail_id as number)
+      
+      // Merge with existing bom_item_ids selection
+      const allBomItemIds = new Set([...selectedBomItemIds, ...deepSearchBomIds])
+      
+      // #region agent log
+      const requestPayload = {
+        order_ids: Array.from(selectedOrders),
+        order_article_ids: Array.from(selectedArticleIds),
+        bom_item_ids: Array.from(allBomItemIds),
+        workstep_ids: Array.from(selectedWorkstepIds)
+      };
+      fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'OrdersOverviewPage.tsx:548',message:'H1-H4: Todo creation request payload',data:{selectedDeepSearchItems:selectedDeepSearchItems.slice(0,3),deepSearchBomIds,allBomItemIds:Array.from(allBomItemIds),requestPayload},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1-H4'})}).catch(()=>{});
+      // #endregion
+      
+      const response = await api.post('/pps/todos/from-selection', requestPayload)
+      
+      const result = response.data
+      setTodoCreationResult({
+        success: true,
+        message: `${result.created_count} Todo(s) erstellt${result.errors.length > 0 ? ` (${result.errors.length} Fehler)` : ''}`
+      })
+      
+      // Clear selection after successful creation
+      setSelectedOrders(new Set())
+      setSelectedArticleIds(new Set())
+      setSelectedBomItemIds(new Set())
+      setSelectedWorkstepIds(new Set())
+      setSelectedDeepSearchItems([])
+      
+      // Auto-hide success message after 5 seconds
+      setTimeout(() => setTodoCreationResult(null), 5000)
+    } catch (err: any) {
+      // #region agent log
+      fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'OrdersOverviewPage.tsx:575',message:'H3: Todo creation error response',data:{status:err.response?.status,detail:err.response?.data?.detail,fullData:err.response?.data},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3'})}).catch(()=>{});
+      // #endregion
+      setTodoCreationResult({
+        success: false,
+        message: err.response?.data?.detail || 'Fehler beim Erstellen der Todos'
+      })
+    } finally {
+      setCreatingTodos(false)
+    }
+  }, [selectedOrders, selectedArticleIds, selectedBomItemIds, selectedWorkstepIds, selectedDeepSearchItems, totalSelectedItems])
+
+  // Build selection summary text
+  const getSelectionSummary = useCallback(() => {
+    const parts: string[] = []
+    if (selectedOrders.size > 0) parts.push(`${selectedOrders.size} Aufträge`)
+    if (selectedArticleIds.size > 0) parts.push(`${selectedArticleIds.size} Artikel`)
+    if (selectedBomItemIds.size > 0) parts.push(`${selectedBomItemIds.size} SL-Artikel`)
+    if (selectedWorkstepIds.size > 0) parts.push(`${selectedWorkstepIds.size} AG`)
+    if (selectedDeepSearchItems.length > 0) parts.push(`${selectedDeepSearchItems.length} Deep-Search`)
+    return parts.join(', ')
+  }, [selectedOrders.size, selectedArticleIds.size, selectedBomItemIds.size, selectedWorkstepIds.size, selectedDeepSearchItems.length])
+
   return (
     <div style={styles.container}>
       <div style={styles.header}>
@@ -360,11 +612,55 @@ export default function OrdersOverviewPage() {
 
       {error && <div style={styles.error}>{error}</div>}
 
+      {/* Selection Action Bar - only shown when items are selected */}
+      {totalSelectedItems > 0 && (
+        <div style={styles.selectionBar}>
+          <span style={styles.selectionSummary}>
+            <strong>{totalSelectedItems}</strong> ausgewählt ({getSelectionSummary()})
+          </span>
+          <button
+            style={{
+              ...styles.createTodosButton,
+              ...(creatingTodos ? styles.createTodosButtonDisabled : {})
+            }}
+            onClick={handleCreateTodosFromSelection}
+            disabled={creatingTodos}
+            title="Ausgewählte Elemente als Todos im Planboard erstellen"
+          >
+            {creatingTodos ? '⏳' : '➕'} Als Todos erstellen
+          </button>
+          <button
+            style={styles.clearSelectionButton}
+            onClick={() => {
+              setSelectedOrders(new Set())
+              setSelectedArticleIds(new Set())
+              setSelectedBomItemIds(new Set())
+              setSelectedWorkstepIds(new Set())
+              setSelectedDeepSearchItems([])
+            }}
+            title="Auswahl aufheben"
+          >
+            ✕ Auswahl aufheben
+          </button>
+          {todoCreationResult && (
+            <span style={{
+              ...styles.resultMessage,
+              ...(todoCreationResult.success ? styles.resultSuccess : styles.resultError)
+            }}>
+              {todoCreationResult.message}
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Deep Search Results Table */}
       {deepSearchResults && deepSearchResults.length > 0 && (
         <DeepSearchResultsTable
           results={deepSearchResults}
-          onClose={() => setDeepSearchResults(null)}
+          onClose={() => {
+            setDeepSearchResults(null)
+            setSelectedDeepSearchItems([])
+          }}
           onNavigateToOrder={(orderId) => {
             // Expand the order and scroll to it
             setExpandedOrders(prev => new Set([...prev, orderId]))
@@ -376,6 +672,7 @@ export default function OrdersOverviewPage() {
               }
             }, 100)
           }}
+          onSelectionChange={(selectedItems) => setSelectedDeepSearchItems(selectedItems)}
         />
       )}
 
@@ -409,19 +706,42 @@ export default function OrdersOverviewPage() {
         ) : orders.length === 0 ? (
           <div style={styles.empty}>Keine Aufträge gefunden</div>
         ) : (
-          orders.map(order => (
-            <OrderAccordion
-              key={order.order_id || order.pos}
-              order={order}
-              isExpanded={order.order_id ? expandedOrders.has(order.order_id) : false}
-              isSelected={order.order_id ? selectedOrders.has(order.order_id) : false}
-              onToggle={() => order.order_id && order.has_articles && toggleOrder(order.order_id)}
-              onSelect={(selected) => order.order_id && toggleSelectOrder(order.order_id, selected)}
-              preloadedRemark={order.order_id ? orderRemarks.get(order.order_id) : undefined}
-              onRemarkChange={(remark) => order.order_id && updateOrderRemark(order.order_id, remark)}
-              onShowChildRemarks={(summary) => setChildRemarksPopup(summary)}
-            />
-          ))
+          <>
+            {orders.map(order => (
+              <OrderAccordion
+                key={order.order_id || order.pos}
+                order={order}
+                isExpanded={order.order_id ? expandedOrders.has(order.order_id) : false}
+                isSelected={order.order_id ? selectedOrders.has(order.order_id) : false}
+                onToggle={() => order.order_id && order.has_articles && toggleOrder(order.order_id)}
+                onSelect={(selected) => order.order_id && toggleSelectOrder(order.order_id, selected)}
+                preloadedRemark={order.order_id ? orderRemarks.get(order.order_id) : undefined}
+                onRemarkChange={(remark) => order.order_id && updateOrderRemark(order.order_id, remark)}
+                onShowChildRemarks={(summary) => setChildRemarksPopup(summary)}
+                selectedArticleIds={selectedArticleIds}
+                onArticleSelectionChange={handleArticleSelectionChange}
+                selectedBomItemIds={selectedBomItemIds}
+                onBomItemSelectionChange={handleBomItemSelectionChange}
+                selectedWorkstepIds={selectedWorkstepIds}
+                onWorkstepSelectionChange={handleWorkstepSelectionChange}
+              />
+            ))}
+            {/* Load More Button */}
+            {orders.length < total && (
+              <div style={styles.loadMoreContainer}>
+                <button
+                  style={{
+                    ...styles.loadMoreButton,
+                    ...(loadingMore ? styles.loadMoreButtonDisabled : {})
+                  }}
+                  onClick={loadMoreOrders}
+                  disabled={loadingMore}
+                >
+                  {loadingMore ? 'Lade...' : `Weitere ${Math.min(PAGE_SIZE, total - orders.length)} laden`}
+                </button>
+              </div>
+            )}
+          </>
         )}
       </div>
 

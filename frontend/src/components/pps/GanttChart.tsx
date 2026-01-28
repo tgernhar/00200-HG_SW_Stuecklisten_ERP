@@ -203,7 +203,7 @@ export default function GanttChart({
       ? baseColumns 
       : [...baseColumns, ...additionalColumns]
     
-    // Task class for conflict highlighting
+    // Task class for conflict highlighting and todo_type coloring
     gantt.templates.task_class = (start: Date, end: Date, task: GanttTask) => {
       let classes = ''
       if (task.has_conflict) {
@@ -215,6 +215,10 @@ export default function GanttChart({
       // Highlight related task in conflict view
       if ((task as any).$conflict_highlight) {
         classes += ' conflict-highlight'
+      }
+      // Add todo_type class for color coding
+      if ((task as any).todo_type) {
+        classes += ` todo-type-${(task as any).todo_type}`
       }
       return classes.trim()
     }
@@ -387,6 +391,31 @@ export default function GanttChart({
       }
       .gantt_task_line.gantt_selected {
         box-shadow: 0 0 5px #4a90d9;
+      }
+      /* Todo type color coding */
+      .todo-type-container_order .gantt_task_content {
+        background-color: #4CAF50 !important; /* Green - Auftrag */
+      }
+      .todo-type-container_order .gantt_task_progress {
+        background-color: #388E3C !important;
+      }
+      .todo-type-container_article .gantt_task_content {
+        background-color: #8BC34A !important; /* Light Green - Auftragsartikel */
+      }
+      .todo-type-container_article .gantt_task_progress {
+        background-color: #689F38 !important;
+      }
+      .todo-type-bom_item .gantt_task_content {
+        background-color: #FF9800 !important; /* Orange - Stücklistenartikel */
+      }
+      .todo-type-bom_item .gantt_task_progress {
+        background-color: #F57C00 !important;
+      }
+      .todo-type-operation .gantt_task_content {
+        background-color: #2196F3 !important; /* Blue - Arbeitsgang */
+      }
+      .todo-type-operation .gantt_task_progress {
+        background-color: #1976D2 !important;
       }
       /* Non-working time styling (outside core hours) */
       .non-working-time {

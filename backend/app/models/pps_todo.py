@@ -29,6 +29,25 @@ class PPSWorkingHours(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class PPSTodoTypeConfig(Base):
+    """Configuration for todo types - defines standard naming, colors, hierarchy"""
+    __tablename__ = "pps_todo_type_config"
+    
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    todo_type = Column(String(50), nullable=False, unique=True)  # e.g. 'container_order', 'bom_item'
+    display_name = Column(String(100), nullable=False)  # German display name
+    title_prefix = Column(String(50), nullable=True)  # Prefix for todo title
+    title_template = Column(String(200), nullable=False)  # Template like "{prefix}{name}"
+    gantt_color = Column(String(20), nullable=False)  # Hex color for Gantt
+    gantt_type = Column(String(20), nullable=False, default='task')  # task, project, milestone
+    hierarchy_level = Column(Integer, nullable=False)  # 1=Order, 2=Article, 3=BOM, 4=Operation
+    default_duration_minutes = Column(Integer, nullable=False, default=60)
+    is_active = Column(Boolean, nullable=False, default=True)
+    sort_order = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class PPSResourceCache(Base):
     """Cached resources from HUGWAWI (departments, machines, employees)"""
     __tablename__ = "pps_resource_cache"

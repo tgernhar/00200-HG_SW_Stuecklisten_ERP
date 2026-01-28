@@ -4,8 +4,8 @@
 
 // ============== Enums ==============
 
-export type TodoType = 'container_order' | 'container_article' | 'operation' | 'eigene' | 'task' | 'project'
-export type TodoStatus = 'new' | 'planned' | 'in_progress' | 'completed' | 'blocked'
+export type TodoType = 'container_order' | 'container_article' | 'bom_item' | 'operation' | 'eigene' | 'task' | 'project'
+export type TodoStatus = 'new' | 'pending' | 'planned' | 'in_progress' | 'completed' | 'blocked'
 export type DependencyType = 'finish_to_start' | 'start_to_start' | 'finish_to_finish'
 export type ConflictType = 'resource_overlap' | 'calendar' | 'dependency' | 'delivery_date' | 'qualification'
 export type ConflictSeverity = 'warning' | 'error'
@@ -223,6 +223,7 @@ export interface GanttTask {
   has_conflict: boolean
   priority: number
   delivery_date?: string
+  todo_type?: string  // 'container_order', 'container_article', 'bom_item', 'operation'
 }
 
 export interface GanttLink {

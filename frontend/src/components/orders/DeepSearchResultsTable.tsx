@@ -9,6 +9,7 @@ interface DeepSearchResultsTableProps {
   results: DeepSearchResultItem[]
   onClose: () => void
   onNavigateToOrder?: (orderId: number) => void
+  onSelectionChange?: (selectedItems: DeepSearchResultItem[]) => void
 }
 
 type SortField = 'order_name' | 'order_article_number' | 'bom_article_number' | 'bom_article_description' | 'bom_quantity' | 'einzelmass' | 'gesamtmenge' | 'einheit'
@@ -105,18 +106,79 @@ const styles = {
   matchWorkplan: {
     backgroundColor: '#e8f5e9',
     color: '#388e3c'
+  },
+  checkboxCell: {
+    width: '35px',
+    textAlign: 'center' as const,
+    padding: '6px 8px'
+  },
+  checkboxHeader: {
+    width: '35px',
+    textAlign: 'center' as const,
+    cursor: 'default'
+  },
+  selectedRow: {
+    backgroundColor: '#e3f2fd'
+  },
+  selectionInfo: {
+    fontSize: '12px',
+    color: '#1976d2',
+    marginLeft: '15px'
   }
 }
 
 export default function DeepSearchResultsTable({ 
   results, 
   onClose, 
-  onNavigateToOrder 
+  onNavigateToOrder,
+  onSelectionChange 
 }: DeepSearchResultsTableProps) {
   const [sortField, setSortField] = useState<SortField>('order_name')
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc')
   const [hoveredRow, setHoveredRow] = useState<number | null>(null)
   const [hoveredHeader, setHoveredHeader] = useState<SortField | null>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+
+  // Generate unique ID for each result item
+  const getItemId = (item: DeepSearchResultItem, index: number) => 
+    `${item.order_id}-${item.order_article_id}-${item.bom_detail_id || index}`
+
+  // Handle single row selection
+  const handleRowSelect = (item: DeepSearchResultItem, index: number, checked: boolean) => {
+    const id = getItemId(item, index)
+    const newSelected = new Set(selectedIds)
+    if (checked) {
+      newSelected.add(id)
+    } else {
+      newSelected.delete(id)
+    }
+    setSelectedIds(newSelected)
+    
+    // Notify parent of selection change
+    if (onSelectionChange) {
+      const selectedItems = results.filter((r, i) => newSelected.has(getItemId(r, i)))
+      onSelectionChange(selectedItems)
+    }
+  }
+
+  // Handle select all
+  const handleSelectAll = (checked: boolean) => {
+    if (checked) {
+      const allIds = new Set(results.map((item, index) => getItemId(item, index)))
+      setSelectedIds(allIds)
+      if (onSelectionChange) {
+        onSelectionChange([...results])
+      }
+    } else {
+      setSelectedIds(new Set())
+      if (onSelectionChange) {
+        onSelectionChange([])
+      }
+    }
+  }
+
+  const isAllSelected = results.length > 0 && selectedIds.size === results.length
+  const isSomeSelected = selectedIds.size > 0 && selectedIds.size < results.length
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -174,6 +236,11 @@ export default function DeepSearchResultsTable({
       <div style={styles.header}>
         <span style={styles.title}>
           Deep-Filter Ergebnisse ({results.length} Treffer)
+          {selectedIds.size > 0 && (
+            <span style={styles.selectionInfo}>
+              ({selectedIds.size} ausgewählt)
+            </span>
+          )}
         </span>
         <button 
           style={styles.closeButton}
@@ -194,6 +261,18 @@ export default function DeepSearchResultsTable({
           <table style={styles.table}>
             <thead>
               <tr>
+                <th style={{ ...styles.th, ...styles.checkboxHeader }}>
+                  <input
+                    type="checkbox"
+                    checked={isAllSelected}
+                    ref={(el) => {
+                      if (el) el.indeterminate = isSomeSelected
+                    }}
+                    onChange={(e) => handleSelectAll(e.target.checked)}
+                    title="Alle auswählen"
+                    style={{ cursor: 'pointer' }}
+                  />
+                </th>
                 <th 
                   style={{
                     ...styles.th,
@@ -288,13 +367,28 @@ export default function DeepSearchResultsTable({
               </tr>
             </thead>
             <tbody>
-              {sortedResults.map((item, index) => (
+              {sortedResults.map((item, index) => {
+                const itemId = getItemId(item, index)
+                const isSelected = selectedIds.has(itemId)
+                return (
                 <tr 
-                  key={`${item.order_id}-${item.order_article_id}-${item.bom_detail_id || index}`}
-                  style={hoveredRow === index ? styles.trHover : {}}
+                  key={itemId}
+                  style={{
+                    ...(hoveredRow === index ? styles.trHover : {}),
+                    ...(isSelected ? styles.selectedRow : {})
+                  }}
                   onMouseEnter={() => setHoveredRow(index)}
                   onMouseLeave={() => setHoveredRow(null)}
                 >
+                  <td style={{ ...styles.td, ...styles.checkboxCell }}>
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={(e) => handleRowSelect(item, index, e.target.checked)}
+                      onClick={(e) => e.stopPropagation()}
+                      style={{ cursor: 'pointer' }}
+                    />
+                  </td>
                   <td style={styles.td}>
                     <span 
                       style={onNavigateToOrder ? styles.orderLink : {}}
@@ -324,7 +418,7 @@ export default function DeepSearchResultsTable({
                     {item.einheit || '-'}
                   </td>
                 </tr>
-              ))}
+              )})}
             </tbody>
           </table>
         )}

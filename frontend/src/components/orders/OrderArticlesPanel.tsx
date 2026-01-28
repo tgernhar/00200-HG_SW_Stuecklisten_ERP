@@ -10,6 +10,12 @@ import remarksApi from '../../services/remarksApi'
 
 interface OrderArticlesPanelProps {
   orderId: number
+  selectedArticleIds?: Set<number>
+  onArticleSelectionChange?: (articleIds: number[], selected: boolean) => void
+  selectedBomItemIds?: Set<number>
+  onBomItemSelectionChange?: (bomItemIds: number[], selected: boolean) => void
+  selectedWorkstepIds?: Set<number>
+  onWorkstepSelectionChange?: (workstepIds: number[], selected: boolean) => void
 }
 
 const styles = {
@@ -123,12 +129,22 @@ const truncateText = (text: string, maxLength: number = 40): string => {
   return text.substring(0, maxLength - 3) + '...'
 }
 
-export default function OrderArticlesPanel({ orderId }: OrderArticlesPanelProps) {
+export default function OrderArticlesPanel({ 
+  orderId,
+  selectedArticleIds,
+  onArticleSelectionChange,
+  selectedBomItemIds,
+  onBomItemSelectionChange,
+  selectedWorkstepIds,
+  onWorkstepSelectionChange
+}: OrderArticlesPanelProps) {
   const [items, setItems] = useState<OrderArticleItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [expandedItems, setExpandedItems] = useState<Set<number>>(new Set())
-  const [selectedItems, setSelectedItems] = useState<Set<number>>(new Set())
+  // Use external selection if provided, otherwise use local state
+  const [localSelectedItems, setLocalSelectedItems] = useState<Set<number>>(new Set())
+  const selectedItems = selectedArticleIds || localSelectedItems
   const [remarks, setRemarks] = useState<Map<number, HierarchyRemark>>(new Map())
   const [editingRemark, setEditingRemark] = useState<number | null>(null)
   const [remarkText, setRemarkText] = useState('')
@@ -200,25 +216,36 @@ export default function OrderArticlesPanel({ orderId }: OrderArticlesPanelProps)
   }
 
   const toggleSelect = (orderArticleId: number) => {
-    setSelectedItems(prev => {
-      const next = new Set(prev)
-      if (next.has(orderArticleId)) {
-        next.delete(orderArticleId)
-      } else {
-        next.add(orderArticleId)
-      }
-      return next
-    })
+    const isSelected = selectedItems.has(orderArticleId)
+    if (onArticleSelectionChange) {
+      onArticleSelectionChange([orderArticleId], !isSelected)
+    } else {
+      setLocalSelectedItems(prev => {
+        const next = new Set(prev)
+        if (next.has(orderArticleId)) {
+          next.delete(orderArticleId)
+        } else {
+          next.add(orderArticleId)
+        }
+        return next
+      })
+    }
   }
 
   const toggleSelectAll = () => {
-    if (selectedItems.size === items.length) {
-      setSelectedItems(new Set())
+    const allIds = items
+      .map(i => i.order_article_id)
+      .filter((id): id is number => id !== null)
+    
+    if (onArticleSelectionChange) {
+      const allSelected = allIds.every(id => selectedItems.has(id))
+      onArticleSelectionChange(allIds, !allSelected)
     } else {
-      const allIds = items
-        .map(i => i.order_article_id)
-        .filter((id): id is number => id !== null)
-      setSelectedItems(new Set(allIds))
+      if (selectedItems.size === items.length) {
+        setLocalSelectedItems(new Set())
+      } else {
+        setLocalSelectedItems(new Set(allIds))
+      }
     }
   }
 
@@ -378,7 +405,13 @@ export default function OrderArticlesPanel({ orderId }: OrderArticlesPanelProps)
                 {isExpanded && item.order_article_id && (
                   <tr>
                     <td colSpan={9} style={{ padding: 0, backgroundColor: '#fafafa' }}>
-                      <BomPanel orderArticleId={item.order_article_id} />
+                      <BomPanel 
+                        orderArticleId={item.order_article_id}
+                        selectedBomItemIds={selectedBomItemIds}
+                        onBomItemSelectionChange={onBomItemSelectionChange}
+                        selectedWorkstepIds={selectedWorkstepIds}
+                        onWorkstepSelectionChange={onWorkstepSelectionChange}
+                      />
                     </td>
                   </tr>
                 )}

@@ -17,6 +17,13 @@ interface OrderAccordionProps {
   preloadedRemark?: HierarchyRemark
   onRemarkChange?: (remark: HierarchyRemark | null) => void
   onShowChildRemarks?: (summary: ChildRemarksSummary) => void
+  // Selection props for child hierarchies
+  selectedArticleIds?: Set<number>
+  onArticleSelectionChange?: (articleIds: number[], selected: boolean) => void
+  selectedBomItemIds?: Set<number>
+  onBomItemSelectionChange?: (bomItemIds: number[], selected: boolean) => void
+  selectedWorkstepIds?: Set<number>
+  onWorkstepSelectionChange?: (workstepIds: number[], selected: boolean) => void
 }
 
 const styles = {
@@ -222,7 +229,22 @@ const truncateText = (text: string, maxLength: number = 50): string => {
   return text.substring(0, maxLength - 3) + '...'
 }
 
-export default function OrderAccordion({ order, isExpanded, isSelected, onToggle, onSelect, preloadedRemark, onRemarkChange, onShowChildRemarks }: OrderAccordionProps) {
+export default function OrderAccordion({ 
+  order, 
+  isExpanded, 
+  isSelected, 
+  onToggle, 
+  onSelect, 
+  preloadedRemark, 
+  onRemarkChange, 
+  onShowChildRemarks,
+  selectedArticleIds,
+  onArticleSelectionChange,
+  selectedBomItemIds,
+  onBomItemSelectionChange,
+  selectedWorkstepIds,
+  onWorkstepSelectionChange
+}: OrderAccordionProps) {
   const navigate = useNavigate()
   // Use preloaded remark if available, otherwise local state
   const [localRemark, setLocalRemark] = useState<HierarchyRemark | null>(null)
@@ -443,7 +465,15 @@ export default function OrderAccordion({ order, isExpanded, isSelected, onToggle
       
       {isExpanded && order.order_id && order.has_articles && (
         <div style={styles.detailPanel}>
-          <OrderArticlesPanel orderId={order.order_id} />
+          <OrderArticlesPanel 
+            orderId={order.order_id}
+            selectedArticleIds={selectedArticleIds}
+            onArticleSelectionChange={onArticleSelectionChange}
+            selectedBomItemIds={selectedBomItemIds}
+            onBomItemSelectionChange={onBomItemSelectionChange}
+            selectedWorkstepIds={selectedWorkstepIds}
+            onWorkstepSelectionChange={onWorkstepSelectionChange}
+          />
         </div>
       )}
     </div>

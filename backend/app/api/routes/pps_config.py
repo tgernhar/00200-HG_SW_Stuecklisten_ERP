@@ -11,10 +11,11 @@ from typing import List, Optional
 from datetime import time, datetime
 
 from app.core.database import get_db
-from app.models.pps_todo import PPSWorkingHours, PPSUserFilterPreset
+from app.models.pps_todo import PPSWorkingHours, PPSUserFilterPreset, PPSTodoTypeConfig
 from app.schemas.pps import (
     WorkingHours, WorkingHoursUpdate, WorkingHoursListResponse,
-    FilterPreset, FilterPresetCreate, FilterPresetUpdate, FilterPresetList, FilterPresetConfig
+    FilterPreset, FilterPresetCreate, FilterPresetUpdate, FilterPresetList, FilterPresetConfig,
+    TodoTypeConfig, TodoTypeConfigCreate, TodoTypeConfigUpdate, TodoTypeConfigList
 )
 
 
@@ -331,3 +332,98 @@ async def set_favorite_preset(
     db.refresh(preset)
     
     return preset
+
+
+# ============== Todo Type Configuration ==============
+
+@router.get("/todo-types", response_model=TodoTypeConfigList)
+async def get_todo_type_configs(
+    is_active: Optional[bool] = None,
+    db: Session = Depends(get_db)
+):
+    """Get all todo type configurations."""
+    query = db.query(PPSTodoTypeConfig)
+    
+    if is_active is not None:
+        query = query.filter(PPSTodoTypeConfig.is_active == is_active)
+    
+    configs = query.order_by(PPSTodoTypeConfig.sort_order).all()
+    return TodoTypeConfigList(items=configs)
+
+
+@router.get("/todo-types/{todo_type}", response_model=TodoTypeConfig)
+async def get_todo_type_config(
+    todo_type: str,
+    db: Session = Depends(get_db)
+):
+    """Get specific todo type configuration."""
+    config = db.query(PPSTodoTypeConfig).filter(
+        PPSTodoTypeConfig.todo_type == todo_type
+    ).first()
+    
+    if not config:
+        raise HTTPException(status_code=404, detail=f"Todo-Typ '{todo_type}' nicht gefunden")
+    
+    return config
+
+
+@router.put("/todo-types/{todo_type}", response_model=TodoTypeConfig)
+async def update_todo_type_config(
+    todo_type: str,
+    data: TodoTypeConfigUpdate,
+    db: Session = Depends(get_db)
+):
+    """Update todo type configuration."""
+    config = db.query(PPSTodoTypeConfig).filter(
+        PPSTodoTypeConfig.todo_type == todo_type
+    ).first()
+    
+    if not config:
+        raise HTTPException(status_code=404, detail=f"Todo-Typ '{todo_type}' nicht gefunden")
+    
+    update_data = data.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(config, key, value)
+    
+    config.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(config)
+    
+    return config
+
+
+def get_todo_type_config_cached(db: Session, todo_type: str) -> Optional[PPSTodoTypeConfig]:
+    """Get todo type config from DB (helper for other modules)."""
+    return db.query(PPSTodoTypeConfig).filter(
+        PPSTodoTypeConfig.todo_type == todo_type,
+        PPSTodoTypeConfig.is_active == True
+    ).first()
+
+
+def format_todo_title(config: PPSTodoTypeConfig, **kwargs) -> str:
+    """Format todo title using the template from config.
+    
+    Available placeholders:
+    - {prefix}: title_prefix from config
+    - {name}: order name, article name, etc.
+    - {position}: position number
+    - {pos}: BOM/workstep position
+    - {articlenumber}: article number
+    - {workstep_name}: workstep name
+    - {title}: custom title
+    """
+    template = config.title_template
+    prefix = config.title_prefix or ""
+    
+    # Build replacement dict
+    replacements = {
+        "prefix": prefix,
+        **kwargs
+    }
+    
+    # Replace placeholders
+    result = template
+    for key, value in replacements.items():
+        result = result.replace(f"{{{key}}}", str(value) if value is not None else "")
+    
+    return result.strip()

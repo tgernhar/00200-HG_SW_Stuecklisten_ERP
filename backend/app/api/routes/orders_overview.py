@@ -192,13 +192,25 @@ class DeepSearchResultsResponse(BaseModel):
 async def get_deep_search_results(
     article_search: Optional[str] = Query(None, description="Suche in Artikelnummern/Bezeichnungen"),
     workstep_search: Optional[str] = Query(None, description="Suche in Arbeitsgängen"),
-    status_ids: Optional[str] = Query(None, description="Status-IDs (kommagetrennt)")
+    status_ids: Optional[str] = Query(None, description="Status-IDs (kommagetrennt)"),
+    # Pre-filter parameters - if any of these are set, deep search is restricted to matching orders
+    date_from: Optional[date] = Query(None, description="Filter: Lieferdatum ab"),
+    date_to: Optional[date] = Query(None, description="Filter: Lieferdatum bis"),
+    responsible: Optional[str] = Query(None, description="Filter: Verantwortlicher"),
+    customer: Optional[str] = Query(None, description="Filter: Kunde"),
+    order_name: Optional[str] = Query(None, description="Filter: Auftragsname"),
+    text: Optional[str] = Query(None, description="Filter: Auftragstext"),
+    reference: Optional[str] = Query(None, description="Filter: Referenz")
 ):
     """
     Get flat results table for deep search filters.
     
     Returns a flat list of all matching BOM positions with their context
     (order name, order article number, etc.) for display in a results table.
+    
+    When pre-filter parameters (date_from, date_to, responsible, customer, order_name, text, reference)
+    are set, the deep search only searches within orders matching those filters.
+    Without pre-filters, it searches across all orders.
     """
     # At least one search parameter required
     if not article_search and not workstep_search:
@@ -221,13 +233,42 @@ async def get_deep_search_results(
             active_status_ids = VALID_ORDER_STATUS_IDS
         
         status_placeholders = ','.join(['%s'] * len(active_status_ids))
+        
+        # Build additional WHERE conditions from pre-filters
+        prefilter_conditions = []
+        prefilter_params = []
+        
+        if date_from:
+            prefilter_conditions.append("ordertable.deliveryDate >= %s")
+            prefilter_params.append(date_from)
+        if date_to:
+            prefilter_conditions.append("ordertable.deliveryDate <= %s")
+            prefilter_params.append(date_to)
+        if responsible:
+            prefilter_conditions.append("userlogin.loginname LIKE %s")
+            prefilter_params.append(f"%{responsible}%")
+        if customer:
+            prefilter_conditions.append("adrbase.suchname LIKE %s")
+            prefilter_params.append(f"%{customer}%")
+        if order_name:
+            prefilter_conditions.append("ordertable.name LIKE %s")
+            prefilter_params.append(f"%{order_name}%")
+        if text:
+            prefilter_conditions.append("ordertable.text LIKE %s")
+            prefilter_params.append(f"%{text}%")
+        if reference:
+            prefilter_conditions.append("ordertable.reference LIKE %s")
+            prefilter_params.append(f"%{reference}%")
+        
+        prefilter_clause = " AND ".join(prefilter_conditions) if prefilter_conditions else ""
+        
         results = []
         
         # Search in BOM (packingnote_details) level
         if article_search:
             article_pattern = f"%{article_search}%"
             
-            # Query for BOM-level matches
+            # Query for BOM-level matches with pre-filter support
             bom_query = f"""
                 SELECT DISTINCT
                     ordertable.name as order_name,
@@ -250,15 +291,19 @@ async def get_deep_search_results(
                 JOIN packingnote_details ON packingnote_details.id = packingnote_relation.detail
                 LEFT JOIN article AS article_bom ON article_bom.id = packingnote_details.article
                 LEFT JOIN calculation ON calculation.id = packingnote_details.calculation
+                LEFT JOIN adrbase ON adrbase.id = ordertable.kid
+                LEFT JOIN userlogin ON userlogin.id = ordertable.infoSales
                 WHERE order_type.name = 'ORDER'
                   AND ordertable.status IN ({status_placeholders})
                   AND ordertable.created > '2024-01-01'
                   AND (article_bom.articlenumber LIKE %s OR article_bom.description LIKE %s)
+                  {f"AND {prefilter_clause}" if prefilter_clause else ""}
                 ORDER BY ordertable.name, order_article.position, packingnote_details.pos
                 LIMIT 500
             """
             
-            cursor.execute(bom_query, list(active_status_ids) + [article_pattern, article_pattern])
+            query_params = list(active_status_ids) + [article_pattern, article_pattern] + prefilter_params
+            cursor.execute(bom_query, query_params)
             bom_rows = cursor.fetchall()
             
             for row in bom_rows:
@@ -281,6 +326,7 @@ async def get_deep_search_results(
         if workstep_search:
             workstep_pattern = f"%{workstep_search}%"
             
+            # Query with pre-filter support
             workstep_query = f"""
                 SELECT DISTINCT
                     ordertable.name as order_name,
@@ -310,15 +356,19 @@ async def get_deep_search_results(
                 LEFT JOIN qualificationitem ON qualificationitem.id = workplan_details.qualificationitem
                 LEFT JOIN qualificationitem_workstep ON qualificationitem_workstep.item = qualificationitem.id
                 LEFT JOIN workstep ON workstep.id = qualificationitem_workstep.workstep
+                LEFT JOIN adrbase ON adrbase.id = ordertable.kid
+                LEFT JOIN userlogin ON userlogin.id = ordertable.infoSales
                 WHERE order_type.name = 'ORDER'
                   AND ordertable.status IN ({status_placeholders})
                   AND ordertable.created > '2024-01-01'
                   AND workstep.name LIKE %s
+                  {f"AND {prefilter_clause}" if prefilter_clause else ""}
                 ORDER BY ordertable.name, order_article.position, packingnote_details.pos
                 LIMIT 500
             """
             
-            cursor.execute(workstep_query, list(active_status_ids) + [workstep_pattern])
+            query_params = list(active_status_ids) + [workstep_pattern] + prefilter_params
+            cursor.execute(workstep_query, query_params)
             workstep_rows = cursor.fetchall()
             
             # Add workstep results, avoiding duplicates
@@ -611,71 +661,96 @@ async def get_orders_overview(
         total = total_result['total'] if total_result else 0
         
         # If deep filters are active, calculate match_level and matched_article_ids
+        # OPTIMIZED: Use batch queries instead of N+1 pattern
         match_info = {}
         if article_search or workstep_search:
             order_ids = [row.get('order_id') for row in rows if row.get('order_id')]
             if order_ids:
-                # Determine match level and matched article IDs for each order
+                order_id_placeholders = ','.join(['%s'] * len(order_ids))
+                
+                # Batch query for workstep matches
+                workstep_matches_by_order = {}
+                if workstep_search:
+                    workstep_pattern = f"%{workstep_search}%"
+                    cursor.execute(f"""
+                        SELECT DISTINCT oar.orderid as order_id, oa.id as order_article_id
+                        FROM order_article_ref oar
+                        JOIN order_article oa ON oar.orderArticleId = oa.id
+                        JOIN packingnote_relation pnr ON pnr.packingNoteId = oa.packingnoteid
+                        JOIN packingnote_details pd ON pd.id = pnr.detail
+                        JOIN workplan wp ON wp.packingnoteid = pd.id
+                        JOIN workplan_relation wpr ON wpr.workplanId = wp.id
+                        JOIN workplan_details wpd ON wpd.id = wpr.detail
+                        LEFT JOIN qualificationitem qi ON qi.id = wpd.qualificationitem
+                        LEFT JOIN qualificationitem_workstep qiws ON qiws.item = qi.id
+                        LEFT JOIN workstep ws ON ws.id = qiws.workstep
+                        WHERE oar.orderid IN ({order_id_placeholders}) AND ws.name LIKE %s
+                    """, tuple(order_ids) + (workstep_pattern,))
+                    for row_match in cursor.fetchall():
+                        oid = row_match['order_id']
+                        if oid not in workstep_matches_by_order:
+                            workstep_matches_by_order[oid] = []
+                        workstep_matches_by_order[oid].append(row_match['order_article_id'])
+                
+                # Batch queries for article matches
+                article_matches_by_order = {}
+                bom_matches_by_order = {}
+                if article_search:
+                    article_pattern = f"%{article_search}%"
+                    
+                    # Order article level batch query
+                    cursor.execute(f"""
+                        SELECT DISTINCT oar.orderid as order_id, oa.id as order_article_id
+                        FROM order_article_ref oar
+                        JOIN order_article oa ON oar.orderArticleId = oa.id
+                        JOIN article a ON oa.articleid = a.id
+                        WHERE oar.orderid IN ({order_id_placeholders})
+                          AND (a.articlenumber LIKE %s OR a.description LIKE %s)
+                    """, tuple(order_ids) + (article_pattern, article_pattern))
+                    for row_match in cursor.fetchall():
+                        oid = row_match['order_id']
+                        if oid not in article_matches_by_order:
+                            article_matches_by_order[oid] = []
+                        article_matches_by_order[oid].append(row_match['order_article_id'])
+                    
+                    # BOM level batch query
+                    cursor.execute(f"""
+                        SELECT DISTINCT oar.orderid as order_id, oa.id as order_article_id
+                        FROM order_article_ref oar
+                        JOIN order_article oa ON oar.orderArticleId = oa.id
+                        JOIN packingnote_relation pnr ON pnr.packingNoteId = oa.packingnoteid
+                        JOIN packingnote_details pd ON pd.id = pnr.detail
+                        LEFT JOIN article a ON a.id = pd.article
+                        WHERE oar.orderid IN ({order_id_placeholders})
+                          AND (a.articlenumber LIKE %s OR a.description LIKE %s)
+                    """, tuple(order_ids) + (article_pattern, article_pattern))
+                    for row_match in cursor.fetchall():
+                        oid = row_match['order_id']
+                        if oid not in bom_matches_by_order:
+                            bom_matches_by_order[oid] = []
+                        bom_matches_by_order[oid].append(row_match['order_article_id'])
+                
+                # Combine results per order
                 for order_id in order_ids:
                     match_level = None
                     matched_ids = []
                     
-                    # Check workstep level first (deepest)
-                    if workstep_search:
-                        workstep_pattern = f"%{workstep_search}%"
-                        cursor.execute("""
-                            SELECT DISTINCT oa.id as order_article_id
-                            FROM order_article_ref oar
-                            JOIN order_article oa ON oar.orderArticleId = oa.id
-                            JOIN packingnote_relation pnr ON pnr.packingNoteId = oa.packingnoteid
-                            JOIN packingnote_details pd ON pd.id = pnr.detail
-                            JOIN workplan wp ON wp.packingnoteid = pd.id
-                            JOIN workplan_relation wpr ON wpr.workplanId = wp.id
-                            JOIN workplan_details wpd ON wpd.id = wpr.detail
-                            LEFT JOIN qualificationitem qi ON qi.id = wpd.qualificationitem
-                            LEFT JOIN qualificationitem_workstep qiws ON qiws.item = qi.id
-                            LEFT JOIN workstep ws ON ws.id = qiws.workstep
-                            WHERE oar.orderid = %s AND ws.name LIKE %s
-                        """, (order_id, workstep_pattern))
-                        workstep_matches = cursor.fetchall()
-                        if workstep_matches:
-                            match_level = 'workplan_detail'
-                            matched_ids = [r['order_article_id'] for r in workstep_matches]
+                    # Check workstep matches (deepest level)
+                    if order_id in workstep_matches_by_order:
+                        match_level = 'workplan_detail'
+                        matched_ids = workstep_matches_by_order[order_id]
                     
-                    # Check BOM level
-                    if article_search:
-                        article_pattern = f"%{article_search}%"
-                        # Check order_article level
-                        cursor.execute("""
-                            SELECT DISTINCT oa.id as order_article_id
-                            FROM order_article_ref oar
-                            JOIN order_article oa ON oar.orderArticleId = oa.id
-                            JOIN article a ON oa.articleid = a.id
-                            WHERE oar.orderid = %s
-                              AND (a.articlenumber LIKE %s OR a.description LIKE %s)
-                        """, (order_id, article_pattern, article_pattern))
-                        article_matches = cursor.fetchall()
-                        if article_matches:
-                            if not match_level:
-                                match_level = 'order_article'
-                            matched_ids = list(set(matched_ids + [r['order_article_id'] for r in article_matches]))
-                        
-                        # Check packingnote_details (BOM) level
-                        cursor.execute("""
-                            SELECT DISTINCT oa.id as order_article_id
-                            FROM order_article_ref oar
-                            JOIN order_article oa ON oar.orderArticleId = oa.id
-                            JOIN packingnote_relation pnr ON pnr.packingNoteId = oa.packingnoteid
-                            JOIN packingnote_details pd ON pd.id = pnr.detail
-                            LEFT JOIN article a ON a.id = pd.article
-                            WHERE oar.orderid = %s
-                              AND (a.articlenumber LIKE %s OR a.description LIKE %s)
-                        """, (order_id, article_pattern, article_pattern))
-                        bom_matches = cursor.fetchall()
-                        if bom_matches:
-                            if not match_level or match_level == 'order_article':
-                                match_level = 'bom_detail'
-                            matched_ids = list(set(matched_ids + [r['order_article_id'] for r in bom_matches]))
+                    # Check article matches
+                    if order_id in article_matches_by_order:
+                        if not match_level:
+                            match_level = 'order_article'
+                        matched_ids = list(set(matched_ids + article_matches_by_order[order_id]))
+                    
+                    # Check BOM matches
+                    if order_id in bom_matches_by_order:
+                        if not match_level or match_level == 'order_article':
+                            match_level = 'bom_detail'
+                        matched_ids = list(set(matched_ids + bom_matches_by_order[order_id]))
                     
                     if match_level:
                         match_info[order_id] = {

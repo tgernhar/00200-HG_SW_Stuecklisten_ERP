@@ -10,6 +10,8 @@ import remarksApi from '../../services/remarksApi'
 
 interface WorkplanPanelProps {
   detailId: number
+  selectedWorkstepIds?: Set<number>
+  onWorkstepSelectionChange?: (workstepIds: number[], selected: boolean) => void
 }
 
 const styles = {
@@ -94,11 +96,17 @@ const truncateText = (text: string, maxLength: number = 30): string => {
   return text.substring(0, maxLength - 3) + '...'
 }
 
-export default function WorkplanPanel({ detailId }: WorkplanPanelProps) {
+export default function WorkplanPanel({ 
+  detailId,
+  selectedWorkstepIds,
+  onWorkstepSelectionChange
+}: WorkplanPanelProps) {
   const [items, setItems] = useState<WorkplanItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [selectedItems, setSelectedItems] = useState<Set<number>>(new Set())
+  // Use external selection if provided, otherwise use local state
+  const [localSelectedItems, setLocalSelectedItems] = useState<Set<number>>(new Set())
+  const selectedItems = selectedWorkstepIds || localSelectedItems
   const [remarks, setRemarks] = useState<Map<number, HierarchyRemark>>(new Map())
   const [editingRemark, setEditingRemark] = useState<number | null>(null)
   const [remarkText, setRemarkText] = useState('')
@@ -159,25 +167,36 @@ export default function WorkplanPanel({ detailId }: WorkplanPanelProps) {
   }, [detailId])
 
   const toggleSelect = (workplanDetailId: number) => {
-    setSelectedItems(prev => {
-      const next = new Set(prev)
-      if (next.has(workplanDetailId)) {
-        next.delete(workplanDetailId)
-      } else {
-        next.add(workplanDetailId)
-      }
-      return next
-    })
+    const isSelected = selectedItems.has(workplanDetailId)
+    if (onWorkstepSelectionChange) {
+      onWorkstepSelectionChange([workplanDetailId], !isSelected)
+    } else {
+      setLocalSelectedItems(prev => {
+        const next = new Set(prev)
+        if (next.has(workplanDetailId)) {
+          next.delete(workplanDetailId)
+        } else {
+          next.add(workplanDetailId)
+        }
+        return next
+      })
+    }
   }
 
   const toggleSelectAll = () => {
-    if (selectedItems.size === items.length) {
-      setSelectedItems(new Set())
+    const allIds = items
+      .map(i => i.workplan_detail_id)
+      .filter((id): id is number => id !== null)
+    
+    if (onWorkstepSelectionChange) {
+      const allSelected = allIds.every(id => selectedItems.has(id))
+      onWorkstepSelectionChange(allIds, !allSelected)
     } else {
-      const allIds = items
-        .map(i => i.workplan_detail_id)
-        .filter((id): id is number => id !== null)
-      setSelectedItems(new Set(allIds))
+      if (selectedItems.size === items.length) {
+        setLocalSelectedItems(new Set())
+      } else {
+        setLocalSelectedItems(new Set(allIds))
+      }
     }
   }
 
