@@ -421,6 +421,15 @@ export default function TodoEditDialog({
   )
   const [description, setDescription] = useState(todo.description || '')
   
+  // Toast notification state
+  const [toastMessage, setToastMessage] = useState<string | null>(null)
+  
+  // Show toast that auto-hides after 2 seconds
+  const showToast = (message: string) => {
+    setToastMessage(message)
+    setTimeout(() => setToastMessage(null), 2000)
+  }
+  
   // Handle priority changes - allow empty input during editing
   const handlePriorityChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newValue = e.target.value
@@ -624,7 +633,7 @@ export default function TodoEditDialog({
   // Copy path to clipboard with user feedback
   const copyToClipboard = (path: string) => {
     navigator.clipboard.writeText(path).then(() => {
-      alert(`Pfad in Zwischenablage kopiert:\n${path}`)
+      showToast('✓ Pfad kopiert')
     }).catch(() => {
       // Fallback for older browsers
       const textarea = document.createElement('textarea')
@@ -633,7 +642,7 @@ export default function TodoEditDialog({
       textarea.select()
       document.execCommand('copy')
       document.body.removeChild(textarea)
-      alert(`Pfad in Zwischenablage kopiert:\n${path}`)
+      showToast('✓ Pfad kopiert')
     })
   }
 
@@ -1284,6 +1293,26 @@ export default function TodoEditDialog({
             }
           }}
         />
+      )}
+      
+      {/* Toast notification */}
+      {toastMessage && (
+        <div style={{
+          position: 'fixed',
+          bottom: '20px',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          backgroundColor: '#333',
+          color: '#fff',
+          padding: '10px 20px',
+          borderRadius: '6px',
+          fontSize: '14px',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+          zIndex: 10000,
+          animation: 'fadeIn 0.2s ease-out',
+        }}>
+          {toastMessage}
+        </div>
       )}
     </div>
   )

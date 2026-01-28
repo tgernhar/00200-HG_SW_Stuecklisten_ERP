@@ -337,6 +337,19 @@ export async function getTodoDependencies(todoId: number): Promise<TodoDependenc
   return response.data
 }
 
+export interface AutoLinkResponse {
+  success: boolean
+  message: string
+  deleted_count: number
+  created_count: number
+  todo_order?: Array<{ id: number; priority: number; title: string }>
+}
+
+export async function autoLinkSelectedTodos(todoIds: number[]): Promise<AutoLinkResponse> {
+  const response = await api.post(`${BASE_URL}/todos/auto-link`, { todo_ids: todoIds })
+  return response.data
+}
+
 // Export all functions as a single object for convenience
 export const ppsApi = {
   getTodos,
@@ -372,6 +385,7 @@ export const ppsApi = {
   batchUpdateTodos,
   shiftAllTodos,
   getTodoDependencies,
+  autoLinkSelectedTodos,
 }
 
 export default ppsApi

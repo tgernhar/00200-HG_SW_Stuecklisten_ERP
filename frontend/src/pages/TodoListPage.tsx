@@ -971,6 +971,7 @@ export default function TodoListPage() {
           todos={filteredTodos}
           resources={resources}
           onTodoDoubleClick={(todo) => setEditingTodo(todo)}
+          onDataChanged={loadData}
         />
       )}
 

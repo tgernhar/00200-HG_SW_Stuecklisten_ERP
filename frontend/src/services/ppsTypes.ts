@@ -73,6 +73,9 @@ export interface PPSTodoWithERPDetails extends PPSTodo {
   bom_article_number?: string  // article.articlenumber via packingnote_details
   bom_article_path?: string  // article.customtext7 via packingnote_details (folder path)
   workstep_name?: string  // qualificationitem.name via workplan_details
+  // Link status
+  has_predecessor?: boolean  // Has incoming link (is successor)
+  has_successor?: boolean  // Has outgoing link (is predecessor)
 }
 
 export interface PPSTodoCreate {

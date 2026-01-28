@@ -176,6 +176,9 @@ class TodoWithERPDetails(Todo):
     bom_article_number: Optional[str] = None  # article.articlenumber via packingnote_details
     bom_article_path: Optional[str] = None  # article.customtext7 via packingnote_details (folder path)
     workstep_name: Optional[str] = None  # qualificationitem.name via workplan_details
+    # Link status for display
+    has_predecessor: bool = False  # Has incoming link (is successor)
+    has_successor: bool = False  # Has outgoing link (is predecessor)
 
 
 class TodoWithDetails(Todo):

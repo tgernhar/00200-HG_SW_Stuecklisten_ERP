@@ -8,8 +8,9 @@
  * - Click to expand/collapse, double-click to edit
  */
 import React, { useState, useMemo, useCallback, useEffect } from 'react'
-import { PPSTodoWithERPDetails, PPSResource, TodoStatus } from '../../services/ppsTypes'
-import { getEntityImage, EntityImageData } from '../../services/imageApi'
+import { PPSTodoWithERPDetails, PPSResource } from '../../services/ppsTypes'
+import { getEntityImage } from '../../services/imageApi'
+import { autoLinkSelectedTodos } from '../../services/ppsApi'
 
 // Status display mapping
 const statusLabels: Record<string, string> = {
@@ -298,9 +299,83 @@ function PriorityBadges({ priorities }: { priorities: number[] }) {
   )
 }
 
+// Combined Priority + Thumbnail for header - shows priority badge followed by article thumbnail
+const MAX_PRIORITY_ITEMS = 5
+
+function PriorityItemThumbnail({ item }: { item: PriorityItem }) {
+  const [imageData, setImageData] = useState<string | null>(null)
+  const [loaded, setLoaded] = useState(false)
+
+  useEffect(() => {
+    if (item.articleId) {
+      getEntityImage('article', item.articleId)
+        .then(data => {
+          if (data?.thumbnail_base64) {
+            setImageData(data.thumbnail_base64)
+          }
+          setLoaded(true)
+        })
+        .catch(() => setLoaded(true))
+    } else {
+      setLoaded(true)
+    }
+  }, [item.articleId])
+
+  return (
+    <div style={{ 
+      display: 'flex', 
+      alignItems: 'center', 
+      gap: '2px',
+      marginRight: '6px',
+    }}>
+      <PriorityBadge priority={item.priority} />
+      {item.articleId && loaded && imageData ? (
+        <ThumbnailWithPreview base64={imageData} articleNumber={item.articleNumber} />
+      ) : item.articleId ? (
+        <div style={styles.thumbnailPlaceholder} title={item.articleNumber || 'Lädt...'}>
+          {loaded ? '📷' : '⏳'}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function PriorityItemsList({ items }: { items: PriorityItem[] }) {
+  const displayItems = items.slice(0, MAX_PRIORITY_ITEMS)
+  const remaining = items.length - MAX_PRIORITY_ITEMS
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '2px' }}>
+      {displayItems.map((item, idx) => (
+        <PriorityItemThumbnail key={`${item.priority}-${item.articleId}-${idx}`} item={item} />
+      ))}
+      {remaining > 0 && (
+        <span style={{ 
+          fontSize: '10px', 
+          color: '#666', 
+          marginLeft: '4px',
+          backgroundColor: '#f0f0f0',
+          padding: '2px 6px',
+          borderRadius: '8px',
+        }}>
+          +{remaining}
+        </span>
+      )}
+    </div>
+  )
+}
+
+// Priority item with associated article for header display
+interface PriorityItem {
+  priority: number
+  articleId?: number
+  articleNumber?: string
+}
+
 // Group data structure
 interface TodoGroup {
   orderName: string
+  erpOrderId?: number  // ERP order ID for auto-linking
   todos: PPSTodoWithERPDetails[]
   minPriority: number
   priorities: number[]
@@ -312,7 +387,9 @@ interface TodoGroup {
   nextStart?: string
   completedCount: number
   progressPercent: number
-  // Unique article IDs for thumbnail display (max 4)
+  // Priority items with their associated article (sorted by priority)
+  priorityItems: PriorityItem[]
+  // Legacy: Unique article IDs for thumbnail display (max 4)
   articleIds: number[]
   // Map of article ID -> article number for display
   articleNumbers: Map<number, string>
@@ -483,11 +560,100 @@ interface Props {
   todos: PPSTodoWithERPDetails[]
   resources: PPSResource[]
   onTodoDoubleClick: (todo: PPSTodoWithERPDetails) => void
+  onDataChanged?: () => void  // Callback to refresh data after auto-linking
 }
 
-export default function TodoGroupedView({ todos, resources, onTodoDoubleClick }: Props) {
+export default function TodoGroupedView({ todos, resources, onTodoDoubleClick, onDataChanged }: Props) {
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
   const [hoveredRow, setHoveredRow] = useState<number | null>(null)
+  const [isLinking, setIsLinking] = useState(false)
+  // Global selection for linking (across all groups)
+  const [selectedForLinking, setSelectedForLinking] = useState<Set<number>>(new Set())
+  // Toast notification
+  const [toastMessage, setToastMessage] = useState<string | null>(null)
+
+  // Copy path to clipboard with toast feedback
+  const copyPathToClipboard = useCallback((path: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    navigator.clipboard.writeText(path).then(() => {
+      setToastMessage('✓ Pfad kopiert')
+      setTimeout(() => setToastMessage(null), 2000)
+    }).catch(() => {
+      // Fallback for older browsers
+      const textarea = document.createElement('textarea')
+      textarea.value = path
+      document.body.appendChild(textarea)
+      textarea.select()
+      document.execCommand('copy')
+      document.body.removeChild(textarea)
+      setToastMessage('✓ Pfad kopiert')
+      setTimeout(() => setToastMessage(null), 2000)
+    })
+  }, [])
+
+  // Toggle todo selection for linking (global)
+  const toggleTodoSelection = useCallback((todoId: number, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setSelectedForLinking(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(todoId)) {
+        newSet.delete(todoId)
+      } else {
+        newSet.add(todoId)
+      }
+      return newSet
+    })
+  }, [])
+
+  // Select all todos in a group for linking
+  const selectAllInGroup = useCallback((todoIds: number[], e: React.MouseEvent) => {
+    e.stopPropagation()
+    setSelectedForLinking(prev => {
+      const newSet = new Set(prev)
+      todoIds.forEach(id => newSet.add(id))
+      return newSet
+    })
+  }, [])
+
+  // Deselect all todos in a group
+  const deselectAllInGroup = useCallback((todoIds: number[], e: React.MouseEvent) => {
+    e.stopPropagation()
+    setSelectedForLinking(prev => {
+      const newSet = new Set(prev)
+      todoIds.forEach(id => newSet.delete(id))
+      return newSet
+    })
+  }, [])
+
+  // Clear all selections
+  const clearAllSelections = useCallback(() => {
+    setSelectedForLinking(new Set())
+  }, [])
+
+  // Handle auto-link selected todos by priority (global)
+  const handleAutoLink = useCallback(async () => {
+    if (selectedForLinking.size < 2) {
+      alert('Bitte mindestens 2 Todos auswählen.')
+      return
+    }
+    
+    if (!window.confirm(`${selectedForLinking.size} ausgewählte Todos nach Priorität verknüpfen?\n\nBestehende Verknüpfungen zwischen diesen Todos werden gelöscht und neu erstellt.`)) {
+      return
+    }
+    
+    setIsLinking(true)
+    try {
+      const result = await autoLinkSelectedTodos(Array.from(selectedForLinking))
+      alert(`${result.message}`)
+      // Clear selection after linking
+      setSelectedForLinking(new Set())
+      onDataChanged?.()
+    } catch (error: any) {
+      alert(`Fehler: ${error.response?.data?.detail || error.message}`)
+    } finally {
+      setIsLinking(false)
+    }
+  }, [selectedForLinking, onDataChanged])
 
   // Get resource name by ID
   const getResourceName = useCallback((departmentId?: number, machineId?: number, employeeId?: number) => {
@@ -567,8 +733,19 @@ export default function TodoGroupedView({ todos, resources, onTodoDoubleClick }:
           }
         }
         
+        // Build priority items list (sorted by priority, each with associated article)
+        const priorityItems: PriorityItem[] = sortedTodos.map(t => ({
+          priority: t.priority,
+          articleId: t.erp_order_article_id || t.erp_packingnote_details_id,
+          articleNumber: t.order_article_number || t.bom_article_number,
+        }))
+        
+        // Get ERP order ID from first todo (all todos in group should have same order)
+        const erpOrderId = sortedTodos.find(t => t.erp_order_id)?.erp_order_id
+        
         return {
           orderName: name,
+          erpOrderId,
           todos: sortedTodos,
           minPriority: Math.min(...sortedTodos.map(t => t.priority)),
           priorities,
@@ -579,6 +756,7 @@ export default function TodoGroupedView({ todos, resources, onTodoDoubleClick }:
           nextStart: nextStartDate?.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' }),
           completedCount,
           progressPercent,
+          priorityItems,
           articleIds,
           articleNumbers,
         }
@@ -673,6 +851,48 @@ export default function TodoGroupedView({ todos, resources, onTodoDoubleClick }:
         >
           Alle zuklappen
         </button>
+        
+        {/* Global link button */}
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {selectedForLinking.size > 0 && (
+            <span style={{ fontSize: '12px', color: '#666' }}>
+              {selectedForLinking.size} ausgewählt
+            </span>
+          )}
+          <button
+            onClick={handleAutoLink}
+            disabled={isLinking || selectedForLinking.size < 2}
+            style={{
+              padding: '4px 12px',
+              fontSize: '12px',
+              border: selectedForLinking.size >= 2 ? '1px solid #4a90d9' : '1px solid #ccc',
+              borderRadius: '3px',
+              backgroundColor: isLinking ? '#ccc' : selectedForLinking.size >= 2 ? '#e8f4fd' : '#f5f5f5',
+              color: selectedForLinking.size >= 2 ? '#1a5a96' : '#999',
+              cursor: isLinking || selectedForLinking.size < 2 ? 'not-allowed' : 'pointer',
+              fontWeight: 500,
+            }}
+            title={selectedForLinking.size < 2 ? 'Mindestens 2 Todos auswählen' : `${selectedForLinking.size} Todos nach Priorität verknüpfen`}
+          >
+            {isLinking ? '⏳' : '🔗'} Verknüpfen {selectedForLinking.size > 0 ? `(${selectedForLinking.size})` : ''}
+          </button>
+          {selectedForLinking.size > 0 && (
+            <button
+              onClick={clearAllSelections}
+              style={{
+                padding: '4px 8px',
+                fontSize: '11px',
+                border: '1px solid #ccc',
+                borderRadius: '3px',
+                backgroundColor: '#fff',
+                cursor: 'pointer',
+              }}
+              title="Auswahl aufheben"
+            >
+              ✕
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Grouped cards */}
@@ -700,23 +920,19 @@ export default function TodoGroupedView({ todos, resources, onTodoDoubleClick }:
                 {group.orderName}
               </span>
               
-              {/* Article thumbnails */}
-              {group.articleIds.length > 0 && (
-                <>
-                  <span style={styles.headerSeparator}>│</span>
-                  <GroupThumbnails articleIds={group.articleIds} articleNumbers={group.articleNumbers} />
-                </>
-              )}
-              
               <span style={styles.headerSeparator}>│</span>
               
               <span style={styles.todoCount}>
                 {group.totalCount} ToDo{group.totalCount !== 1 ? 's' : ''}
               </span>
               
-              <span style={styles.headerSeparator}>│</span>
-              
-              <PriorityBadges priorities={group.priorities} />
+              {/* Priority + Article thumbnails (sorted by priority) */}
+              {group.priorityItems.length > 0 && (
+                <>
+                  <span style={styles.headerSeparator}>│</span>
+                  <PriorityItemsList items={group.priorityItems} />
+                </>
+              )}
               
               <span style={styles.headerSeparator}>│</span>
               
@@ -767,10 +983,28 @@ export default function TodoGroupedView({ todos, resources, onTodoDoubleClick }:
               <table style={styles.todoTable}>
                 <thead>
                   <tr>
+                    <th style={{ ...styles.tableHeader, width: '70px', textAlign: 'center' }}>
+                      <span title="Zum Verknüpfen auswählen">🔗</span>
+                      <input
+                        type="checkbox"
+                        style={{ marginLeft: '4px', cursor: 'pointer' }}
+                        checked={group.todos.every(t => selectedForLinking.has(t.id)) && group.todos.length > 0}
+                        onChange={(e) => {
+                          const todoIds = group.todos.map(t => t.id)
+                          if (e.target.checked) {
+                            selectAllInGroup(todoIds, e as any)
+                          } else {
+                            deselectAllInGroup(todoIds, e as any)
+                          }
+                        }}
+                        title="Alle in dieser Gruppe auswählen / abwählen"
+                      />
+                    </th>
                     <th style={{ ...styles.tableHeader, width: '50px' }}>Prio</th>
                     <th style={{ ...styles.tableHeader, width: '30%' }}>Titel</th>
                     <th style={{ ...styles.tableHeader, width: '100px' }}>Status</th>
                     <th style={styles.tableHeader}>Artikel</th>
+                    <th style={{ ...styles.tableHeader, width: '40px', textAlign: 'center' }} title="Ordnerpfad kopieren">📁</th>
                     <th style={styles.tableHeader}>Arbeitsgang</th>
                     <th style={{ ...styles.tableHeader, width: '100px' }}>Start</th>
                     <th style={{ ...styles.tableHeader, width: '80px' }}>Dauer</th>
@@ -778,60 +1012,126 @@ export default function TodoGroupedView({ todos, resources, onTodoDoubleClick }:
                   </tr>
                 </thead>
                 <tbody>
-                  {group.todos.map(todo => (
-                    <tr
-                      key={todo.id}
-                      style={{
-                        ...styles.tableRow,
-                        ...(hoveredRow === todo.id ? styles.tableRowHover : {}),
-                      }}
-                      onMouseEnter={() => setHoveredRow(todo.id)}
-                      onMouseLeave={() => setHoveredRow(null)}
-                      onDoubleClick={() => onTodoDoubleClick(todo)}
-                    >
-                      <td style={styles.tableCell}>
-                        <PriorityBadge priority={todo.priority} />
-                      </td>
-                      <td style={styles.tableCell}>{todo.title}</td>
-                      <td style={styles.tableCell}>
-                        <span style={styles.statusCell}>
-                          <span style={{
-                            ...styles.statusDot,
-                            backgroundColor: statusColors[todo.status] || '#888',
-                          }} />
-                          {statusLabels[todo.status] || todo.status}
-                        </span>
-                      </td>
-                      <td style={styles.tableCell}>
-                        <TodoRowThumbnail 
-                          articleId={todo.erp_order_article_id || todo.erp_packingnote_details_id}
-                          articleNumber={todo.order_article_number || todo.bom_article_number}
-                        />
-                      </td>
-                      <td style={styles.tableCell}>
-                        {todo.workstep_name || '-'}
-                      </td>
-                      <td style={styles.tableCell}>
-                        {formatDate(todo.planned_start)}
-                      </td>
-                      <td style={styles.tableCell}>
-                        {formatDuration(todo.total_duration_minutes)}
-                      </td>
-                      <td style={styles.tableCell}>
-                        {getResourceName(
-                          todo.assigned_department_id,
-                          todo.assigned_machine_id,
-                          todo.assigned_employee_id
-                        )}
-                      </td>
-                    </tr>
-                  ))}
+                  {group.todos.map(todo => {
+                    const isSelectedForLink = selectedForLinking.has(todo.id)
+                    return (
+                      <tr
+                        key={todo.id}
+                        style={{
+                          ...styles.tableRow,
+                          ...(hoveredRow === todo.id ? styles.tableRowHover : {}),
+                          ...(isSelectedForLink ? { backgroundColor: '#e8f4fd' } : {}),
+                        }}
+                        onMouseEnter={() => setHoveredRow(todo.id)}
+                        onMouseLeave={() => setHoveredRow(null)}
+                        onDoubleClick={() => onTodoDoubleClick(todo)}
+                      >
+                        <td style={{ ...styles.tableCell, textAlign: 'center' }}>
+                          {/* Link indicator */}
+                          {(todo.has_predecessor || todo.has_successor) && (
+                            <span 
+                              style={{ 
+                                marginRight: '4px', 
+                                fontSize: '12px',
+                                color: '#4a90d9',
+                              }}
+                              title={`${todo.has_predecessor ? '← Vorgänger' : ''}${todo.has_predecessor && todo.has_successor ? ' / ' : ''}${todo.has_successor ? 'Nachfolger →' : ''}`}
+                            >
+                              🔗
+                            </span>
+                          )}
+                          <input
+                            type="checkbox"
+                            checked={isSelectedForLink}
+                            onChange={(e) => toggleTodoSelection(todo.id, e as any)}
+                            onClick={(e) => e.stopPropagation()}
+                            style={{ cursor: 'pointer' }}
+                            title="Zum Verknüpfen auswählen"
+                          />
+                        </td>
+                        <td style={styles.tableCell}>
+                          <PriorityBadge priority={todo.priority} />
+                        </td>
+                        <td style={styles.tableCell}>{todo.title}</td>
+                        <td style={styles.tableCell}>
+                          <span style={styles.statusCell}>
+                            <span style={{
+                              ...styles.statusDot,
+                              backgroundColor: statusColors[todo.status] || '#888',
+                            }} />
+                            {statusLabels[todo.status] || todo.status}
+                          </span>
+                        </td>
+                        <td style={styles.tableCell}>
+                          <TodoRowThumbnail 
+                            articleId={todo.erp_order_article_id || todo.erp_packingnote_details_id}
+                            articleNumber={todo.order_article_number || todo.bom_article_number}
+                          />
+                        </td>
+                        <td style={{ ...styles.tableCell, textAlign: 'center' }}>
+                          {(todo.order_article_path || todo.bom_article_path) ? (
+                            <span
+                              onClick={(e) => copyPathToClipboard(todo.order_article_path || todo.bom_article_path!, e)}
+                              style={{
+                                cursor: 'pointer',
+                                fontSize: '16px',
+                                opacity: 0.7,
+                                transition: 'opacity 0.15s',
+                              }}
+                              onMouseEnter={(e) => (e.currentTarget.style.opacity = '1')}
+                              onMouseLeave={(e) => (e.currentTarget.style.opacity = '0.7')}
+                              title={`Pfad kopieren: ${todo.order_article_path || todo.bom_article_path}`}
+                            >
+                              📁
+                            </span>
+                          ) : (
+                            <span style={{ color: '#ccc', fontSize: '14px' }}>-</span>
+                          )}
+                        </td>
+                        <td style={styles.tableCell}>
+                          {todo.workstep_name || '-'}
+                        </td>
+                        <td style={styles.tableCell}>
+                          {formatDate(todo.planned_start)}
+                        </td>
+                        <td style={styles.tableCell}>
+                          {formatDuration(todo.total_duration_minutes)}
+                        </td>
+                        <td style={styles.tableCell}>
+                          {getResourceName(
+                            todo.assigned_department_id,
+                            todo.assigned_machine_id,
+                            todo.assigned_employee_id
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
           </div>
         )
       })}
+      
+      {/* Toast notification */}
+      {toastMessage && (
+        <div style={{
+          position: 'fixed',
+          bottom: '20px',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          backgroundColor: '#333',
+          color: '#fff',
+          padding: '10px 20px',
+          borderRadius: '6px',
+          fontSize: '14px',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+          zIndex: 10000,
+        }}>
+          {toastMessage}
+        </div>
+      )}
     </div>
   )
 }

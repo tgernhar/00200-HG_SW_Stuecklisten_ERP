@@ -9,6 +9,7 @@ API endpoints for production planning:
 - Todo generation from ERP
 """
 from fastapi import APIRouter, Depends, HTTPException, Query, Header
+from pydantic import BaseModel
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import and_, or_, func
 from typing import List, Optional
@@ -404,6 +405,29 @@ async def get_todos_with_erp_details(
     
     # Resolve ERP details (names from HUGWAWI)
     enriched_items = resolve_erp_details_for_todos(todos)
+    
+    # Add link status (has_predecessor, has_successor)
+    if enriched_items:
+        todo_ids = [item['id'] for item in enriched_items]
+        
+        # Get all dependencies involving these todos
+        predecessor_ids = set()
+        successor_ids = set()
+        deps = db.query(PPSTodoDependency).filter(
+            or_(
+                PPSTodoDependency.predecessor_id.in_(todo_ids),
+                PPSTodoDependency.successor_id.in_(todo_ids),
+            ),
+            PPSTodoDependency.is_active == True,
+        ).all()
+        
+        for dep in deps:
+            predecessor_ids.add(dep.predecessor_id)  # These have successors
+            successor_ids.add(dep.successor_id)  # These have predecessors
+        
+        for item in enriched_items:
+            item['has_predecessor'] = item['id'] in successor_ids
+            item['has_successor'] = item['id'] in predecessor_ids
     
     return TodoListWithERPResponse(items=enriched_items, total=total, skip=skip, limit=limit)
 
@@ -1106,6 +1130,75 @@ async def delete_dependency(dependency_id: int, db: Session = Depends(get_db)):
     db.commit()
     
     return {"success": True, "deleted_id": dependency_id}
+
+
+class AutoLinkRequest(BaseModel):
+    """Request to auto-link selected todos by priority"""
+    todo_ids: List[int]
+
+
+@router.post("/todos/auto-link")
+async def auto_link_selected_todos(payload: AutoLinkRequest, db: Session = Depends(get_db)):
+    """
+    Automatically link selected todos based on priority.
+    Deletes existing links between the selected todos, then creates new links
+    in priority order (Prio 1 -> Prio 2 -> Prio 3 -> ...).
+    """
+    if len(payload.todo_ids) < 2:
+        return {
+            "success": True,
+            "message": "Weniger als 2 Todos ausgewählt - keine Verknüpfungen erstellt",
+            "deleted_count": 0,
+            "created_count": 0,
+        }
+    
+    # Get todos sorted by priority
+    todos = db.query(PPSTodo).filter(
+        PPSTodo.id.in_(payload.todo_ids)
+    ).order_by(PPSTodo.priority.asc()).all()
+    
+    if len(todos) < 2:
+        return {
+            "success": True,
+            "message": "Weniger als 2 Todos gefunden - keine Verknüpfungen erstellt",
+            "deleted_count": 0,
+            "created_count": 0,
+        }
+    
+    todo_ids = [t.id for t in todos]
+    
+    # Delete existing dependencies between these todos
+    deleted_count = db.query(PPSTodoDependency).filter(
+        PPSTodoDependency.predecessor_id.in_(todo_ids),
+        PPSTodoDependency.successor_id.in_(todo_ids),
+    ).delete(synchronize_session=False)
+    
+    # Create new dependencies based on priority order
+    created_count = 0
+    for i in range(len(todos) - 1):
+        predecessor = todos[i]
+        successor = todos[i + 1]
+        
+        dep = PPSTodoDependency(
+            predecessor_id=predecessor.id,
+            successor_id=successor.id,
+            dependency_type="finish_to_start",
+            lag_minutes=0,
+            is_active=True,
+            created_at=datetime.utcnow(),
+        )
+        db.add(dep)
+        created_count += 1
+    
+    db.commit()
+    
+    return {
+        "success": True,
+        "message": f"{created_count} Verknüpfungen erstellt (Reihenfolge nach Priorität)",
+        "deleted_count": deleted_count,
+        "created_count": created_count,
+        "todo_order": [{"id": t.id, "priority": t.priority, "title": t.title} for t in todos],
+    }
 
 
 # ============== Conflicts ==============
