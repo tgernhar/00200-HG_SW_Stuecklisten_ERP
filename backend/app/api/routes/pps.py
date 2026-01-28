@@ -42,6 +42,7 @@ from app.services.pps_sync_service import (
     get_employee_resource_ids_for_erp_ids
 )
 from app.services.pps_service import resolve_erp_details_for_todos, round_to_15_minutes
+from app.api.routes.pps_config import get_todo_type_config_cached, format_todo_title
 
 router = APIRouter(prefix="/pps", tags=["PPS"])
 
@@ -1819,12 +1820,43 @@ async def create_todos_from_selection(
     """
     from app.core.database import get_erp_db_connection
     from datetime import datetime, timedelta
+    from app.models.pps_todo import PPSTodoTypeConfig
     
     # Helper function to truncate title to max 200 chars
     def truncate_title(title: str, max_len: int = 200) -> str:
         if len(title) <= max_len:
             return title
         return title[:max_len-3] + "..."
+    
+    # Load title configs from database for consistent naming
+    title_configs = {}
+    configs = db.query(PPSTodoTypeConfig).filter(PPSTodoTypeConfig.is_active == True).all()
+    for cfg in configs:
+        title_configs[cfg.todo_type] = cfg
+    
+    def get_formatted_title(todo_type: str, **kwargs) -> str:
+        """Generate title from config template.
+        
+        Args:
+            todo_type: Type of todo (container_order, container_article, bom_item, operation)
+            **kwargs: Values for template placeholders:
+                - name: Order name (for container_order)
+                - articlenumber: Article number (for container_article, bom_item)
+                - workstep_name: Workstep/qualification name (for operation)
+        """
+        config = title_configs.get(todo_type)
+        if config:
+            return truncate_title(format_todo_title(config, **kwargs))
+        # Fallback if no config found
+        if todo_type == "container_order":
+            return truncate_title(kwargs.get("name", "Unbekannter Auftrag"))
+        elif todo_type == "container_article":
+            return truncate_title(kwargs.get("articlenumber", "Unbekannter Artikel"))
+        elif todo_type == "bom_item":
+            return truncate_title(kwargs.get("articlenumber", "Unbekanntes BOM"))
+        elif todo_type == "operation":
+            return truncate_title(kwargs.get("workstep_name", "Unbekannter Arbeitsgang"))
+        return "Unbekannt"
     
     # Default start time: today at 08:00
     default_start = datetime.now().replace(hour=8, minute=0, second=0, microsecond=0)
@@ -1849,16 +1881,18 @@ async def create_todos_from_selection(
             return None
             
         elif todo_type == "container_article":
-            # Find or create container_order
+            # Find or create container_order (check all possible order types)
             parent = db.query(PPSTodo).filter(
                 PPSTodo.erp_order_id == erp_order_id,
-                PPSTodo.todo_type == "container_order"
+                PPSTodo.todo_type.in_(['container_order', 'task', 'project']),
+                PPSTodo.parent_todo_id.is_(None)  # Only top-level order todo
             ).first()
+            
             if not parent:
                 # Create container_order
                 start_time = default_start
                 parent = PPSTodo(
-                    title=f"Auftrag: {order_name or f'#{erp_order_id}'}",
+                    title=get_formatted_title("container_order", name=order_name or f"#{erp_order_id}"),
                     description="Auto-erstellt",
                     todo_type="container_order",
                     status="new",
@@ -1876,11 +1910,11 @@ async def create_todos_from_selection(
             return parent.id
             
         elif todo_type == "bom_item":
-            # First ensure container_article exists
+            # First ensure container_article exists (check all possible article types)
             parent = db.query(PPSTodo).filter(
                 PPSTodo.erp_order_id == erp_order_id,
                 PPSTodo.erp_order_article_id == erp_order_article_id,
-                PPSTodo.todo_type == "container_article"
+                PPSTodo.todo_type.in_(['container_article', 'task'])
             ).first()
             if not parent:
                 # Create container_article (which will also create container_order if needed)
@@ -1890,7 +1924,7 @@ async def create_todos_from_selection(
                 )
                 start_time = find_insert_position(erp_order_id, erp_order_article_id)
                 parent = PPSTodo(
-                    title=truncate_title(f"Pos: {article_info.get('position', '?')}: {article_info.get('articlenumber', '?')}") if article_info else f"Artikel #{erp_order_article_id}",
+                    title=get_formatted_title("container_article", articlenumber=article_info.get('articlenumber', '?')) if article_info else f"#{erp_order_article_id}",
                     description=f"Auftrag: {order_name or f'#{erp_order_id}'}" + (f"\n{article_info.get('article_name', '')}" if article_info else ""),
                     todo_type="container_article",
                     status="new",
@@ -1925,7 +1959,7 @@ async def create_todos_from_selection(
                 )
                 start_time = find_insert_position(erp_order_id, erp_order_article_id, erp_packingnote_details_id)
                 parent = PPSTodo(
-                    title=truncate_title(f"SL-Pos {bom_info.get('pos', '?')}: {bom_info.get('articlenumber', '?')}") if bom_info else f"BOM #{erp_packingnote_details_id}",
+                    title=get_formatted_title("bom_item", articlenumber=bom_info.get('articlenumber', '?')) if bom_info else f"#{erp_packingnote_details_id}",
                     description=f"Auftrag: {order_name or f'#{erp_order_id}'}" + (f"\n{bom_info.get('article_name', '')}" if bom_info else ""),
                     todo_type="bom_item",
                     status="new",
@@ -1996,12 +2030,24 @@ async def create_todos_from_selection(
             
             for row in cursor.fetchall():
                 try:
+                    # Check if order todo already exists (check all possible order types)
+                    # Planboard uses 'task', Auftragsübersicht uses 'container_order'
+                    existing = db.query(PPSTodo).filter(
+                        PPSTodo.erp_order_id == row['order_id'],
+                        PPSTodo.todo_type.in_(['container_order', 'task', 'project']),
+                        PPSTodo.parent_todo_id.is_(None)  # Only top-level order todo
+                    ).first()
+                    
+                    if existing:
+                        # Skip - already exists
+                        continue
+                    
                     # Find insert position based on existing todos for this order
                     start_time = find_insert_position(erp_order_id=row['order_id'])
                     duration = 60
                     
                     todo = PPSTodo(
-                        title=f"Auftrag: {row['order_name']}",
+                        title=get_formatted_title("container_order", name=row['order_name']),
                         description=f"Kunde: {row['customer_name'] or 'N/A'}",
                         todo_type="container_order",
                         status="new",
@@ -2041,6 +2087,18 @@ async def create_todos_from_selection(
             
             for row in cursor.fetchall():
                 try:
+                    # Check if container_article already exists for this order article
+                    # Planboard uses 'task', Auftragsübersicht uses 'container_article'
+                    existing = db.query(PPSTodo).filter(
+                        PPSTodo.erp_order_id == row['order_id'],
+                        PPSTodo.erp_order_article_id == row['order_article_id'],
+                        PPSTodo.todo_type.in_(['container_article', 'task'])
+                    ).first()
+                    
+                    if existing:
+                        # Skip - already exists
+                        continue
+                    
                     # Ensure parent hierarchy exists (creates container_order if needed)
                     parent_id = ensure_parent_hierarchy(
                         todo_type="container_article",
@@ -2056,7 +2114,7 @@ async def create_todos_from_selection(
                     duration = 60
                     
                     todo = PPSTodo(
-                        title=truncate_title(f"Pos {row['position']}: {row['articlenumber']}"),
+                        title=get_formatted_title("container_article", articlenumber=row['articlenumber']),
                         description=f"Auftrag: {row['order_name']}, Menge: {row['quantity'] or 1}\n{row['article_name'] or ''}",
                         todo_type="container_article",
                         status="new",
@@ -2107,6 +2165,17 @@ async def create_todos_from_selection(
             
             for row in cursor.fetchall():
                 try:
+                    # Check if bom_item already exists for this packingnote detail
+                    existing = db.query(PPSTodo).filter(
+                        PPSTodo.erp_order_id == row['order_id'],
+                        PPSTodo.erp_packingnote_details_id == row['detail_id'],
+                        PPSTodo.todo_type == "bom_item"
+                    ).first()
+                    
+                    if existing:
+                        # Skip - already exists
+                        continue
+                    
                     # Ensure parent hierarchy exists (creates container_order and container_article if needed)
                     parent_id = ensure_parent_hierarchy(
                         todo_type="bom_item",
@@ -2125,7 +2194,7 @@ async def create_todos_from_selection(
                     duration = 60
                     
                     todo = PPSTodo(
-                        title=truncate_title(f"SL-Pos {row['pos']}: {row['articlenumber']}"),
+                        title=get_formatted_title("bom_item", articlenumber=row['articlenumber']),
                         description=f"Auftrag: {row['order_name']}, Menge: {row['quantity'] or 1}\n{row['article_name'] or ''}",
                         todo_type="bom_item",
                         status="new",
@@ -2189,6 +2258,17 @@ async def create_todos_from_selection(
             
             for row in cursor.fetchall():
                 try:
+                    # Check if operation already exists for this workplan detail
+                    existing = db.query(PPSTodo).filter(
+                        PPSTodo.erp_order_id == row['order_id'],
+                        PPSTodo.erp_workplan_detail_id == row['workplan_detail_id'],
+                        PPSTodo.todo_type == "operation"
+                    ).first()
+                    
+                    if existing:
+                        # Skip - already exists
+                        continue
+                    
                     # Calculate duration from setup + unit time
                     setup_time = int(row['setuptime'] or 0)
                     unit_time = int(row['unittime'] or 0)
@@ -2215,7 +2295,7 @@ async def create_todos_from_selection(
                     )
                     
                     todo = PPSTodo(
-                        title=truncate_title(f"AG {row['pos']}: {row['workstep_name'] or 'Arbeitsgang'}"),
+                        title=get_formatted_title("operation", workstep_name=row['workstep_name'] or row['machine_name'] or 'Arbeitsgang'),
                         description=f"Auftrag: {row['order_name']}, Maschine: {row['machine_name'] or 'N/A'}",
                         todo_type="operation",
                         status="new",

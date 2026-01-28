@@ -11,11 +11,12 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import List, Optional, Dict, Any
 from datetime import datetime, date, timedelta
-from app.models.pps_todo import PPSTodo, PPSTodoDependency, PPSResourceCache
+from app.models.pps_todo import PPSTodo, PPSTodoDependency, PPSResourceCache, PPSTodoTypeConfig
 from app.schemas.pps import (
     GenerateTodosResponse, AvailableOrder, TodoType, TodoStatus, TodoWithERPDetails
 )
 from app.core.database import get_erp_db_connection
+from app.api.routes.pps_config import format_todo_title
 
 
 def round_to_15_minutes(minutes: float) -> int:
@@ -391,6 +392,29 @@ def generate_todos_from_order(
         customer = order_row['customer'] or ''
         order_start = datetime.now().replace(second=0, microsecond=0)
         
+        # Load title configs from database for consistent naming
+        title_configs = {}
+        configs = db.query(PPSTodoTypeConfig).filter(PPSTodoTypeConfig.is_active == True).all()
+        for cfg in configs:
+            title_configs[cfg.todo_type] = cfg
+        
+        def get_formatted_title(todo_type: str, max_len: int = 255, **kwargs) -> str:
+            """Generate title from config template."""
+            config = title_configs.get(todo_type)
+            if config:
+                title = format_todo_title(config, **kwargs)
+                return title[:max_len] if len(title) > max_len else title
+            # Fallback if no config found
+            if todo_type == "container_order":
+                return kwargs.get("name", "Unbekannter Auftrag")[:max_len]
+            elif todo_type == "container_article":
+                return kwargs.get("articlenumber", "Unbekannter Artikel")[:max_len]
+            elif todo_type == "bom_item":
+                return kwargs.get("articlenumber", "Unbekanntes BOM")[:max_len]
+            elif todo_type == "operation":
+                return kwargs.get("workstep_name", "Unbekannter Arbeitsgang")[:max_len]
+            return "Unbekannt"
+        
         # 2. Get order articles (including department from article)
         article_query = """
             SELECT 
@@ -441,8 +465,8 @@ def generate_todos_from_order(
             order_container = PPSTodo(
                 erp_order_id=erp_order_id,
                 todo_type=order_type,
-                title=f"{order_name} - {customer}",
-                description=f"Auftrag {order_name}",
+                title=get_formatted_title("container_order", name=order_name),
+                description=f"Auftrag {order_name}, Kunde: {customer}",
                 quantity=1,
                 status='new',
                 delivery_date=delivery_date,
@@ -549,13 +573,12 @@ def generate_todos_from_order(
                     existing_article.updated_at = datetime.utcnow()
             else:
                 # Create article todo with calculated duration
-                article_title = f"Pos {article_row['position']}: {article_row['articlenumber']} - {article_row['description']}"
                 article_container = PPSTodo(
                     erp_order_id=erp_order_id,
                     erp_order_article_id=order_article_id,
                     parent_todo_id=order_container_id,
                     todo_type='task',
-                    title=article_title[:255],
+                    title=get_formatted_title("container_article", articlenumber=article_row['articlenumber']),
                     quantity=article_row['quantity'] or 1,
                     total_duration_minutes=total_article_duration,  # Duration from workplan
                     is_duration_manual=False,
@@ -601,10 +624,8 @@ def generate_todos_from_order(
                             existing_op.assigned_department_id = department_resource_id
                             existing_op.updated_at = datetime.utcnow()
                     else:
-                        # Create operation todo
-                        op_title = f"AG {wp_row['pos']}: {wp_row['workstep_name'] or 'Arbeitsgang'}"
-                        if wp_row['machine_name']:
-                            op_title += f" ({wp_row['machine_name']})"
+                        # Create operation todo - use config-based title
+                        op_title = get_formatted_title("operation", workstep_name=wp_row['workstep_name'] or wp_row['machine_name'] or 'Arbeitsgang')
                         
                         # Calculate duration
                         setup_time_seconds = wp_row.get('setuptime') or 0
@@ -721,10 +742,6 @@ def generate_todos_from_order(
                     ).first()
                     
                     if not existing_bom:
-                        bom_title = f"BOM {bom_item['pos']}: {bom_item['articlenumber'] or 'Artikel'}"
-                        if bom_item['description']:
-                            bom_title += f" - {bom_item['description']}"
-                        
                         # BOM items start PARALLEL at order start (no sequential dependencies)
                         bom_todo = PPSTodo(
                             erp_order_id=erp_order_id,
@@ -732,7 +749,7 @@ def generate_todos_from_order(
                             erp_packingnote_details_id=bom_item_id,
                             parent_todo_id=article_container_id,
                             todo_type='task',
-                            title=bom_title[:255],
+                            title=get_formatted_title("bom_item", articlenumber=bom_item['articlenumber'] or 'Artikel'),
                             quantity=bom_item['quantity'] or 1,
                             total_duration_minutes=60,  # Default for BOM items
                             is_duration_manual=False,
