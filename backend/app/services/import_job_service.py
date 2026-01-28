@@ -20,23 +20,9 @@ def _now():
     return datetime.utcnow()
 
 
-# region agent log
-def _dbg_log(hypothesis_id: str, location: str, message: str, data: dict) -> None:
-    try:
-        payload = {
-            "sessionId": "debug-session",
-            "runId": "import-error",
-            "hypothesisId": hypothesis_id,
-            "location": location,
-            "message": message,
-            "data": data,
-            "timestamp": int(time.time() * 1000),
-        }
-        with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
-            _f.write(_json.dumps(payload) + "\n")
-    except Exception:
-        pass
-# endregion
+def _dbg_log(*args, **kwargs):
+    """Debug logging disabled - no-op function"""
+    pass
 
 
 def create_import_job(db: Session, *, project_id: int, bom_id: int, assembly_filepath: str) -> ImportJob:

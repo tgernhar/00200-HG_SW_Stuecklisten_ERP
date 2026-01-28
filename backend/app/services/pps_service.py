@@ -51,6 +51,352 @@ def round_to_15_minutes(minutes: float) -> int:
     return max(15, rounded)
 
 
+# ============== Central Todo Factory ==============
+
+def get_todo_title_configs(db: Session) -> Dict[str, PPSTodoTypeConfig]:
+    """Load all active todo type configurations from database."""
+    configs = db.query(PPSTodoTypeConfig).filter(PPSTodoTypeConfig.is_active == True).all()
+    return {cfg.todo_type: cfg for cfg in configs}
+
+
+def format_todo_title_from_config(
+    config: Optional[PPSTodoTypeConfig], 
+    todo_type: str, 
+    max_len: int = 255, 
+    **kwargs
+) -> str:
+    """
+    Generate title from config template.
+    
+    Args:
+        config: PPSTodoTypeConfig object (can be None for fallback)
+        todo_type: Type of todo (container_order, container_article, bom_item, operation)
+        max_len: Maximum title length
+        **kwargs: Values for template placeholders:
+            - name: Order name (for container_order)
+            - articlenumber: Article number (for container_article, bom_item)
+            - workstep_name: Workstep/qualification name (for operation)
+    """
+    if config:
+        title = format_todo_title(config, **kwargs)
+        return title[:max_len] if len(title) > max_len else title
+    
+    # Fallback if no config found
+    fallbacks = {
+        "container_order": kwargs.get("name", "Unbekannter Auftrag"),
+        "container_article": kwargs.get("articlenumber", "Unbekannter Artikel"),
+        "bom_item": kwargs.get("articlenumber", "Unbekanntes BOM"),
+        "operation": kwargs.get("workstep_name", "Unbekannter Arbeitsgang"),
+    }
+    title = fallbacks.get(todo_type, "Unbekannt")
+    return title[:max_len] if len(title) > max_len else title
+
+
+def find_or_create_order_todo(
+    db: Session,
+    erp_order_id: int,
+    order_name: str,
+    title_configs: Dict[str, PPSTodoTypeConfig],
+    delivery_date: Optional[date] = None,
+    customer_name: Optional[str] = None,
+    default_start: Optional[datetime] = None,
+) -> PPSTodo:
+    """
+    Find existing order todo or create a new one.
+    
+    This is the SINGLE SOURCE OF TRUTH for order todo creation.
+    All code paths should use this function.
+    
+    Returns the existing or newly created todo.
+    """
+    # Search for existing (check all possible order types)
+    existing = db.query(PPSTodo).filter(
+        PPSTodo.erp_order_id == erp_order_id,
+        PPSTodo.todo_type.in_(['container_order', 'task', 'project']),
+        PPSTodo.parent_todo_id.is_(None)  # Only top-level order todo
+    ).first()
+    
+    if existing:
+        return existing
+    
+    # Create new order todo
+    if default_start is None:
+        default_start = datetime.now().replace(hour=8, minute=0, second=0, microsecond=0)
+        if default_start < datetime.now():
+            default_start = default_start + timedelta(days=1)
+    
+    duration = 60
+    config = title_configs.get("container_order")
+    
+    todo = PPSTodo(
+        title=format_todo_title_from_config(config, "container_order", name=order_name),
+        description=f"Kunde: {customer_name or 'N/A'}",
+        todo_type="container_order",
+        status="new",
+        erp_order_id=erp_order_id,
+        delivery_date=delivery_date,
+        planned_start=default_start,
+        planned_end=default_start + timedelta(minutes=duration),
+        total_duration_minutes=duration,
+        priority=50,
+        version=1,
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
+    )
+    db.add(todo)
+    db.flush()
+    return todo
+
+
+def find_or_create_article_todo(
+    db: Session,
+    erp_order_id: int,
+    erp_order_article_id: int,
+    articlenumber: str,
+    title_configs: Dict[str, PPSTodoTypeConfig],
+    order_name: Optional[str] = None,
+    article_name: Optional[str] = None,
+    quantity: int = 1,
+    delivery_date: Optional[date] = None,
+    customer_name: Optional[str] = None,
+    department_resource_id: Optional[int] = None,
+    default_start: Optional[datetime] = None,
+    duration_minutes: int = 60,
+) -> PPSTodo:
+    """
+    Find existing article todo or create a new one.
+    Automatically creates parent order todo if needed.
+    
+    This is the SINGLE SOURCE OF TRUTH for article todo creation.
+    """
+    # Search for existing (check all possible article types)
+    existing = db.query(PPSTodo).filter(
+        PPSTodo.erp_order_id == erp_order_id,
+        PPSTodo.erp_order_article_id == erp_order_article_id,
+        PPSTodo.todo_type.in_(['container_article', 'task'])
+    ).first()
+    
+    if existing:
+        return existing
+    
+    # Ensure parent order exists
+    parent_todo = find_or_create_order_todo(
+        db=db,
+        erp_order_id=erp_order_id,
+        order_name=order_name or f"#{erp_order_id}",
+        title_configs=title_configs,
+        delivery_date=delivery_date,
+        customer_name=customer_name,
+        default_start=default_start,
+    )
+    
+    # Create new article todo
+    if default_start is None:
+        default_start = datetime.now().replace(hour=8, minute=0, second=0, microsecond=0)
+        if default_start < datetime.now():
+            default_start = default_start + timedelta(days=1)
+    
+    config = title_configs.get("container_article")
+    
+    todo = PPSTodo(
+        title=format_todo_title_from_config(config, "container_article", articlenumber=articlenumber),
+        description=f"Auftrag: {order_name or f'#{erp_order_id}'}, Menge: {quantity}\n{article_name or ''}",
+        todo_type="container_article",
+        status="new",
+        erp_order_id=erp_order_id,
+        erp_order_article_id=erp_order_article_id,
+        parent_todo_id=parent_todo.id,
+        quantity=quantity,
+        delivery_date=delivery_date,
+        assigned_department_id=department_resource_id,
+        planned_start=default_start,
+        planned_end=default_start + timedelta(minutes=duration_minutes),
+        total_duration_minutes=duration_minutes,
+        priority=50,
+        version=1,
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
+    )
+    db.add(todo)
+    db.flush()
+    return todo
+
+
+def find_or_create_bom_todo(
+    db: Session,
+    erp_order_id: int,
+    erp_order_article_id: int,
+    erp_packingnote_details_id: int,
+    articlenumber: str,
+    title_configs: Dict[str, PPSTodoTypeConfig],
+    order_name: Optional[str] = None,
+    article_name: Optional[str] = None,
+    parent_articlenumber: Optional[str] = None,
+    quantity: int = 1,
+    delivery_date: Optional[date] = None,
+    customer_name: Optional[str] = None,
+    department_resource_id: Optional[int] = None,
+    default_start: Optional[datetime] = None,
+    duration_minutes: int = 60,
+) -> PPSTodo:
+    """
+    Find existing BOM item todo or create a new one.
+    Automatically creates parent order and article todos if needed.
+    
+    This is the SINGLE SOURCE OF TRUTH for BOM item todo creation.
+    """
+    # Search for existing
+    existing = db.query(PPSTodo).filter(
+        PPSTodo.erp_order_id == erp_order_id,
+        PPSTodo.erp_packingnote_details_id == erp_packingnote_details_id,
+        PPSTodo.todo_type == "bom_item"
+    ).first()
+    
+    if existing:
+        return existing
+    
+    # Ensure parent article exists
+    parent_todo = find_or_create_article_todo(
+        db=db,
+        erp_order_id=erp_order_id,
+        erp_order_article_id=erp_order_article_id,
+        articlenumber=parent_articlenumber or f"#{erp_order_article_id}",
+        title_configs=title_configs,
+        order_name=order_name,
+        quantity=quantity,
+        delivery_date=delivery_date,
+        customer_name=customer_name,
+        department_resource_id=department_resource_id,
+        default_start=default_start,
+    )
+    
+    # Create new BOM item todo
+    if default_start is None:
+        default_start = datetime.now().replace(hour=8, minute=0, second=0, microsecond=0)
+        if default_start < datetime.now():
+            default_start = default_start + timedelta(days=1)
+    
+    config = title_configs.get("bom_item")
+    
+    todo = PPSTodo(
+        title=format_todo_title_from_config(config, "bom_item", articlenumber=articlenumber),
+        description=f"Auftrag: {order_name or f'#{erp_order_id}'}, Menge: {quantity}\n{article_name or ''}",
+        todo_type="bom_item",
+        status="new",
+        erp_order_id=erp_order_id,
+        erp_order_article_id=erp_order_article_id,
+        erp_packingnote_details_id=erp_packingnote_details_id,
+        parent_todo_id=parent_todo.id,
+        quantity=quantity,
+        delivery_date=delivery_date,
+        assigned_department_id=department_resource_id,
+        planned_start=default_start,
+        planned_end=default_start + timedelta(minutes=duration_minutes),
+        total_duration_minutes=duration_minutes,
+        priority=50,
+        version=1,
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
+    )
+    db.add(todo)
+    db.flush()
+    return todo
+
+
+def find_or_create_operation_todo(
+    db: Session,
+    erp_order_id: int,
+    erp_order_article_id: int,
+    erp_packingnote_details_id: int,
+    erp_workplan_detail_id: int,
+    workstep_name: str,
+    title_configs: Dict[str, PPSTodoTypeConfig],
+    order_name: Optional[str] = None,
+    parent_articlenumber: Optional[str] = None,
+    bom_articlenumber: Optional[str] = None,
+    machine_name: Optional[str] = None,
+    machine_resource_id: Optional[int] = None,
+    quantity: int = 1,
+    setup_time_minutes: int = 0,
+    run_time_minutes: int = 0,
+    delivery_date: Optional[date] = None,
+    customer_name: Optional[str] = None,
+    department_resource_id: Optional[int] = None,
+    default_start: Optional[datetime] = None,
+) -> PPSTodo:
+    """
+    Find existing operation todo or create a new one.
+    Automatically creates parent order, article and BOM todos if needed.
+    
+    This is the SINGLE SOURCE OF TRUTH for operation todo creation.
+    """
+    # Search for existing
+    existing = db.query(PPSTodo).filter(
+        PPSTodo.erp_order_id == erp_order_id,
+        PPSTodo.erp_workplan_detail_id == erp_workplan_detail_id,
+        PPSTodo.todo_type == "operation"
+    ).first()
+    
+    if existing:
+        return existing
+    
+    # Ensure parent BOM item exists
+    parent_todo = find_or_create_bom_todo(
+        db=db,
+        erp_order_id=erp_order_id,
+        erp_order_article_id=erp_order_article_id,
+        erp_packingnote_details_id=erp_packingnote_details_id,
+        articlenumber=bom_articlenumber or f"#{erp_packingnote_details_id}",
+        title_configs=title_configs,
+        order_name=order_name,
+        parent_articlenumber=parent_articlenumber,
+        quantity=quantity,
+        delivery_date=delivery_date,
+        customer_name=customer_name,
+        department_resource_id=department_resource_id,
+        default_start=default_start,
+    )
+    
+    # Calculate duration
+    total_duration = round_to_15_minutes(setup_time_minutes + run_time_minutes) or 60
+    
+    # Create new operation todo
+    if default_start is None:
+        default_start = datetime.now().replace(hour=8, minute=0, second=0, microsecond=0)
+        if default_start < datetime.now():
+            default_start = default_start + timedelta(days=1)
+    
+    config = title_configs.get("operation")
+    
+    todo = PPSTodo(
+        title=format_todo_title_from_config(config, "operation", workstep_name=workstep_name),
+        description=f"Auftrag: {order_name or f'#{erp_order_id}'}, Maschine: {machine_name or 'N/A'}",
+        todo_type="operation",
+        status="new",
+        erp_order_id=erp_order_id,
+        erp_order_article_id=erp_order_article_id,
+        erp_packingnote_details_id=erp_packingnote_details_id,
+        erp_workplan_detail_id=erp_workplan_detail_id,
+        parent_todo_id=parent_todo.id,
+        quantity=quantity,
+        setup_time_minutes=setup_time_minutes,
+        run_time_minutes=run_time_minutes,
+        total_duration_minutes=total_duration,
+        delivery_date=delivery_date,
+        assigned_department_id=department_resource_id,
+        assigned_machine_id=machine_resource_id,
+        planned_start=default_start,
+        planned_end=default_start + timedelta(minutes=total_duration),
+        priority=50,
+        version=1,
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
+    )
+    db.add(todo)
+    db.flush()
+    return todo
+
+
 def resolve_erp_details_for_todos(todos: List[PPSTodo]) -> List[Dict[str, Any]]:
     """
     Resolve ERP names for a list of todos by querying HUGWAWI.

@@ -41,7 +41,15 @@ from app.services.pps_sync_service import (
     get_subordinate_ids, 
     get_employee_resource_ids_for_erp_ids
 )
-from app.services.pps_service import resolve_erp_details_for_todos, round_to_15_minutes
+from app.services.pps_service import (
+    resolve_erp_details_for_todos, 
+    round_to_15_minutes,
+    get_todo_title_configs,
+    find_or_create_order_todo,
+    find_or_create_article_todo,
+    find_or_create_bom_todo,
+    find_or_create_operation_todo,
+)
 from app.api.routes.pps_config import get_todo_type_config_cached, format_todo_title
 
 router = APIRouter(prefix="/pps", tags=["PPS"])
@@ -1810,7 +1818,8 @@ async def create_todos_from_selection(
     """
     Create todos directly from selected hierarchy items.
     1:1 mapping - each selected item becomes a single todo.
-    No complex hierarchy generation like '+Aus Auftrag generieren'.
+    
+    Uses central factory functions from pps_service.py for consistent creation.
     
     Todo types:
     - order_ids -> container_order (Green)
@@ -1819,193 +1828,9 @@ async def create_todos_from_selection(
     - workstep_ids -> operation (Blue)
     """
     from app.core.database import get_erp_db_connection
-    from datetime import datetime, timedelta
-    from app.models.pps_todo import PPSTodoTypeConfig
     
-    # Helper function to truncate title to max 200 chars
-    def truncate_title(title: str, max_len: int = 200) -> str:
-        if len(title) <= max_len:
-            return title
-        return title[:max_len-3] + "..."
-    
-    # Load title configs from database for consistent naming
-    title_configs = {}
-    configs = db.query(PPSTodoTypeConfig).filter(PPSTodoTypeConfig.is_active == True).all()
-    for cfg in configs:
-        title_configs[cfg.todo_type] = cfg
-    
-    def get_formatted_title(todo_type: str, **kwargs) -> str:
-        """Generate title from config template.
-        
-        Args:
-            todo_type: Type of todo (container_order, container_article, bom_item, operation)
-            **kwargs: Values for template placeholders:
-                - name: Order name (for container_order)
-                - articlenumber: Article number (for container_article, bom_item)
-                - workstep_name: Workstep/qualification name (for operation)
-        """
-        config = title_configs.get(todo_type)
-        if config:
-            return truncate_title(format_todo_title(config, **kwargs))
-        # Fallback if no config found
-        if todo_type == "container_order":
-            return truncate_title(kwargs.get("name", "Unbekannter Auftrag"))
-        elif todo_type == "container_article":
-            return truncate_title(kwargs.get("articlenumber", "Unbekannter Artikel"))
-        elif todo_type == "bom_item":
-            return truncate_title(kwargs.get("articlenumber", "Unbekanntes BOM"))
-        elif todo_type == "operation":
-            return truncate_title(kwargs.get("workstep_name", "Unbekannter Arbeitsgang"))
-        return "Unbekannt"
-    
-    # Default start time: today at 08:00
-    default_start = datetime.now().replace(hour=8, minute=0, second=0, microsecond=0)
-    if default_start < datetime.now():
-        # If 08:00 today is in the past, use tomorrow
-        default_start = default_start + timedelta(days=1)
-    
-    def ensure_parent_hierarchy(todo_type: str, erp_order_id: int, erp_order_article_id: int = None,
-                                erp_packingnote_details_id: int = None, order_name: str = None,
-                                article_info: dict = None, bom_info: dict = None, 
-                                delivery_date=None) -> Optional[int]:
-        """Find or create the parent todo ID based on hierarchy.
-        Creates missing parent hierarchy automatically.
-        
-        Hierarchy:
-        - container_order: no parent
-        - container_article: parent is container_order
-        - bom_item: parent is container_article
-        - operation: parent is bom_item
-        """
-        if todo_type == "container_order":
-            return None
-            
-        elif todo_type == "container_article":
-            # Find or create container_order (check all possible order types)
-            parent = db.query(PPSTodo).filter(
-                PPSTodo.erp_order_id == erp_order_id,
-                PPSTodo.todo_type.in_(['container_order', 'task', 'project']),
-                PPSTodo.parent_todo_id.is_(None)  # Only top-level order todo
-            ).first()
-            
-            if not parent:
-                # Create container_order
-                start_time = default_start
-                parent = PPSTodo(
-                    title=get_formatted_title("container_order", name=order_name or f"#{erp_order_id}"),
-                    description="Auto-erstellt",
-                    todo_type="container_order",
-                    status="new",
-                    erp_order_id=erp_order_id,
-                    delivery_date=delivery_date,
-                    planned_start=start_time,
-                    planned_end=start_time + timedelta(minutes=60),
-                    total_duration_minutes=60,
-                    priority=50,
-                    version=1,
-                )
-                db.add(parent)
-                db.flush()
-                created_todos.append(parent.id)
-            return parent.id
-            
-        elif todo_type == "bom_item":
-            # First ensure container_article exists (check all possible article types)
-            parent = db.query(PPSTodo).filter(
-                PPSTodo.erp_order_id == erp_order_id,
-                PPSTodo.erp_order_article_id == erp_order_article_id,
-                PPSTodo.todo_type.in_(['container_article', 'task'])
-            ).first()
-            if not parent:
-                # Create container_article (which will also create container_order if needed)
-                container_order_id = ensure_parent_hierarchy(
-                    "container_article", erp_order_id, 
-                    order_name=order_name, delivery_date=delivery_date
-                )
-                start_time = find_insert_position(erp_order_id, erp_order_article_id)
-                parent = PPSTodo(
-                    title=get_formatted_title("container_article", articlenumber=article_info.get('articlenumber', '?')) if article_info else f"#{erp_order_article_id}",
-                    description=f"Auftrag: {order_name or f'#{erp_order_id}'}" + (f"\n{article_info.get('article_name', '')}" if article_info else ""),
-                    todo_type="container_article",
-                    status="new",
-                    erp_order_id=erp_order_id,
-                    erp_order_article_id=erp_order_article_id,
-                    parent_todo_id=container_order_id,
-                    quantity=article_info.get('quantity', 1) if article_info else 1,
-                    delivery_date=delivery_date,
-                    planned_start=start_time,
-                    planned_end=start_time + timedelta(minutes=60),
-                    total_duration_minutes=60,
-                    priority=50,
-                    version=1,
-                )
-                db.add(parent)
-                db.flush()
-                created_todos.append(parent.id)
-            return parent.id
-            
-        elif todo_type == "operation":
-            # First ensure bom_item exists
-            parent = db.query(PPSTodo).filter(
-                PPSTodo.erp_order_id == erp_order_id,
-                PPSTodo.erp_packingnote_details_id == erp_packingnote_details_id,
-                PPSTodo.todo_type == "bom_item"
-            ).first()
-            if not parent:
-                # Create bom_item (which will also create container_article and container_order if needed)
-                container_article_id = ensure_parent_hierarchy(
-                    "bom_item", erp_order_id, erp_order_article_id,
-                    order_name=order_name, article_info=article_info, delivery_date=delivery_date
-                )
-                start_time = find_insert_position(erp_order_id, erp_order_article_id, erp_packingnote_details_id)
-                parent = PPSTodo(
-                    title=get_formatted_title("bom_item", articlenumber=bom_info.get('articlenumber', '?')) if bom_info else f"#{erp_packingnote_details_id}",
-                    description=f"Auftrag: {order_name or f'#{erp_order_id}'}" + (f"\n{bom_info.get('article_name', '')}" if bom_info else ""),
-                    todo_type="bom_item",
-                    status="new",
-                    erp_order_id=erp_order_id,
-                    erp_order_article_id=erp_order_article_id,
-                    erp_packingnote_details_id=erp_packingnote_details_id,
-                    parent_todo_id=container_article_id,
-                    quantity=bom_info.get('quantity', 1) if bom_info else 1,
-                    delivery_date=delivery_date,
-                    planned_start=start_time,
-                    planned_end=start_time + timedelta(minutes=60),
-                    total_duration_minutes=60,
-                    priority=50,
-                    version=1,
-                )
-                db.add(parent)
-                db.flush()
-                created_todos.append(parent.id)
-            return parent.id
-            
-        return None
-    
-    def find_insert_position(erp_order_id: int, erp_order_article_id: int = None, 
-                             erp_packingnote_details_id: int = None) -> datetime:
-        """Find the best insert position for a new todo based on existing todos.
-        Returns the planned_end of the last todo in the same context, or default_start."""
-        
-        # Build query to find existing todos in the same context
-        query = db.query(PPSTodo).filter(PPSTodo.erp_order_id == erp_order_id)
-        
-        if erp_packingnote_details_id:
-            # For BOM items/operations: find todos with same order article
-            query = query.filter(PPSTodo.erp_order_article_id == erp_order_article_id)
-        elif erp_order_article_id:
-            # For order articles: find todos with same order
-            pass  # Already filtered by erp_order_id
-        
-        # Get the todo with the latest planned_end
-        last_todo = query.filter(
-            PPSTodo.planned_end.isnot(None)
-        ).order_by(PPSTodo.planned_end.desc()).first()
-        
-        if last_todo and last_todo.planned_end:
-            return last_todo.planned_end
-        
-        return default_start
+    # Load title configs once (central function)
+    title_configs = get_todo_title_configs(db)
     
     created_todos = []
     errors = []
@@ -2030,38 +1855,18 @@ async def create_todos_from_selection(
             
             for row in cursor.fetchall():
                 try:
-                    # Check if order todo already exists (check all possible order types)
-                    # Planboard uses 'task', Auftragsübersicht uses 'container_order'
-                    existing = db.query(PPSTodo).filter(
-                        PPSTodo.erp_order_id == row['order_id'],
-                        PPSTodo.todo_type.in_(['container_order', 'task', 'project']),
-                        PPSTodo.parent_todo_id.is_(None)  # Only top-level order todo
-                    ).first()
-                    
-                    if existing:
-                        # Skip - already exists
-                        continue
-                    
-                    # Find insert position based on existing todos for this order
-                    start_time = find_insert_position(erp_order_id=row['order_id'])
-                    duration = 60
-                    
-                    todo = PPSTodo(
-                        title=get_formatted_title("container_order", name=row['order_name']),
-                        description=f"Kunde: {row['customer_name'] or 'N/A'}",
-                        todo_type="container_order",
-                        status="new",
+                    # Use central factory function
+                    todo = find_or_create_order_todo(
+                        db=db,
                         erp_order_id=row['order_id'],
+                        order_name=row['order_name'],
+                        title_configs=title_configs,
                         delivery_date=row['delivery_date'],
-                        planned_start=start_time,
-                        planned_end=start_time + timedelta(minutes=duration),
-                        total_duration_minutes=duration,
-                        priority=50,
-                        version=1,
+                        customer_name=row['customer_name'],
                     )
-                    db.add(todo)
-                    db.flush()
-                    created_todos.append(todo.id)
+                    # Only count if newly created (not existing)
+                    if todo.id not in created_todos:
+                        created_todos.append(todo.id)
                 except Exception as e:
                     errors.append(f"Fehler bei Auftrag {row['order_id']}: {str(e)}")
         
@@ -2077,61 +1882,33 @@ async def create_todos_from_selection(
                     oar.batchsize as quantity,
                     o.id as order_id,
                     o.name as order_name,
-                    o.date2 as delivery_date
+                    o.date2 as delivery_date,
+                    c.suchname as customer_name
                 FROM order_article oa
                 JOIN order_article_ref oar ON oar.orderArticleId = oa.id
                 JOIN article a ON a.id = oa.articleid
                 JOIN ordertable o ON o.id = oar.orderid
+                LEFT JOIN adrbase c ON c.id = o.kid
                 WHERE oa.id IN ({placeholders})
             """, tuple(request.order_article_ids))
             
             for row in cursor.fetchall():
                 try:
-                    # Check if container_article already exists for this order article
-                    # Planboard uses 'task', Auftragsübersicht uses 'container_article'
-                    existing = db.query(PPSTodo).filter(
-                        PPSTodo.erp_order_id == row['order_id'],
-                        PPSTodo.erp_order_article_id == row['order_article_id'],
-                        PPSTodo.todo_type.in_(['container_article', 'task'])
-                    ).first()
-                    
-                    if existing:
-                        # Skip - already exists
-                        continue
-                    
-                    # Ensure parent hierarchy exists (creates container_order if needed)
-                    parent_id = ensure_parent_hierarchy(
-                        todo_type="container_article",
-                        erp_order_id=row['order_id'],
-                        order_name=row['order_name'],
-                        delivery_date=row['delivery_date']
-                    )
-                    # Find insert position based on existing todos for this order
-                    start_time = find_insert_position(
-                        erp_order_id=row['order_id'],
-                        erp_order_article_id=row['order_article_id']
-                    )
-                    duration = 60
-                    
-                    todo = PPSTodo(
-                        title=get_formatted_title("container_article", articlenumber=row['articlenumber']),
-                        description=f"Auftrag: {row['order_name']}, Menge: {row['quantity'] or 1}\n{row['article_name'] or ''}",
-                        todo_type="container_article",
-                        status="new",
+                    # Use central factory function
+                    todo = find_or_create_article_todo(
+                        db=db,
                         erp_order_id=row['order_id'],
                         erp_order_article_id=row['order_article_id'],
-                        parent_todo_id=parent_id,
+                        articlenumber=row['articlenumber'],
+                        title_configs=title_configs,
+                        order_name=row['order_name'],
+                        article_name=row['article_name'],
                         quantity=row['quantity'] or 1,
                         delivery_date=row['delivery_date'],
-                        planned_start=start_time,
-                        planned_end=start_time + timedelta(minutes=duration),
-                        total_duration_minutes=duration,
-                        priority=50,
-                        version=1,
+                        customer_name=row.get('customer_name'),
                     )
-                    db.add(todo)
-                    db.flush()
-                    created_todos.append(todo.id)
+                    if todo.id not in created_todos:
+                        created_todos.append(todo.id)
                 except Exception as e:
                     errors.append(f"Fehler bei Auftragsartikel {row['order_article_id']}: {str(e)}")
         
@@ -2143,16 +1920,14 @@ async def create_todos_from_selection(
                     pd.id as detail_id,
                     pd.pos,
                     pd.cascadedQuantity as quantity,
-                    pd.einzelmass,
                     a.articlenumber,
                     a.description as article_name,
                     oa.id as order_article_id,
-                    oa.position as oa_position,
                     oa_article.articlenumber as oa_articlenumber,
-                    oar.batchsize as oa_quantity,
                     o.id as order_id,
                     o.name as order_name,
-                    o.date2 as delivery_date
+                    o.date2 as delivery_date,
+                    c.suchname as customer_name
                 FROM packingnote_details pd
                 JOIN article a ON a.id = pd.article
                 JOIN packingnote_relation pr ON pr.detail = pd.id
@@ -2160,59 +1935,29 @@ async def create_todos_from_selection(
                 JOIN article oa_article ON oa_article.id = oa.articleid
                 JOIN order_article_ref oar ON oar.orderArticleId = oa.id
                 JOIN ordertable o ON o.id = oar.orderid
+                LEFT JOIN adrbase c ON c.id = o.kid
                 WHERE pd.id IN ({placeholders})
             """, tuple(request.bom_item_ids))
             
             for row in cursor.fetchall():
                 try:
-                    # Check if bom_item already exists for this packingnote detail
-                    existing = db.query(PPSTodo).filter(
-                        PPSTodo.erp_order_id == row['order_id'],
-                        PPSTodo.erp_packingnote_details_id == row['detail_id'],
-                        PPSTodo.todo_type == "bom_item"
-                    ).first()
-                    
-                    if existing:
-                        # Skip - already exists
-                        continue
-                    
-                    # Ensure parent hierarchy exists (creates container_order and container_article if needed)
-                    parent_id = ensure_parent_hierarchy(
-                        todo_type="bom_item",
-                        erp_order_id=row['order_id'],
-                        erp_order_article_id=row['order_article_id'],
-                        order_name=row['order_name'],
-                        article_info={'position': row.get('oa_position', '?'), 'articlenumber': row.get('oa_articlenumber', '?'), 'quantity': row.get('oa_quantity', 1)},
-                        delivery_date=row['delivery_date']
-                    )
-                    # Find insert position based on existing todos for this order article
-                    start_time = find_insert_position(
-                        erp_order_id=row['order_id'],
-                        erp_order_article_id=row['order_article_id'],
-                        erp_packingnote_details_id=row['detail_id']
-                    )
-                    duration = 60
-                    
-                    todo = PPSTodo(
-                        title=get_formatted_title("bom_item", articlenumber=row['articlenumber']),
-                        description=f"Auftrag: {row['order_name']}, Menge: {row['quantity'] or 1}\n{row['article_name'] or ''}",
-                        todo_type="bom_item",
-                        status="new",
+                    # Use central factory function
+                    todo = find_or_create_bom_todo(
+                        db=db,
                         erp_order_id=row['order_id'],
                         erp_order_article_id=row['order_article_id'],
                         erp_packingnote_details_id=row['detail_id'],
-                        parent_todo_id=parent_id,
+                        articlenumber=row['articlenumber'],
+                        title_configs=title_configs,
+                        order_name=row['order_name'],
+                        article_name=row['article_name'],
+                        parent_articlenumber=row['oa_articlenumber'],
                         quantity=row['quantity'] or 1,
                         delivery_date=row['delivery_date'],
-                        planned_start=start_time,
-                        planned_end=start_time + timedelta(minutes=duration),
-                        total_duration_minutes=duration,
-                        priority=50,
-                        version=1,
+                        customer_name=row.get('customer_name'),
                     )
-                    db.add(todo)
-                    db.flush()
-                    created_todos.append(todo.id)
+                    if todo.id not in created_todos:
+                        created_todos.append(todo.id)
                 except Exception as e:
                     errors.append(f"Fehler bei Stücklistenartikel {row['detail_id']}: {str(e)}")
         
@@ -2229,17 +1974,14 @@ async def create_todos_from_selection(
                     qi.id as machine_id,
                     qi.name as machine_name,
                     pd.id as bom_detail_id,
-                    pd.pos as bom_pos,
                     pd.cascadedQuantity as quantity,
                     bom_article.articlenumber as bom_articlenumber,
-                    bom_article.description as bom_article_name,
                     oa.id as order_article_id,
-                    oa.position as oa_position,
                     oa_article.articlenumber as oa_articlenumber,
-                    oar.batchsize as oa_quantity,
                     o.id as order_id,
                     o.name as order_name,
-                    o.date2 as delivery_date
+                    o.date2 as delivery_date,
+                    c.suchname as customer_name
                 FROM workplan_details wpd
                 JOIN workplan_relation wpr ON wpr.detail = wpd.id
                 JOIN workplan wp ON wp.id = wpr.workplanId
@@ -2253,80 +1995,50 @@ async def create_todos_from_selection(
                 JOIN article oa_article ON oa_article.id = oa.articleid
                 JOIN order_article_ref oar ON oar.orderArticleId = oa.id
                 JOIN ordertable o ON o.id = oar.orderid
+                LEFT JOIN adrbase c ON c.id = o.kid
                 WHERE wpd.id IN ({placeholders})
             """, tuple(request.workstep_ids))
             
             for row in cursor.fetchall():
                 try:
-                    # Check if operation already exists for this workplan detail
-                    existing = db.query(PPSTodo).filter(
-                        PPSTodo.erp_order_id == row['order_id'],
-                        PPSTodo.erp_workplan_detail_id == row['workplan_detail_id'],
-                        PPSTodo.todo_type == "operation"
-                    ).first()
-                    
-                    if existing:
-                        # Skip - already exists
-                        continue
-                    
-                    # Calculate duration from setup + unit time
+                    # Calculate duration
                     setup_time = int(row['setuptime'] or 0)
                     unit_time = int(row['unittime'] or 0)
                     quantity = int(row['quantity'] or 1)
                     run_time = unit_time * quantity
-                    total_duration = round_to_15_minutes(setup_time + run_time) or 60  # minimum 60 minutes
                     
-                    # Ensure parent hierarchy exists (creates container_order, container_article, bom_item if needed)
-                    parent_id = ensure_parent_hierarchy(
-                        todo_type="operation",
-                        erp_order_id=row['order_id'],
-                        erp_order_article_id=row['order_article_id'],
-                        erp_packingnote_details_id=row['bom_detail_id'],
-                        order_name=row['order_name'],
-                        article_info={'position': row.get('oa_position', '?'), 'articlenumber': row.get('oa_articlenumber', '?'), 'quantity': row.get('oa_quantity', 1)},
-                        bom_info={'pos': row.get('bom_pos', '?'), 'articlenumber': row.get('bom_articlenumber', '?'), 'article_name': row.get('bom_article_name', ''), 'quantity': row.get('quantity', 1)},
-                        delivery_date=row['delivery_date']
-                    )
-                    # Find insert position based on existing todos for this BOM item
-                    start_time = find_insert_position(
-                        erp_order_id=row['order_id'],
-                        erp_order_article_id=row['order_article_id'],
-                        erp_packingnote_details_id=row['bom_detail_id']
-                    )
-                    
-                    todo = PPSTodo(
-                        title=get_formatted_title("operation", workstep_name=row['workstep_name'] or row['machine_name'] or 'Arbeitsgang'),
-                        description=f"Auftrag: {row['order_name']}, Maschine: {row['machine_name'] or 'N/A'}",
-                        todo_type="operation",
-                        status="new",
-                        erp_order_id=row['order_id'],
-                        erp_order_article_id=row['order_article_id'],
-                        erp_packingnote_details_id=row['bom_detail_id'],
-                        erp_workplan_detail_id=row['workplan_detail_id'],
-                        parent_todo_id=parent_id,
-                        quantity=quantity,
-                        setup_time_minutes=setup_time,
-                        run_time_minutes=run_time,
-                        total_duration_minutes=total_duration,
-                        planned_start=start_time,
-                        planned_end=start_time + timedelta(minutes=total_duration),
-                        delivery_date=row['delivery_date'],
-                        priority=50,
-                        version=1,
-                    )
-                    # Assign machine if available
+                    # Get machine resource ID if available
+                    machine_resource_id = None
                     if row['machine_id']:
-                        # Try to find machine in resource cache
                         machine_resource = db.query(PPSResourceCache).filter(
                             PPSResourceCache.erp_id == row['machine_id'],
                             PPSResourceCache.resource_type == 'machine'
                         ).first()
                         if machine_resource:
-                            todo.assigned_machine_id = machine_resource.id
+                            machine_resource_id = machine_resource.id
                     
-                    db.add(todo)
-                    db.flush()
-                    created_todos.append(todo.id)
+                    # Use central factory function
+                    todo = find_or_create_operation_todo(
+                        db=db,
+                        erp_order_id=row['order_id'],
+                        erp_order_article_id=row['order_article_id'],
+                        erp_packingnote_details_id=row['bom_detail_id'],
+                        erp_workplan_detail_id=row['workplan_detail_id'],
+                        workstep_name=row['workstep_name'] or row['machine_name'] or 'Arbeitsgang',
+                        title_configs=title_configs,
+                        order_name=row['order_name'],
+                        parent_articlenumber=row['oa_articlenumber'],
+                        bom_articlenumber=row['bom_articlenumber'],
+                        machine_name=row['machine_name'],
+                        machine_resource_id=machine_resource_id,
+                        quantity=quantity,
+                        setup_time_minutes=setup_time,
+                        run_time_minutes=run_time,
+                        delivery_date=row['delivery_date'],
+                        customer_name=row.get('customer_name'),
+                    )
+                    if todo.id not in created_todos:
+                        created_todos.append(todo.id)
                 except Exception as e:
                     errors.append(f"Fehler bei Arbeitsgang {row['workplan_detail_id']}: {str(e)}")
         

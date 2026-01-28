@@ -23,23 +23,9 @@ logger = logging.getLogger(__name__)
 logger.propagate = True
 logger.setLevel(logging.DEBUG)  # Setze Level, damit alle Meldungen durchkommen
 
-# region agent log
-def _dbg_log(hypothesis_id: str, location: str, message: str, data: dict) -> None:
-    try:
-        payload = {
-            "sessionId": "debug-session",
-            "runId": "import-error",
-            "hypothesisId": hypothesis_id,
-            "location": location,
-            "message": message,
-            "data": data,
-            "timestamp": int(_time.time() * 1000),
-        }
-        with open(r"c:\Thomas\Cursor\00200 HG_SW_Stuecklisten_ERP\.cursor\debug.log", "a", encoding="utf-8") as _f:
-            _f.write(_json.dumps(payload) + "\n")
-    except Exception:
-        pass
-# endregion
+def _dbg_log(*args, **kwargs):
+    """Debug logging disabled - no-op function"""
+    pass
 
 def _basename_noext_any(p: str) -> str:
     p = p or ""
