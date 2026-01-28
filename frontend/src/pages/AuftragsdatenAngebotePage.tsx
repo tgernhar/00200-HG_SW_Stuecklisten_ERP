@@ -14,6 +14,7 @@ export default function AuftragsdatenAngebotePage() {
       documentTypes={[ANGEBOT_TYPE_ID]}
       pageTitle="Angebotsliste"
       numberFieldLabel="Angebotsnummer"
+      urlTyp="angebote"
     />
   )
 }

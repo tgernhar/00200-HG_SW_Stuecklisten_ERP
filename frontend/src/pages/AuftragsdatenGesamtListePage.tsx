@@ -38,6 +38,7 @@ export default function AuftragsdatenGesamtListePage() {
       documentTypes={documentTypes}
       pageTitle="GesamtListe"
       numberFieldLabel="Dokumentnummer"
+      urlTyp="gesamtliste"
     />
   )
 }

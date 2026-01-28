@@ -185,49 +185,6 @@ def search_orders(
     cursor = db_connection.cursor(dictionary=True)
     
     try:
-        # Base query
-        select_clause = """
-            SELECT 
-                o.id,
-                o.name,
-                o.text,
-                o.reference,
-                o.price,
-                o.date1,
-                o.date2,
-                o.created,
-                o.orderType,
-                o.altText AS notiz,
-                o.kid,
-                a.suchname AS kunde_name,
-                a.kdn AS kunde_kdn,
-                al.suchname AS adresse_name,
-                ac.suchname AS kontakt_name,
-                os.id AS status_id,
-                os.name AS status_name,
-                os.color AS status_color,
-                u.loginname AS bearbeiter,
-                bdt.name AS dokumenttyp_name
-            FROM ordertable o
-            LEFT JOIN adrbase a ON o.kid = a.id
-            LEFT JOIN adrline al ON o.billingline = al.id
-            LEFT JOIN adrcont ac ON (o.techcont = ac.id OR o.commercialcont = ac.id)
-            LEFT JOIN order_status os ON o.status = os.id
-            LEFT JOIN userlogin u ON o.infoBackoffice = u.id
-            LEFT JOIN billing_documenttype bdt ON o.orderType = bdt.id
-        """
-        
-        count_clause = """
-            SELECT COUNT(DISTINCT o.id) as total
-            FROM ordertable o
-            LEFT JOIN adrbase a ON o.kid = a.id
-            LEFT JOIN adrline al ON o.billingline = al.id
-            LEFT JOIN adrcont ac ON (o.techcont = ac.id OR o.commercialcont = ac.id)
-            LEFT JOIN order_status os ON o.status = os.id
-            LEFT JOIN userlogin u ON o.infoBackoffice = u.id
-            LEFT JOIN billing_documenttype bdt ON o.orderType = bdt.id
-        """
-        
         # Build WHERE clause
         conditions = []
         params = []
@@ -319,19 +276,40 @@ def search_orders(
         sort_column = allowed_sort_fields.get(sort_field, "o.created")
         sort_direction = "DESC" if sort_dir.lower() == "desc" else "ASC"
         
-        # Get total count
-        count_query = f"{count_clause} {where_clause}"
-        cursor.execute(count_query, params)
-        total = cursor.fetchone()["total"]
-        
-        # Calculate pagination
+        # Calculate pagination offset
         offset = (page - 1) * page_size
-        total_pages = (total + page_size - 1) // page_size if total > 0 else 1
         
-        # Get items with pagination
-        # Use GROUP BY to handle multiple contacts
+        # OPTIMIZED: Use SQL_CALC_FOUND_ROWS to get count and items in one roundtrip
+        # This avoids running two separate queries
         items_query = f"""
-            {select_clause}
+            SELECT SQL_CALC_FOUND_ROWS 
+                o.id,
+                o.name,
+                o.text,
+                o.reference,
+                o.price,
+                o.date1,
+                o.date2,
+                o.created,
+                o.orderType,
+                o.altText AS notiz,
+                o.kid,
+                a.suchname AS kunde_name,
+                a.kdn AS kunde_kdn,
+                al.suchname AS adresse_name,
+                ac.suchname AS kontakt_name,
+                os.id AS status_id,
+                os.name AS status_name,
+                os.color AS status_color,
+                u.loginname AS bearbeiter,
+                bdt.name AS dokumenttyp_name
+            FROM ordertable o
+            LEFT JOIN adrbase a ON o.kid = a.id
+            LEFT JOIN adrline al ON o.billingline = al.id
+            LEFT JOIN adrcont ac ON (o.techcont = ac.id OR o.commercialcont = ac.id)
+            LEFT JOIN order_status os ON o.status = os.id
+            LEFT JOIN userlogin u ON o.infoBackoffice = u.id
+            LEFT JOIN billing_documenttype bdt ON o.orderType = bdt.id
             {where_clause}
             GROUP BY o.id
             ORDER BY {sort_column} {sort_direction}
@@ -341,6 +319,12 @@ def search_orders(
         cursor.execute(items_query, params + [page_size, offset])
         items = cursor.fetchall() or []
         
+        # Get the total count from SQL_CALC_FOUND_ROWS (much faster than separate COUNT query)
+        cursor.execute("SELECT FOUND_ROWS() as total")
+        total = cursor.fetchone()["total"]
+        
+        total_pages = (total + page_size - 1) // page_size if total > 0 else 1
+        
         return {
             "items": items,
             "total": total,
@@ -348,6 +332,134 @@ def search_orders(
             "page_size": page_size,
             "total_pages": total_pages
         }
+        
+    finally:
+        cursor.close()
+
+
+def get_order_detail(db_connection, order_id: int) -> Optional[Dict[str, Any]]:
+    """
+    Lädt alle Details eines Auftrags/Angebots inkl. aller Relationen.
+    
+    Args:
+        order_id: ID des Auftrags/Angebots (ordertable.id)
+        
+    Returns:
+        Dict mit allen Auftragsdetails oder None wenn nicht gefunden
+    """
+    cursor = db_connection.cursor(dictionary=True)
+    try:
+        query = """
+            SELECT 
+                o.id,
+                o.name,
+                o.orderType,
+                o.reference,
+                o.text,
+                o.altText AS notiz,
+                o.productionText,
+                o.calculationText,
+                o.price,
+                o.date1,
+                o.date2,
+                o.created,
+                o.lupdat,
+                o.lupdfrom,
+                o.factDat,
+                o.accounting,
+                o.taxtype,
+                o.factoring,
+                o.printPos,
+                o.currency,
+                o.paymentTarget,
+                o.kid,
+                
+                -- Kunde (adrbase via kid)
+                a_kunde.suchname AS kunde_name,
+                a_kunde.kdn AS kunde_kdn,
+                
+                -- Lieferadresse (adrbase via deliverykid)
+                a_liefer.suchname AS lieferadresse_name,
+                
+                -- Technischer Kontakt (adrcont via techcont)
+                ac_tech.suchname AS techkontakt_name,
+                
+                -- Kaufmännischer Kontakt (adrcont via commercialcont)
+                ac_kfm.suchname AS kfmkontakt_name,
+                
+                -- Backoffice Mitarbeiter (userlogin via infoBackoffice)
+                u_back.loginname AS backoffice_name,
+                
+                -- Vertrieb Mitarbeiter (userlogin via infoSales)
+                u_sales.loginname AS vertrieb_name,
+                
+                -- Provision für (userlogin via provisionFor - ist varchar(1), daher anders)
+                
+                -- Ersteller (userlogin via creator)
+                u_creator.loginname AS creator_name,
+                
+                -- Status
+                os.id AS status_id,
+                os.name AS status_name,
+                os.color AS status_color,
+                
+                -- Sprache
+                lang.Name AS sprache_name,
+                
+                -- Zahlungsziel
+                cp.textde AS zahlungsziel_text,
+                
+                -- Factoring
+                bf.facttext AS factoring_text,
+                
+                -- Dokumenttyp
+                bdt.name AS dokumenttyp_name
+                
+            FROM ordertable o
+            
+            -- Kunde
+            LEFT JOIN adrbase a_kunde ON o.kid = a_kunde.id
+            
+            -- Lieferadresse
+            LEFT JOIN adrbase a_liefer ON o.deliverykid = a_liefer.id
+            
+            -- Technischer Kontakt
+            LEFT JOIN adrcont ac_tech ON o.techcont = ac_tech.id
+            
+            -- Kaufmännischer Kontakt
+            LEFT JOIN adrcont ac_kfm ON o.commercialcont = ac_kfm.id
+            
+            -- Backoffice
+            LEFT JOIN userlogin u_back ON o.infoBackoffice = u_back.id
+            
+            -- Vertrieb
+            LEFT JOIN userlogin u_sales ON o.infoSales = u_sales.id
+            
+            -- Ersteller
+            LEFT JOIN userlogin u_creator ON o.creator = u_creator.id
+            
+            -- Status
+            LEFT JOIN order_status os ON o.status = os.id
+            
+            -- Sprache
+            LEFT JOIN language lang ON o.language = lang.shortName
+            
+            -- Zahlungsziel (paymentTarget ist varchar(2), in billing_creditperiod ist id bigint)
+            LEFT JOIN billing_creditperiod cp ON o.paymentTarget = CAST(cp.id AS CHAR)
+            
+            -- Factoring (factoring ist varchar(1), in billing_factoring ist fact varchar(1))
+            LEFT JOIN billing_factoring bf ON o.factoring = bf.fact
+            
+            -- Dokumenttyp
+            LEFT JOIN billing_documenttype bdt ON o.orderType = bdt.id
+            
+            WHERE o.id = %s
+        """
+        
+        cursor.execute(query, (order_id,))
+        result = cursor.fetchone()
+        
+        return result
         
     finally:
         cursor.close()

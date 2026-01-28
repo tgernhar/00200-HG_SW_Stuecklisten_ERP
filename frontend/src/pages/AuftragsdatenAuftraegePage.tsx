@@ -14,6 +14,7 @@ export default function AuftragsdatenAuftraegePage() {
       documentTypes={[AUFTRAG_TYPE_ID]}
       pageTitle="Aufträge"
       numberFieldLabel="Auftragsnummer"
+      urlTyp="auftraege"
     />
   )
 }

@@ -14,6 +14,7 @@ export default function AuftragsdatenBestellungenPage() {
       documentTypes={[BESTELLUNG_TYPE_ID]}
       pageTitle="Bestellungen"
       numberFieldLabel="Bestellnummer"
+      urlTyp="bestellungen"
     />
   )
 }

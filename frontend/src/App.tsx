@@ -29,6 +29,7 @@ const AuftragsdatenAuftraegePage = React.lazy(() => import('./pages/Auftragsdate
 const AuftragsdatenAngebotePage = React.lazy(() => import('./pages/AuftragsdatenAngebotePage'))
 const AuftragsdatenBestellungenPage = React.lazy(() => import('./pages/AuftragsdatenBestellungenPage'))
 const AuftragsdatenBeistellungenPage = React.lazy(() => import('./pages/AuftragsdatenBeistellungenPage'))
+const OrderDetailPage = React.lazy(() => import('./pages/OrderDetailPage'))
 
 function App() {
   const { isAuthenticated, isLoading } = useAuth()
@@ -186,6 +187,15 @@ function App() {
             element={
               <React.Suspense fallback={<div style={{ padding: 20 }}>Lade Beistellungen...</div>}>
                 <AuftragsdatenBeistellungenPage />
+              </React.Suspense>
+            } 
+          />
+          {/* Auftragsdaten Detail Route (muss nach den Listen-Routen sein) */}
+          <Route 
+            path="auftragsdaten/:typ/:orderId" 
+            element={
+              <React.Suspense fallback={<div style={{ padding: 20 }}>Lade Auftragsdetails...</div>}>
+                <OrderDetailPage />
               </React.Suspense>
             } 
           />

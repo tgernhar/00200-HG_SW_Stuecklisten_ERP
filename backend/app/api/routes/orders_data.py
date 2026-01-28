@@ -197,3 +197,24 @@ async def search_orders(
         return result
     finally:
         erp_connection.close()
+
+
+@router.get("/{order_id}")
+async def get_order_detail(order_id: int):
+    """
+    Lädt alle Details eines Auftrags/Angebots inkl. aller Relationen.
+    
+    Args:
+        order_id: ID des Auftrags/Angebots (ordertable.id)
+        
+    Returns:
+        Alle Auftragsdetails mit verknüpften Daten (Kunde, Adressen, Kontakte, Status, etc.)
+    """
+    erp_connection = get_erp_db_connection()
+    try:
+        result = orders_data_service.get_order_detail(erp_connection, order_id)
+        if result is None:
+            raise HTTPException(status_code=404, detail=f"Order {order_id} not found")
+        return result
+    finally:
+        erp_connection.close()

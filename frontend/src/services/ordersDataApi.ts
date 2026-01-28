@@ -74,6 +74,35 @@ export interface OrderDataItem {
   dokumenttyp_name: string | null
 }
 
+/**
+ * Erweiterte Auftragsdetails mit allen Relationen für die Detailansicht.
+ */
+export interface OrderDetailItem extends OrderDataItem {
+  // Lieferadresse
+  lieferadresse_name: string | null
+  // Kontakte
+  techkontakt_name: string | null
+  kfmkontakt_name: string | null
+  // Mitarbeiter
+  backoffice_name: string | null
+  vertrieb_name: string | null
+  creator_name: string | null
+  // Weitere Felder
+  sprache_name: string | null
+  zahlungsziel_text: string | null
+  factoring_text: string | null
+  factDat: string | null
+  accounting: number | null
+  taxtype: string | null
+  printPos: number | null
+  productionText: string | null
+  calculationText: string | null
+  lupdat: string | null
+  lupdfrom: string | null
+  currency: string | null
+  paymentTarget: string | null
+}
+
 export interface OrderDataSearchResponse {
   items: OrderDataItem[]
   total: number
@@ -181,5 +210,13 @@ export async function searchOrders(filters: OrderDataFilters): Promise<OrderData
   }
   
   const response = await api.get(`${ORDERS_DATA_BASE}/search`, { params })
+  return response.data
+}
+
+/**
+ * Lädt alle Details eines Auftrags/Angebots inkl. aller Relationen.
+ */
+export async function getOrderDetail(orderId: number): Promise<OrderDetailItem> {
+  const response = await api.get(`${ORDERS_DATA_BASE}/${orderId}`)
   return response.data
 }

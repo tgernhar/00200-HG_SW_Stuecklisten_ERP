@@ -3,6 +3,7 @@
  * Wiederverwendbare Tabellenkomponente für Auftragsdaten (Angebote, Aufträge, Bestellungen, etc.)
  */
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   searchOrders,
   getStatuses,
@@ -17,6 +18,7 @@ interface OrderDataTableProps {
   documentTypes: number[]  // IDs der anzuzeigenden Dokumenttypen
   pageTitle: string        // Seitentitel (z.B. "Angebotsliste")
   numberFieldLabel: string // Label für Nummernfeld (z.B. "Angebotsnummer")
+  urlTyp?: string          // URL-Segment für Detailansicht (z.B. "auftraege", "angebote")
 }
 
 const styles: Record<string, React.CSSProperties> = {
@@ -206,13 +208,23 @@ const styles: Record<string, React.CSSProperties> = {
   rowHover: {
     backgroundColor: '#f5f9ff',
   },
+  clickableLink: {
+    color: '#1976d2',
+    cursor: 'pointer',
+    textDecoration: 'none',
+  },
+  clickableLinkHover: {
+    textDecoration: 'underline',
+  },
 }
 
 export default function OrderDataTable({
   documentTypes,
   pageTitle,
-  numberFieldLabel
+  numberFieldLabel,
+  urlTyp = 'gesamtliste'
 }: OrderDataTableProps) {
+  const navigate = useNavigate()
   // State
   const [items, setItems] = useState<OrderDataItem[]>([])
   const [total, setTotal] = useState(0)
@@ -265,28 +277,45 @@ export default function OrderDataTable({
   // Stable key for documentTypes to prevent infinite re-renders
   // (Arrays are compared by reference, so we need a string comparison)
   const documentTypesKey = JSON.stringify(documentTypes)
+  
+  // Track last documentTypesKey to prevent duplicate API calls on React Strict Mode double-render
+  const lastDocumentTypesKey = useRef<string | null>(null)
+  const lastFiltersKey = useRef<string | null>(null)
+  const backofficeUsersLoaded = useRef(false)
 
-  // Load initial data
+  // Load backoffice users only once (global data, doesn't depend on documentTypes)
   useEffect(() => {
-    loadBackofficeUsers()
+    if (!backofficeUsersLoaded.current) {
+      backofficeUsersLoaded.current = true
+      loadBackofficeUsers()
+    }
   }, [])
 
-  // Load statuses when documentTypes change (filter by ordertype)
+  // Load statuses when documentTypes change
   useEffect(() => {
+    // Skip if documentTypes haven't changed (React Strict Mode protection)
+    if (lastDocumentTypesKey.current === documentTypesKey) {
+      return
+    }
+    lastDocumentTypesKey.current = documentTypesKey
+    
     loadStatuses()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [documentTypesKey])
-
-  // Load data when filters change
-  useEffect(() => {
-    loadData()
-  }, [filters])
-
-  // Update order_types when documentTypes prop changes
-  useEffect(() => {
+    // Update order_types in filters - this will trigger the filters useEffect
     setFilters(prev => ({ ...prev, order_types: documentTypes, page: 1 }))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [documentTypesKey])
+
+  // Load data when filters change (deduplicated)
+  useEffect(() => {
+    const filtersKey = JSON.stringify(filters)
+    // Skip if filters haven't actually changed (React Strict Mode protection)
+    if (lastFiltersKey.current === filtersKey) {
+      return
+    }
+    lastFiltersKey.current = filtersKey
+    loadData()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters])
 
   const loadStatuses = async () => {
     try {
@@ -490,6 +519,10 @@ export default function OrderDataTable({
 
   const handleColumnFilterChange = (field: string, value: string) => {
     setColumnFilters(prev => ({ ...prev, [field]: value }))
+  }
+
+  const handleOrderClick = (orderId: number) => {
+    navigate(`/menu/auftragsdaten/${urlTyp}/${orderId}`)
   }
 
   const formatDate = (dateStr: string | null) => {
@@ -842,7 +875,16 @@ export default function OrderDataTable({
                   onMouseLeave={() => setHoveredRow(null)}
                   style={hoveredRow === item.id ? styles.rowHover : undefined}
                 >
-                  <td style={styles.td}>{item.name}</td>
+                  <td style={styles.td}>
+                    <span
+                      style={styles.clickableLink}
+                      onClick={() => handleOrderClick(item.id)}
+                      onMouseEnter={(e) => e.currentTarget.style.textDecoration = 'underline'}
+                      onMouseLeave={(e) => e.currentTarget.style.textDecoration = 'none'}
+                    >
+                      {item.name}
+                    </span>
+                  </td>
                   <td style={styles.td}>{item.reference || '-'}</td>
                   <td style={styles.td}>{item.kunde_name || '-'}</td>
                   <td style={{ ...styles.td, ...styles.tdText }} title={item.text || ''}>
