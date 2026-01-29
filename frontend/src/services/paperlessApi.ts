@@ -34,9 +34,6 @@ function getAuthHeaders(): HeadersInit {
  */
 async function fetchApi<T>(url: string, options?: RequestInit): Promise<T> {
   const authHeaders = getAuthHeaders();
-  // #region agent log
-  fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'paperlessApi.ts:fetchApi',message:'API call start',data:{url,authHeaderSet:!!authHeaders.Authorization,authHeaderPreview:String(authHeaders.Authorization).substring(0,30)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C'})}).catch(()=>{});
-  // #endregion
   const response = await fetch(url, {
     ...options,
     headers: {
@@ -44,10 +41,6 @@ async function fetchApi<T>(url: string, options?: RequestInit): Promise<T> {
       ...options?.headers,
     },
   });
-
-  // #region agent log
-  fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'paperlessApi.ts:fetchApi',message:'API response',data:{url,status:response.status,ok:response.ok},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'D'})}).catch(()=>{});
-  // #endregion
 
   if (!response.ok) {
     if (response.status === 401) {

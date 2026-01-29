@@ -1,10 +1,28 @@
 /**
  * OrderDetailView Component
- * Zeigt alle Details eines Auftrags/Angebots in einer 2-Spalten Ansicht.
+ * Zeigt alle Details eines Auftrags/Angebots in einer 3-Spalten Ansicht.
  * Felder sind bearbeitbar (Vorbereitung für spätere Speicherfunktion).
  */
 import React, { useState, useEffect } from 'react'
-import { OrderDetailItem, getContacts, getAddresses, Contact, Address } from '../../services/ordersDataApi'
+import { 
+  OrderDetailItem, 
+  getContacts, 
+  getAddresses, 
+  getBackofficeUsers,
+  getSalesUsers,
+  getLanguages,
+  getPaymentTerms,
+  getTaxTypes,
+  getFactoringOptions,
+  Contact, 
+  Address,
+  BackofficeUser,
+  SalesUser,
+  Language,
+  PaymentTerm,
+  TaxType,
+  FactoringOption,
+} from '../../services/ordersDataApi'
 import PaperlessDocumentsPanel from '../dms/PaperlessDocumentsPanel'
 
 interface OrderDetailViewProps {
@@ -100,7 +118,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   contentGrid: {
     display: 'grid',
-    gridTemplateColumns: '1fr 1fr',
+    gridTemplateColumns: '1fr 1fr 1fr',
     gap: '12px',
   },
   card: {
@@ -119,9 +137,18 @@ const styles: Record<string, React.CSSProperties> = {
   },
   fieldGrid: {
     display: 'grid',
-    gridTemplateColumns: '140px 1fr',
-    gap: '8px 12px',
-    alignItems: 'center',
+    gridTemplateColumns: '1fr 1fr',
+    gap: '12px',
+  },
+  fieldGridSingle: {
+    display: 'grid',
+    gridTemplateColumns: '1fr',
+    gap: '12px',
+  },
+  fieldBlock: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: '4px',
   },
   fieldLabel: {
     fontSize: '12px',
@@ -267,6 +294,83 @@ const styles: Record<string, React.CSSProperties> = {
     boxSizing: 'border-box' as const,
     fontFamily: 'inherit',
   },
+  // Main Tabs (Artikel, Dokumente, etc.)
+  mainTabsContainer: {
+    backgroundColor: 'white',
+    borderRadius: '6px',
+    boxShadow: '0 1px 2px rgba(0,0,0,0.08)',
+    overflow: 'hidden',
+  },
+  mainTabsHeader: {
+    display: 'flex',
+    backgroundColor: '#f8f9fa',
+    borderBottom: '1px solid #ddd',
+    padding: '0 8px',
+  },
+  mainTab: {
+    padding: '12px 16px',
+    cursor: 'pointer',
+    userSelect: 'none' as const,
+    fontSize: '13px',
+    fontWeight: 500,
+    color: '#666',
+    borderBottom: '2px solid transparent',
+    transition: 'all 0.15s',
+  },
+  mainTabActive: {
+    color: '#1976d2',
+    borderBottomColor: '#1976d2',
+    backgroundColor: 'white',
+  },
+  mainTabContent: {
+    padding: '16px',
+    minHeight: '300px',
+  },
+  // Toolbar buttons
+  toolbar: {
+    display: 'flex',
+    gap: '8px',
+    marginBottom: '12px',
+    padding: '8px',
+    backgroundColor: '#f8f9fa',
+    borderRadius: '4px',
+  },
+  toolbarButton: {
+    padding: '6px 12px',
+    border: 'none',
+    borderRadius: '4px',
+    fontSize: '12px',
+    fontWeight: 500,
+    cursor: 'not-allowed',
+    opacity: 0.7,
+  },
+  toolbarButtonRed: {
+    backgroundColor: '#dc3545',
+    color: 'white',
+  },
+  // Simple table
+  simpleTable: {
+    width: '100%',
+    borderCollapse: 'collapse' as const,
+    fontSize: '12px',
+  },
+  tableTh: {
+    textAlign: 'left' as const,
+    padding: '8px 12px',
+    backgroundColor: '#f8f9fa',
+    borderBottom: '1px solid #ddd',
+    fontWeight: 600,
+    color: '#333',
+  },
+  tableTd: {
+    padding: '8px 12px',
+    borderBottom: '1px solid #eee',
+    color: '#666',
+  },
+  placeholder: {
+    color: '#999',
+    fontStyle: 'italic' as const,
+  },
 }
 
 // Helper functions
@@ -300,9 +404,9 @@ const formatDate = (dateStr: string | null): string => {
   }
 }
 
-// ReadOnly Field component
+// ReadOnly Field component - Label ABOVE field
 const ReadOnlyField: React.FC<{ label: string; value: string | null | undefined }> = ({ label, value }) => (
-  <>
+  <div style={styles.fieldBlock}>
     <span style={styles.fieldLabel}>{label}</span>
     <input
       type="text"
@@ -310,10 +414,10 @@ const ReadOnlyField: React.FC<{ label: string; value: string | null | undefined 
       readOnly
       style={styles.inputReadonly}
     />
-  </>
+  </div>
 )
 
-// Editable Input Field
+// Editable Input Field - Label ABOVE field
 const InputField: React.FC<{ 
   label: string
   value: string
@@ -321,7 +425,7 @@ const InputField: React.FC<{
   type?: string
   placeholder?: string
 }> = ({ label, value, onChange, type = 'text', placeholder }) => (
-  <>
+  <div style={styles.fieldBlock}>
     <span style={styles.fieldLabel}>{label}</span>
     <input
       type={type}
@@ -330,22 +434,31 @@ const InputField: React.FC<{
       style={styles.input}
       placeholder={placeholder}
     />
-  </>
+  </div>
 )
 
-// Select Field
+// Select Field - Label ABOVE field
 const SelectField: React.FC<{ 
   label: string
-  value: number | null
-  onChange: (value: number | null) => void
-  options: { id: number; name: string }[]
+  value: number | string | null
+  onChange: (value: number | string | null) => void
+  options: { id: number | string; name: string }[]
   placeholder?: string
 }> = ({ label, value, onChange, options, placeholder = 'Bitte wählen...' }) => (
-  <>
+  <div style={styles.fieldBlock}>
     <span style={styles.fieldLabel}>{label}</span>
     <select
       value={value ?? ''}
-      onChange={(e) => onChange(e.target.value ? parseInt(e.target.value) : null)}
+      onChange={(e) => {
+        const val = e.target.value
+        if (!val) {
+          onChange(null)
+        } else if (typeof options[0]?.id === 'number') {
+          onChange(parseInt(val))
+        } else {
+          onChange(val)
+        }
+      }}
       style={styles.select}
     >
       <option value="">{placeholder}</option>
@@ -353,7 +466,7 @@ const SelectField: React.FC<{
         <option key={opt.id} value={opt.id}>{opt.name}</option>
       ))}
     </select>
-  </>
+  </div>
 )
 
 // TextArea Field (kept for other uses)
@@ -455,13 +568,44 @@ export default function OrderDetailView({ order, documentTypeLabel, orderType }:
   // Options for select fields
   const [contacts, setContacts] = useState<Contact[]>([])
   const [addresses, setAddresses] = useState<Address[]>([])
+  const [backofficeUsers, setBackofficeUsers] = useState<BackofficeUser[]>([])
+  const [salesUsers, setSalesUsers] = useState<SalesUser[]>([])
+  const [languages, setLanguages] = useState<Language[]>([])
+  const [paymentTerms, setPaymentTerms] = useState<PaymentTerm[]>([])
+  const [taxTypes, setTaxTypes] = useState<TaxType[]>([])
+  const [factoringOptions, setFactoringOptions] = useState<FactoringOption[]>([])
 
-  // Load contacts and addresses for the customer
+  // Main tabs state
+  const [activeMainTab, setActiveMainTab] = useState<string>('artikel')
+
+  // Load data
   useEffect(() => {
+    loadStammdaten()
     if (order.kid) {
       loadCustomerData(order.kid)
     }
   }, [order.kid])
+
+  const loadStammdaten = async () => {
+    try {
+      const [backofficeRes, salesRes, langRes, paymentRes, taxRes, factRes] = await Promise.all([
+        getBackofficeUsers(),
+        getSalesUsers(),
+        getLanguages(),
+        getPaymentTerms(),
+        getTaxTypes(),
+        getFactoringOptions(),
+      ])
+      setBackofficeUsers(backofficeRes.items)
+      setSalesUsers(salesRes.items)
+      setLanguages(langRes.items)
+      setPaymentTerms(paymentRes.items)
+      setTaxTypes(taxRes.items)
+      setFactoringOptions(factRes.items)
+    } catch (error) {
+      console.error('Error loading stammdaten:', error)
+    }
+  }
 
   const loadCustomerData = async (kid: number) => {
     try {
@@ -488,20 +632,29 @@ export default function OrderDetailView({ order, documentTypeLabel, orderType }:
 
   // Currency options
   const currencyOptions = [
-    { id: 1, name: 'EUR' },
-    { id: 2, name: 'USD' },
-    { id: 3, name: 'CHF' },
-    { id: 4, name: 'GBP' },
+    { id: 'EUR', name: 'EUR' },
+    { id: 'USD', name: 'USD' },
+    { id: 'CHF', name: 'CHF' },
+    { id: 'GBP', name: 'GBP' },
+  ]
+
+  // Main tabs configuration
+  const mainTabs = [
+    { id: 'artikel', label: 'Artikel' },
+    { id: 'dokumente', label: 'Dokumente' },
+    { id: 'paperless', label: 'Paperless' },
+    { id: 'email', label: 'Email' },
+    { id: 'arbeitszeit', label: 'Ist-Arbeitszeit' },
   ]
 
   return (
     <div style={styles.container}>
-      {/* Compact Header */}
+      {/* Header with Auftragsnr + Referenz */}
       <div style={styles.header}>
         <div style={styles.headerLeft}>
           <h1 style={styles.headerTitle}>{order.name}</h1>
           <span style={styles.headerSubtitle}>
-            {documentTypeLabel} {formData.reference ? `• ${formData.reference}` : ''}
+            {documentTypeLabel} • Bestellnummer: {formData.reference || '-'}
           </span>
         </div>
         {order.status_name && (
@@ -514,122 +667,180 @@ export default function OrderDetailView({ order, documentTypeLabel, orderType }:
         )}
       </div>
 
-      {/* Main content in 2-column grid */}
+      {/* Main content in 3-column grid */}
       <div style={styles.contentGrid}>
-        {/* Left column: Stammdaten */}
+        {/* Column 1: Stammdaten */}
         <div style={styles.card}>
           <h2 style={styles.cardTitle}>Stammdaten</h2>
           <div style={styles.fieldGrid}>
-            {/* Kunde - Listbox (read-only for now, shows current value) */}
             <ReadOnlyField label="Kunde" value={kundeDisplay} />
-            
-            {/* Angebotsadresse - Listbox */}
             <ReadOnlyField label="Angebotsadresse" value={order.kunde_name} />
-            
-            {/* Lieferadresse - Listbox */}
             <SelectField 
               label="Lieferadresse"
               value={formData.lieferadresse_id}
-              onChange={(v) => updateField('lieferadresse_id', v)}
+              onChange={(v) => updateField('lieferadresse_id', v as number | null)}
               options={addresses.map(a => ({ id: a.id, name: a.suchname }))}
               placeholder={order.lieferadresse_name || 'Bitte wählen...'}
             />
-            
-            {/* Techn. Kontakt - Listbox */}
             <SelectField 
               label="Techn. Kontakt"
               value={formData.techcont_id}
-              onChange={(v) => updateField('techcont_id', v)}
+              onChange={(v) => updateField('techcont_id', v as number | null)}
               options={contacts.map(c => ({ id: c.id, name: c.suchname }))}
               placeholder={order.techkontakt_name || 'Bitte wählen...'}
             />
-            
-            {/* Kfm. Kontakt - Listbox */}
             <SelectField 
               label="Kfm. Kontakt"
               value={formData.commercialcont_id}
-              onChange={(v) => updateField('commercialcont_id', v)}
+              onChange={(v) => updateField('commercialcont_id', v as number | null)}
               options={contacts.map(c => ({ id: c.id, name: c.suchname }))}
               placeholder={order.kfmkontakt_name || 'Bitte wählen...'}
+            />
+            <SelectField 
+              label="Backoffice"
+              value={null}
+              onChange={() => {}}
+              options={backofficeUsers.map(u => ({ id: u.id, name: u.loginname }))}
+              placeholder={order.backoffice_name || 'Bitte wählen...'}
+            />
+            <SelectField 
+              label="Vertrieb"
+              value={null}
+              onChange={() => {}}
+              options={salesUsers.map(u => ({ id: u.id, name: u.loginname }))}
+              placeholder={order.vertrieb_name || 'Bitte wählen...'}
             />
           </div>
 
           <h2 style={{ ...styles.cardTitle, marginTop: '14px' }}>Termine & Preis</h2>
           <div style={styles.fieldGrid}>
-            {/* Kunden Liefertermin - Datumsfeld */}
             <InputField 
               label="Kunden Liefertermin"
               type="date"
               value={formData.date1}
               onChange={(v) => updateField('date1', v)}
             />
-            
-            {/* H+G Liefertermin - Datumsfeld */}
             <InputField 
               label="H+G Liefertermin"
               type="date"
               value={formData.date2}
               onChange={(v) => updateField('date2', v)}
             />
-            
-            {/* Gesamtpreis - Eingabefeld */}
-            <span style={styles.fieldLabel}>Gesamtpreis</span>
-            <input
-              type="number"
-              step="0.01"
-              value={formData.price}
-              onChange={(e) => updateField('price', e.target.value)}
-              style={styles.priceInput}
-            />
-            
-            {/* Währung - Listbox */}
-            <span style={styles.fieldLabel}>Währung</span>
-            <select
+            <div style={styles.fieldBlock}>
+              <span style={styles.fieldLabel}>Gesamtpreis</span>
+              <input
+                type="number"
+                step="0.01"
+                value={formData.price}
+                onChange={(e) => updateField('price', e.target.value)}
+                style={styles.priceInput}
+              />
+            </div>
+            <SelectField 
+              label="Währung"
               value={formData.currency}
-              onChange={(e) => updateField('currency', e.target.value)}
-              style={{ ...styles.select, width: '100px' }}
-            >
-              {currencyOptions.map(c => (
-                <option key={c.id} value={c.name}>{c.name}</option>
-              ))}
-            </select>
-          </div>
-
-          <h2 style={{ ...styles.cardTitle, marginTop: '14px' }}>Zuständigkeiten</h2>
-          <div style={styles.fieldGrid}>
-            <ReadOnlyField label="Backoffice" value={order.backoffice_name} />
-            <ReadOnlyField label="Vertrieb" value={order.vertrieb_name} />
+              onChange={(v) => updateField('currency', v as string)}
+              options={currencyOptions}
+            />
           </div>
         </div>
 
-        {/* Right column: Texte & weitere Infos */}
+        {/* Column 2: Text + Abrechnung */}
         <div style={styles.card}>
           <h2 style={styles.cardTitle}>Beschreibung</h2>
-          
-          {/* Text fields as Tabs */}
-          <TextTabs
-            items={textAccordionItems}
-            values={{
-              text: formData.text,
-              notiz: formData.notiz,
-              productionText: formData.productionText,
-              calculationText: formData.calculationText,
-            }}
-            onChange={(field, value) => updateField(field as keyof OrderFormData, value)}
-            defaultTabId="text"
-          />
-
-          <h2 style={{ ...styles.cardTitle, marginTop: '14px' }}>Konditionen</h2>
-          <div style={styles.fieldGrid}>
-            <ReadOnlyField label="Sprache" value={order.sprache_name} />
-            <ReadOnlyField label="Zahlungsziel" value={order.zahlungsziel_text} />
-            <ReadOnlyField label="Steuer" value={order.taxtype} />
-            <ReadOnlyField label="Factoring" value={order.factoring_text} />
-            <ReadOnlyField label="Factoring Datum" value={formatDate(order.factDat)} />
-            <ReadOnlyField label="Rechnungskonto" value={order.accounting?.toString()} />
+          <div style={styles.fieldBlock}>
+            <span style={styles.fieldLabel}>Text</span>
+            <textarea
+              value={formData.text}
+              onChange={(e) => updateField('text', e.target.value)}
+              style={{ ...styles.textarea, minHeight: '120px' }}
+              placeholder="Auftragstext eingeben..."
+            />
           </div>
 
-          <div style={{ marginTop: '16px' }}>
+          <h2 style={{ ...styles.cardTitle, marginTop: '14px' }}>Abrechnung</h2>
+          <div style={styles.fieldGrid}>
+            <SelectField 
+              label="Sprache"
+              value={null}
+              onChange={() => {}}
+              options={languages.map(l => ({ id: l.shortName, name: l.name }))}
+              placeholder={order.sprache_name || 'Bitte wählen...'}
+            />
+            <SelectField 
+              label="Zahlungsziel"
+              value={null}
+              onChange={() => {}}
+              options={paymentTerms.map(p => ({ id: p.id, name: p.text }))}
+              placeholder={order.zahlungsziel_text || 'Bitte wählen...'}
+            />
+            <SelectField 
+              label="Steuer"
+              value={null}
+              onChange={() => {}}
+              options={taxTypes.map(t => ({ id: t.id, name: t.name }))}
+              placeholder={order.taxtype || 'Bitte wählen...'}
+            />
+            <SelectField 
+              label="Factoring"
+              value={null}
+              onChange={() => {}}
+              options={factoringOptions.map(f => ({ id: f.fact, name: f.text }))}
+              placeholder={order.factoring_text || 'Bitte wählen...'}
+            />
+            <InputField 
+              label="Factoring Datum"
+              type="date"
+              value={formatDateForInput(order.factDat)}
+              onChange={() => {}}
+            />
+            <div style={styles.fieldBlock}>
+              <span style={styles.fieldLabel}>Rechnungskonto</span>
+              <input
+                type="number"
+                value={order.accounting || ''}
+                onChange={() => {}}
+                style={styles.input}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Column 3: Notizen + Dokumenten-Einstellungen */}
+        <div style={styles.card}>
+          <h2 style={styles.cardTitle}>Notizen</h2>
+          <div style={styles.fieldGridSingle}>
+            <div style={styles.fieldBlock}>
+              <span style={styles.fieldLabel}>Notiz</span>
+              <textarea
+                value={formData.notiz}
+                onChange={(e) => updateField('notiz', e.target.value)}
+                style={{ ...styles.textarea, minHeight: '80px' }}
+                placeholder="Notiz eingeben..."
+              />
+            </div>
+            <div style={styles.fieldBlock}>
+              <span style={styles.fieldLabel}>Notiz Produktion</span>
+              <textarea
+                value={formData.productionText}
+                onChange={(e) => updateField('productionText', e.target.value)}
+                style={{ ...styles.textarea, minHeight: '80px' }}
+                placeholder="Produktionsnotiz eingeben..."
+              />
+            </div>
+            <div style={styles.fieldBlock}>
+              <span style={styles.fieldLabel}>Notiz Nachkalkulation</span>
+              <textarea
+                value={formData.calculationText}
+                onChange={(e) => updateField('calculationText', e.target.value)}
+                style={{ ...styles.textarea, minHeight: '80px' }}
+                placeholder="Nachkalkulationsnotiz eingeben..."
+              />
+            </div>
+          </div>
+
+          <h2 style={{ ...styles.cardTitle, marginTop: '14px' }}>Dokumenten-Einstellungen</h2>
+          <div style={{ marginBottom: '12px' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: '#333', cursor: 'pointer' }}>
               <input
                 type="checkbox"
@@ -641,7 +852,7 @@ export default function OrderDetailView({ order, documentTypeLabel, orderType }:
             </label>
           </div>
 
-          {/* Meta info footer - read-only */}
+          {/* Meta info footer */}
           <div style={styles.metaInfo}>
             <span>Erstellt: {formatDateTime(order.created)} {order.creator_name ? `von ${order.creator_name}` : ''}</span>
             <span>Bearbeitet: {formatDate(order.lupdat)} {order.lupdfrom ? `von ${order.lupdfrom}` : ''}</span>
@@ -649,15 +860,77 @@ export default function OrderDetailView({ order, documentTypeLabel, orderType }:
         </div>
       </div>
       
-      {/* Paperless Documents Panel */}
-      <PaperlessDocumentsPanel
-        entityType="order"
-        entityId={order.id}
-        entityNumber={order.name}
-        title="Dokumente (Paperless)"
-        defaultCollapsed={false}
-        defaultDocumentTypeName={getDefaultDocTypeName(orderType)}
-      />
+      {/* Main Tabs: Artikel, Dokumente, Paperless, Email, Ist-Arbeitszeit */}
+      <div style={styles.mainTabsContainer}>
+        <div style={styles.mainTabsHeader}>
+          {mainTabs.map(tab => (
+            <div
+              key={tab.id}
+              style={{
+                ...styles.mainTab,
+                ...(activeMainTab === tab.id ? styles.mainTabActive : {}),
+              }}
+              onClick={() => setActiveMainTab(tab.id)}
+            >
+              {tab.label}
+            </div>
+          ))}
+        </div>
+        <div style={styles.mainTabContent}>
+          {activeMainTab === 'artikel' && (
+            <>
+              {/* Toolbar with red buttons */}
+              <div style={styles.toolbar}>
+                <button style={{ ...styles.toolbarButton, ...styles.toolbarButtonRed }} disabled>Neu</button>
+                <button style={{ ...styles.toolbarButton, ...styles.toolbarButtonRed }} disabled>Hinzufügen</button>
+                <button style={{ ...styles.toolbarButton, ...styles.toolbarButtonRed }} disabled>Bearbeiten</button>
+                <button style={{ ...styles.toolbarButton, ...styles.toolbarButtonRed }} disabled>Berechnen</button>
+                <button style={{ ...styles.toolbarButton, ...styles.toolbarButtonRed }} disabled>Barcode drucken</button>
+              </div>
+              {/* Articles table placeholder */}
+              <table style={styles.simpleTable}>
+                <thead>
+                  <tr>
+                    <th style={styles.tableTh}>Artikel-Nr</th>
+                    <th style={styles.tableTh}>Bezeichnung</th>
+                    <th style={styles.tableTh}>Menge</th>
+                    <th style={styles.tableTh}>Einheit</th>
+                    <th style={styles.tableTh}>Lieferschein</th>
+                    <th style={styles.tableTh}>Geliefert am</th>
+                    <th style={styles.tableTh}>Preis</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td style={styles.tableTd} colSpan={7}>
+                      <span style={styles.placeholder}>Artikeldaten werden noch geladen...</span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </>
+          )}
+          {activeMainTab === 'dokumente' && (
+            <div style={styles.placeholder}>HUGWAWI Dokumente - Platzhalter</div>
+          )}
+          {activeMainTab === 'paperless' && (
+            <PaperlessDocumentsPanel
+              entityType="order"
+              entityId={order.id}
+              entityNumber={order.name}
+              title="Dokumente (Paperless)"
+              defaultCollapsed={false}
+              defaultDocumentTypeName={getDefaultDocTypeName(orderType)}
+            />
+          )}
+          {activeMainTab === 'email' && (
+            <div style={styles.placeholder}>Email-Integration - Platzhalter für spätere Implementierung</div>
+          )}
+          {activeMainTab === 'arbeitszeit' && (
+            <div style={styles.placeholder}>Ist-Arbeitszeit - Platzhalter für spätere Implementierung</div>
+          )}
+        </div>
+      </div>
     </div>
   )
 }

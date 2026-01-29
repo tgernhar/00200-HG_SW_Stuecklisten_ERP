@@ -199,6 +199,108 @@ async def search_orders(
         erp_connection.close()
 
 
+@router.get("/languages")
+async def get_languages():
+    """
+    Lädt alle verfügbaren Sprachen.
+    
+    Returns:
+        Liste mit {shortName, name}
+    """
+    erp_connection = get_erp_db_connection()
+    try:
+        result = orders_data_service.get_languages(erp_connection)
+        return {"items": result}
+    finally:
+        erp_connection.close()
+
+
+@router.get("/payment-terms")
+async def get_payment_terms():
+    """
+    Lädt alle Zahlungsziele aus billing_creditperiod.
+    
+    Returns:
+        Liste mit {id, text}
+    """
+    # #region agent log
+    import json, time; open('/app/debug.log','a').write(json.dumps({"hypothesisId":"H1","location":"orders_data.py:payment-terms","message":"endpoint called","timestamp":time.time()})+'\n')
+    # #endregion
+    erp_connection = get_erp_db_connection()
+    try:
+        result = orders_data_service.get_payment_terms(erp_connection)
+        # #region agent log
+        open('/app/debug.log','a').write(json.dumps({"hypothesisId":"H1","location":"orders_data.py:payment-terms","message":"success","data":{"count":len(result)},"timestamp":time.time()})+'\n')
+        # #endregion
+        return {"items": result}
+    except Exception as e:
+        # #region agent log
+        open('/app/debug.log','a').write(json.dumps({"hypothesisId":"H1","location":"orders_data.py:payment-terms","message":"error","data":{"error":str(e),"type":type(e).__name__},"timestamp":time.time()})+'\n')
+        # #endregion
+        raise
+    finally:
+        erp_connection.close()
+
+
+@router.get("/tax-types")
+async def get_tax_types():
+    """
+    Lädt alle Steuertypen.
+    
+    Returns:
+        Liste mit {id, name}
+    """
+    erp_connection = get_erp_db_connection()
+    try:
+        result = orders_data_service.get_tax_types(erp_connection)
+        return {"items": result}
+    finally:
+        erp_connection.close()
+
+
+@router.get("/factoring")
+async def get_factoring_options():
+    """
+    Lädt alle Factoring-Optionen.
+    
+    Returns:
+        Liste mit {fact, text}
+    """
+    # #region agent log
+    import json, time; open('/app/debug.log','a').write(json.dumps({"hypothesisId":"H2","location":"orders_data.py:factoring","message":"endpoint called","timestamp":time.time()})+'\n')
+    # #endregion
+    erp_connection = get_erp_db_connection()
+    try:
+        result = orders_data_service.get_factoring_options(erp_connection)
+        # #region agent log
+        open('/app/debug.log','a').write(json.dumps({"hypothesisId":"H2","location":"orders_data.py:factoring","message":"success","data":{"count":len(result)},"timestamp":time.time()})+'\n')
+        # #endregion
+        return {"items": result}
+    except Exception as e:
+        # #region agent log
+        open('/app/debug.log','a').write(json.dumps({"hypothesisId":"H2","location":"orders_data.py:factoring","message":"error","data":{"error":str(e),"type":type(e).__name__},"timestamp":time.time()})+'\n')
+        # #endregion
+        raise
+    finally:
+        erp_connection.close()
+
+
+@router.get("/sales-users")
+async def get_sales_users():
+    """
+    Lädt alle Vertriebsmitarbeiter.
+    
+    Returns:
+        Liste mit {id, loginname, Vorname, Nachname, department_id, department_name}
+    """
+    erp_connection = get_erp_db_connection()
+    try:
+        result = orders_data_service.get_sales_users(erp_connection)
+        return {"items": result}
+    finally:
+        erp_connection.close()
+
+
 @router.get("/{order_id}")
 async def get_order_detail(order_id: int):
     """

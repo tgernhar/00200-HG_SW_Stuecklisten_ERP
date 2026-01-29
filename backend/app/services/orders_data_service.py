@@ -463,3 +463,133 @@ def get_order_detail(db_connection, order_id: int) -> Optional[Dict[str, Any]]:
         
     finally:
         cursor.close()
+
+
+def get_languages(db_connection) -> List[Dict[str, Any]]:
+    """
+    Lädt alle verfügbaren Sprachen aus der language Tabelle.
+    
+    Returns:
+        Liste mit {shortName, name}
+    """
+    cursor = db_connection.cursor(dictionary=True)
+    try:
+        cursor.execute("""
+            SELECT shortName, name
+            FROM language
+            ORDER BY name
+        """)
+        return cursor.fetchall() or []
+    finally:
+        cursor.close()
+
+
+def get_payment_terms(db_connection) -> List[Dict[str, Any]]:
+    """
+    Lädt alle Zahlungsziele aus billing_creditperiod.
+    
+    Returns:
+        Liste mit {id, text}
+    """
+    # #region agent log
+    import json, time; open('/app/debug.log','a').write(json.dumps({"hypothesisId":"H1-svc","location":"orders_data_service.py:get_payment_terms","message":"service called","timestamp":time.time()})+'\n')
+    # #endregion
+    cursor = db_connection.cursor(dictionary=True)
+    try:
+        cursor.execute("""
+            SELECT id, textde AS text
+            FROM billing_creditperiod
+            ORDER BY id
+        """)
+        result = cursor.fetchall() or []
+        # #region agent log
+        open('/app/debug.log','a').write(json.dumps({"hypothesisId":"H1-svc","location":"orders_data_service.py:get_payment_terms","message":"query success","data":{"count":len(result)},"timestamp":time.time()})+'\n')
+        # #endregion
+        return result
+    except Exception as e:
+        # #region agent log
+        open('/app/debug.log','a').write(json.dumps({"hypothesisId":"H1-svc","location":"orders_data_service.py:get_payment_terms","message":"SQL error","data":{"error":str(e),"type":type(e).__name__},"timestamp":time.time()})+'\n')
+        # #endregion
+        raise
+    finally:
+        cursor.close()
+
+
+def get_tax_types(db_connection) -> List[Dict[str, Any]]:
+    """
+    Lädt alle Steuertypen.
+    Die Steuertypen sind in ordertable.taxtype als String gespeichert.
+    
+    Returns:
+        Liste mit {id, name} - typische Werte wie 'Standard', 'Reduced', 'Free'
+    """
+    cursor = db_connection.cursor(dictionary=True)
+    try:
+        # Distinct values from ordertable.taxtype
+        cursor.execute("""
+            SELECT DISTINCT taxtype as id, taxtype as name
+            FROM ordertable
+            WHERE taxtype IS NOT NULL AND taxtype != ''
+            ORDER BY taxtype
+        """)
+        return cursor.fetchall() or []
+    finally:
+        cursor.close()
+
+
+def get_factoring_options(db_connection) -> List[Dict[str, Any]]:
+    """
+    Lädt alle Factoring-Optionen aus billing_factoring.
+    
+    Returns:
+        Liste mit {fact, text}
+    """
+    # #region agent log
+    import json, time; open('/app/debug.log','a').write(json.dumps({"hypothesisId":"H2-svc","location":"orders_data_service.py:get_factoring_options","message":"service called","timestamp":time.time()})+'\n')
+    # #endregion
+    cursor = db_connection.cursor(dictionary=True)
+    try:
+        cursor.execute("""
+            SELECT fact, facttext AS text
+            FROM billing_factoring
+            ORDER BY fact
+        """)
+        result = cursor.fetchall() or []
+        # #region agent log
+        open('/app/debug.log','a').write(json.dumps({"hypothesisId":"H2-svc","location":"orders_data_service.py:get_factoring_options","message":"query success","data":{"count":len(result)},"timestamp":time.time()})+'\n')
+        # #endregion
+        return result
+    except Exception as e:
+        # #region agent log
+        open('/app/debug.log','a').write(json.dumps({"hypothesisId":"H2-svc","location":"orders_data_service.py:get_factoring_options","message":"SQL error","data":{"error":str(e),"type":type(e).__name__},"timestamp":time.time()})+'\n')
+        # #endregion
+        raise
+    finally:
+        cursor.close()
+
+
+def get_sales_users(db_connection) -> List[Dict[str, Any]]:
+    """
+    Lädt alle Vertriebsmitarbeiter (userlogin mit isEmployee=1).
+    
+    Returns:
+        Liste mit {id, loginname, Vorname, Nachname, department_id, department_name}
+    """
+    cursor = db_connection.cursor(dictionary=True)
+    try:
+        cursor.execute("""
+            SELECT 
+                u.id,
+                u.loginname,
+                u.Vorname,
+                u.Nachname,
+                u.department AS department_id,
+                COALESCE(d.name, 'Ohne Abteilung') AS department_name
+            FROM userlogin u
+            LEFT JOIN department d ON u.department = d.id
+            WHERE u.blocked = 0 AND u.isEmployee = 1
+            ORDER BY department_name, u.loginname
+        """)
+        return cursor.fetchall() or []
+    finally:
+        cursor.close()

@@ -33,16 +33,10 @@ security = HTTPBearer()
 
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
     """Get current user from JWT token"""
-    # #region agent log
-    import json as _json; open('/app/debug.log','a').write(_json.dumps({"location":"paperless.py:get_current_user","message":"Auth check start","data":{"has_credentials":bool(credentials),"token_preview":credentials.credentials[:30]+"..." if credentials else "NONE"},"timestamp":__import__('time').time()*1000,"sessionId":"debug-session","hypothesisId":"E"})+"\n")
-    # #endregion
     if not credentials:
         raise HTTPException(status_code=401, detail="Nicht authentifiziert")
     
     payload = decode_access_token(credentials.credentials)
-    # #region agent log
-    open('/app/debug.log','a').write(_json.dumps({"location":"paperless.py:get_current_user","message":"Token decode result","data":{"payload_exists":payload is not None,"payload_keys":list(payload.keys()) if payload else None},"timestamp":__import__('time').time()*1000,"sessionId":"debug-session","hypothesisId":"E,F"})+"\n")
-    # #endregion
     if not payload:
         raise HTTPException(status_code=401, detail="Token ungültig")
     

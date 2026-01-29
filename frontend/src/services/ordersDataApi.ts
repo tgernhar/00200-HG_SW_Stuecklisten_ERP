@@ -51,6 +51,35 @@ export interface Customer {
   kdn: string | null
 }
 
+export interface Language {
+  shortName: string
+  name: string
+}
+
+export interface PaymentTerm {
+  id: number
+  text: string
+}
+
+export interface TaxType {
+  id: string
+  name: string
+}
+
+export interface FactoringOption {
+  fact: string
+  text: string
+}
+
+export interface SalesUser {
+  id: number
+  loginname: string
+  Vorname: string | null
+  Nachname: string | null
+  department_id: number | null
+  department_name: string
+}
+
 export interface OrderDataItem {
   id: number
   name: string
@@ -218,5 +247,45 @@ export async function searchOrders(filters: OrderDataFilters): Promise<OrderData
  */
 export async function getOrderDetail(orderId: number): Promise<OrderDetailItem> {
   const response = await api.get(`${ORDERS_DATA_BASE}/${orderId}`)
+  return response.data
+}
+
+/**
+ * Lädt alle verfügbaren Sprachen.
+ */
+export async function getLanguages(): Promise<{ items: Language[] }> {
+  const response = await api.get(`${ORDERS_DATA_BASE}/languages`)
+  return response.data
+}
+
+/**
+ * Lädt alle Zahlungsziele.
+ */
+export async function getPaymentTerms(): Promise<{ items: PaymentTerm[] }> {
+  const response = await api.get(`${ORDERS_DATA_BASE}/payment-terms`)
+  return response.data
+}
+
+/**
+ * Lädt alle Steuertypen.
+ */
+export async function getTaxTypes(): Promise<{ items: TaxType[] }> {
+  const response = await api.get(`${ORDERS_DATA_BASE}/tax-types`)
+  return response.data
+}
+
+/**
+ * Lädt alle Factoring-Optionen.
+ */
+export async function getFactoringOptions(): Promise<{ items: FactoringOption[] }> {
+  const response = await api.get(`${ORDERS_DATA_BASE}/factoring`)
+  return response.data
+}
+
+/**
+ * Lädt alle Vertriebsmitarbeiter.
+ */
+export async function getSalesUsers(): Promise<{ items: SalesUser[] }> {
+  const response = await api.get(`${ORDERS_DATA_BASE}/sales-users`)
   return response.data
 }
