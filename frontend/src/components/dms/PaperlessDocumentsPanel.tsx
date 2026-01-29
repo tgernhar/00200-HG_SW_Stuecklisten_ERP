@@ -451,8 +451,11 @@ const PaperlessDocumentsPanel: React.FC<PaperlessDocumentsPanelProps> = ({
                         style={styles.actionButton}
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (doc.download_url) {
-                            window.open(doc.download_url, '_blank');
+                          // For .eml files use original download URL (email files need original)
+                          const isEmlFile = doc.original_file_name?.toLowerCase().endsWith('.eml');
+                          const downloadUrl = isEmlFile ? doc.original_download_url : doc.download_url;
+                          if (downloadUrl) {
+                            window.open(downloadUrl, '_blank');
                           }
                         }}
                         title="Herunterladen"

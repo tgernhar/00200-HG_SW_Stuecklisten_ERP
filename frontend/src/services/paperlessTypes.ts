@@ -19,6 +19,7 @@ export interface PaperlessDocument {
   tag_names: string[];
   custom_fields: Record<string, unknown>;
   download_url: string | null;
+  original_download_url: string | null;
   thumbnail_url: string | null;
 }
 

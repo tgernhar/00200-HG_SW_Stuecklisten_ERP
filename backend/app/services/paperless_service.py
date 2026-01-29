@@ -41,6 +41,7 @@ class PaperlessDocument:
     tag_names: List[str]
     custom_fields: Dict[str, Any]
     download_url: Optional[str] = None
+    original_download_url: Optional[str] = None
     thumbnail_url: Optional[str] = None
 
 
@@ -389,6 +390,7 @@ class PaperlessService:
             tag_names=data.get("tags__name", []) if isinstance(data.get("tags__name"), list) else [],
             custom_fields=self._parse_custom_fields(data.get("custom_fields", [])),
             download_url=self.get_document_download_url(data["id"]) if data.get("id") else None,
+            original_download_url=self.get_document_download_url(data["id"], original=True) if data.get("id") else None,
             thumbnail_url=self.get_document_thumbnail_url(data["id"]) if data.get("id") else None,
         )
     

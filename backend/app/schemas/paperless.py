@@ -24,6 +24,7 @@ class PaperlessDocumentResponse(BaseModel):
     tag_names: List[str] = []
     custom_fields: Dict[str, Any] = {}
     download_url: Optional[str] = None
+    original_download_url: Optional[str] = None
     thumbnail_url: Optional[str] = None
     
     @field_validator('custom_fields', mode='before')

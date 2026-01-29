@@ -151,10 +151,19 @@ def decode_access_token(token: str) -> Optional[Dict[str, Any]]:
     Returns:
         Decoded token data if valid, None if invalid
     """
+    # #region agent log
+    import json as _json; open('/app/debug.log','a').write(_json.dumps({"location":"auth_service.py:decode_access_token","message":"Decoding token","data":{"token_preview":token[:30]+"..." if token else "NONE","token_length":len(token) if token else 0},"timestamp":__import__('time').time()*1000,"sessionId":"debug-session","hypothesisId":"E"})+"\n")
+    # #endregion
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        # #region agent log
+        open('/app/debug.log','a').write(_json.dumps({"location":"auth_service.py:decode_access_token","message":"Token decoded successfully","data":{"payload_keys":list(payload.keys()) if payload else None},"timestamp":__import__('time').time()*1000,"sessionId":"debug-session","hypothesisId":"E"})+"\n")
+        # #endregion
         return payload
     except JWTError as e:
+        # #region agent log
+        open('/app/debug.log','a').write(_json.dumps({"location":"auth_service.py:decode_access_token","message":"JWT decode FAILED","data":{"error":str(e),"error_type":type(e).__name__},"timestamp":__import__('time').time()*1000,"sessionId":"debug-session","hypothesisId":"E,F,G"})+"\n")
+        # #endregion
         print(f"JWT decode error: {e}")
         return None
 

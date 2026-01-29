@@ -263,7 +263,22 @@ const PaperlessUploadDialog: React.FC<PaperlessUploadDialogProps> = ({
     loadMetadata();
   }, [defaultParams.defaultDocumentTypeName]);
 
+  // Allowed file extensions for Paperless upload
+  const ALLOWED_EXTENSIONS = ['.pdf', '.jpg', '.jpeg', '.png', '.tiff', '.tif', '.gif', '.webp', '.eml'];
+  
+  const isAllowedFileType = (filename: string): boolean => {
+    const ext = filename.toLowerCase().match(/\.[^/.]+$/)?.[0] || '';
+    return ALLOWED_EXTENSIONS.includes(ext);
+  };
+
   const handleFileSelect = (selectedFile: File) => {
+    // Validate file type
+    if (!isAllowedFileType(selectedFile.name)) {
+      setError('Der gewählte Dateityp kann nicht verarbeitet werden. Bitte nur PDF, JPEG, PNG, TIFF oder EML verwenden.');
+      setFile(null);
+      return;
+    }
+    
     setFile(selectedFile);
     if (!title) {
       // Auto-fill title from filename without extension
