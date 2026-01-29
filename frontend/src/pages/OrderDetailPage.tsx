@@ -22,35 +22,6 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     flexDirection: 'column',
     height: '100%',
-    overflow: 'hidden',
-  },
-  toolbar: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '12px',
-    padding: '12px 20px',
-    backgroundColor: 'white',
-    borderBottom: '1px solid #ddd',
-  },
-  backButton: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '6px',
-    padding: '8px 16px',
-    backgroundColor: '#f0f0f0',
-    border: '1px solid #ccc',
-    borderRadius: '4px',
-    cursor: 'pointer',
-    fontSize: '13px',
-    fontWeight: 500,
-    color: '#333',
-  },
-  breadcrumb: {
-    fontSize: '13px',
-    color: '#666',
-  },
-  content: {
-    flex: 1,
     overflow: 'auto',
   },
   loading: {
@@ -58,7 +29,7 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     justifyContent: 'center',
     height: '100%',
-    fontSize: '16px',
+    fontSize: '14px',
     color: '#666',
   },
   error: {
@@ -67,11 +38,19 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     justifyContent: 'center',
     height: '100%',
-    gap: '16px',
+    gap: '12px',
   },
   errorText: {
-    fontSize: '16px',
+    fontSize: '14px',
     color: '#c00',
+  },
+  errorBackButton: {
+    padding: '6px 12px',
+    backgroundColor: '#f0f0f0',
+    border: '1px solid #ccc',
+    borderRadius: '4px',
+    cursor: 'pointer',
+    fontSize: '12px',
   },
 }
 
@@ -112,34 +91,21 @@ export default function OrderDetailPage() {
 
   return (
     <div style={styles.container}>
-      {/* Toolbar with back button */}
-      <div style={styles.toolbar}>
-        <button style={styles.backButton} onClick={handleBack}>
-          ← Zurück zur Liste
-        </button>
-        <span style={styles.breadcrumb}>
-          Auftragsdaten / {documentTypeLabel} / {order?.name || `#${orderId}`}
-        </span>
-      </div>
-
-      {/* Content */}
-      <div style={styles.content}>
-        {loading ? (
-          <div style={styles.loading}>Lade Auftragsdaten...</div>
-        ) : error ? (
-          <div style={styles.error}>
-            <span style={styles.errorText}>{error}</span>
-            <button style={styles.backButton} onClick={handleBack}>
-              Zurück zur Liste
-            </button>
-          </div>
-        ) : order ? (
-          <OrderDetailView 
-            order={order} 
-            documentTypeLabel={documentTypeLabel}
-          />
-        ) : null}
-      </div>
+      {loading ? (
+        <div style={styles.loading}>Lade Auftragsdaten...</div>
+      ) : error ? (
+        <div style={styles.error}>
+          <span style={styles.errorText}>{error}</span>
+          <button style={styles.errorBackButton} onClick={handleBack}>
+            Zurück zur Liste
+          </button>
+        </div>
+      ) : order ? (
+        <OrderDetailView 
+          order={order} 
+          documentTypeLabel={documentTypeLabel}
+        />
+      ) : null}
     </div>
   )
 }
