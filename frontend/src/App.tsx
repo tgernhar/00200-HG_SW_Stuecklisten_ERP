@@ -31,6 +31,10 @@ const AuftragsdatenBestellungenPage = React.lazy(() => import('./pages/Auftragsd
 const AuftragsdatenBeistellungenPage = React.lazy(() => import('./pages/AuftragsdatenBeistellungenPage'))
 const OrderDetailPage = React.lazy(() => import('./pages/OrderDetailPage'))
 
+// Artikel Pages
+const ArtikelListePage = React.lazy(() => import('./pages/ArtikelListePage'))
+const WarengruppenListePage = React.lazy(() => import('./pages/WarengruppenListePage'))
+
 function App() {
   const { isAuthenticated, isLoading } = useAuth()
 
@@ -196,6 +200,23 @@ function App() {
             element={
               <React.Suspense fallback={<div style={{ padding: 20 }}>Lade Auftragsdetails...</div>}>
                 <OrderDetailPage />
+              </React.Suspense>
+            } 
+          />
+          {/* Artikel Routes */}
+          <Route 
+            path="artikel/liste" 
+            element={
+              <React.Suspense fallback={<div style={{ padding: 20 }}>Lade Artikel Liste...</div>}>
+                <ArtikelListePage />
+              </React.Suspense>
+            } 
+          />
+          <Route 
+            path="artikel/warengruppen" 
+            element={
+              <React.Suspense fallback={<div style={{ padding: 20 }}>Lade Warengruppen...</div>}>
+                <WarengruppenListePage />
               </React.Suspense>
             } 
           />

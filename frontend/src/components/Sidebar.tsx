@@ -120,6 +120,22 @@ const menuItems: MenuItem[] = [
     ]
   },
   {
+    id: 'artikel',
+    label: 'Artikel',
+    children: [
+      {
+        id: 'artikel-liste',
+        label: 'Artikel',
+        path: '/menu/artikel/liste'
+      },
+      {
+        id: 'artikel-warengruppen',
+        label: 'Warengruppen',
+        path: '/menu/artikel/warengruppen'
+      }
+    ]
+  },
+  {
     id: 'administration',
     label: 'Administration',
     children: [
@@ -206,7 +222,7 @@ const styles = {
 }
 
 export default function Sidebar() {
-  const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set(['stuecklisten', 'fertigungsplanung', 'produktionsplanung', 'crm', 'auftragsdaten']))
+  const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set(['stuecklisten', 'fertigungsplanung', 'produktionsplanung', 'crm', 'auftragsdaten', 'artikel']))
   const [hoveredItem, setHoveredItem] = useState<string | null>(null)
   
   const navigate = useNavigate()
