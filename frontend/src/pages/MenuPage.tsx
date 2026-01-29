@@ -7,6 +7,8 @@ import { Outlet, useLocation } from 'react-router-dom'
 import Header from '../components/Header'
 import Sidebar from '../components/Sidebar'
 import { useAuth } from '../contexts/AuthContext'
+import api from '../services/api'
+import WelcomeEditorDialog from '../components/WelcomeEditorDialog'
 
 const SIDEBAR_COLLAPSED_KEY = 'sidebar_collapsed'
 
@@ -53,79 +55,117 @@ const styles = {
     padding: '20px',
     fontFamily: 'Arial, sans-serif'
   },
-  welcomeTitle: {
-    fontSize: '16px',
-    fontWeight: 'bold' as const,
-    marginBottom: '20px',
-    color: '#333333'
+  editButton: {
+    padding: '8px 16px',
+    backgroundColor: '#4a90d9',
+    color: 'white',
+    border: 'none',
+    borderRadius: '4px',
+    cursor: 'pointer',
+    fontSize: '13px',
+    fontWeight: 500,
+    marginBottom: '15px',
   },
-  welcomeText: {
+  loadingText: {
+    color: '#666',
+    fontStyle: 'italic' as const,
+  },
+  welcomeHtmlContent: {
     fontSize: '14px',
     color: '#333333',
-    lineHeight: '1.6'
-  },
-  infoBox: {
-    backgroundColor: '#f9f9f9',
-    border: '1px solid #dddddd',
-    borderRadius: '4px',
-    padding: '15px',
-    marginBottom: '20px'
-  },
-  infoTitle: {
-    fontSize: '14px',
-    fontWeight: 'bold' as const,
-    marginBottom: '10px',
-    color: '#333333'
-  },
-  infoText: {
-    fontSize: '13px',
-    color: '#666666',
-    lineHeight: '1.5'
+    lineHeight: '1.6',
   }
 }
 
 // Welcome/Dashboard content shown at /menu
 function WelcomeContent() {
-  const { user, roles } = useAuth()
+  // #region agent log
+  fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MenuPage.tsx:WelcomeContent',message:'WelcomeContent render start',data:{},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
+  // #endregion
+  const { roles } = useAuth()
+  // #region agent log
+  fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MenuPage.tsx:useAuth',message:'roles from useAuth',data:{roles:roles,rolesType:typeof roles,isArray:Array.isArray(roles)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
+  // #endregion
+  const [welcomeText, setWelcomeText] = useState<string>('')
+  const [loading, setLoading] = useState(true)
+  const [editorOpen, setEditorOpen] = useState(false)
 
-  const getRoleNames = () => {
-    return roles.map(r => r.name).filter(Boolean).join(', ') || 'Keine Rollen zugewiesen'
+  // Prüfen ob User Verwaltungs-Rolle hat (isVerwaltung = 1)
+  const canEdit = roles && Array.isArray(roles) ? roles.some(r => r.isVerwaltung === 1) : false
+
+  useEffect(() => {
+    loadWelcomeText()
+  }, [])
+
+  const loadWelcomeText = async () => {
+    // #region agent log
+    fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MenuPage.tsx:loadWelcomeText',message:'loadWelcomeText called',data:{},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2'})}).catch(()=>{});
+    // #endregion
+    try {
+      const response = await api.get('/hugwawi/welcometext')
+      // #region agent log
+      fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MenuPage.tsx:loadWelcomeText',message:'API success',data:{hasText:!!response.data.text,textLength:response.data.text?.length},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2'})}).catch(()=>{});
+      // #endregion
+      setWelcomeText(response.data.text || '')
+    } catch (error) {
+      // #region agent log
+      fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MenuPage.tsx:loadWelcomeText',message:'API error',data:{error:String(error)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2'})}).catch(()=>{});
+      // #endregion
+      console.error('Error loading welcome text:', error)
+      setWelcomeText('<p>Willkommen im System.</p>')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleEditorClose = () => {
+    setEditorOpen(false)
+  }
+
+  const handleEditorSave = (html: string) => {
+    // Speichern ist deaktiviert - wird später implementiert
+    console.log('Save disabled - HTML would be:', html)
+  }
+
+  if (loading) {
+    return (
+      <div style={styles.welcomeContent}>
+        <p style={styles.loadingText}>Lade Willkommenstext...</p>
+      </div>
+    )
   }
 
   return (
     <div style={styles.welcomeContent}>
-      <h2 style={styles.welcomeTitle}>Willkommen im Stücklisten-ERP System</h2>
+      {canEdit && (
+        <button 
+          style={styles.editButton} 
+          onClick={() => setEditorOpen(true)}
+        >
+          Bearbeiten
+        </button>
+      )}
       
-      <div style={styles.infoBox}>
-        <div style={styles.infoTitle}>Benutzerinformationen</div>
-        <div style={styles.infoText}>
-          <p><strong>Angemeldet als:</strong> {user?.loginname}</p>
-          <p><strong>Rollen:</strong> {getRoleNames()}</p>
-        </div>
-      </div>
+      <div 
+        style={styles.welcomeHtmlContent}
+        dangerouslySetInnerHTML={{ __html: welcomeText }} 
+      />
 
-      <div style={styles.infoBox}>
-        <div style={styles.infoTitle}>Verfügbare Module</div>
-        <div style={styles.infoText}>
-          <p><strong>Stücklisten → SW_Stücklistenimport:</strong></p>
-          <p>Import und Verwaltung von SOLIDWORKS-Stücklisten mit ERP-Integration.</p>
-          <br />
-          <p><strong>Fertigungsplanung → Auftragsübersicht:</strong></p>
-          <p>Übersicht aller Fertigungsaufträge mit Lieferterminen und Verantwortlichen.</p>
-        </div>
-      </div>
-
-      <div style={styles.infoBox}>
-        <div style={styles.infoTitle}>Hinweis</div>
-        <div style={styles.infoText}>
-          <p>Sie werden nach 45 Minuten Inaktivität automatisch abgemeldet.</p>
-        </div>
-      </div>
+      {editorOpen && (
+        <WelcomeEditorDialog
+          initialContent={welcomeText}
+          onClose={handleEditorClose}
+          onSave={handleEditorSave}
+        />
+      )}
     </div>
   )
 }
 
 export default function MenuPage() {
+  // #region agent log
+  fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MenuPage.tsx:MenuPage',message:'MenuPage render start',data:{},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H4'})}).catch(()=>{});
+  // #endregion
   const location = useLocation()
   const isWelcomePage = location.pathname === '/menu' || location.pathname === '/menu/'
   

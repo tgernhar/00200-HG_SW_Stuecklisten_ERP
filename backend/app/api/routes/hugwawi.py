@@ -74,3 +74,22 @@ async def get_hugwawi_selectlist_values(selectlist_id: int):
     finally:
         erp.close()
 
+
+@router.get("/hugwawi/welcometext")
+async def get_welcometext():
+    """
+    Lädt den Willkommenstext aus welcometext Tabelle (id=1).
+    Der Text ist HTML-formatiert und wird auf der Startseite angezeigt.
+    """
+    erp = get_erp_db_connection()
+    try:
+        cursor = erp.cursor(dictionary=True)
+        cursor.execute("SELECT text FROM welcometext WHERE id = 1")
+        result = cursor.fetchone()
+        cursor.close()
+        return {"text": result["text"] if result else ""}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        erp.close()
+
