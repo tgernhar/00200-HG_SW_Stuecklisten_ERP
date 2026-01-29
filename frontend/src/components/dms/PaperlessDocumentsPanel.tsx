@@ -36,6 +36,8 @@ interface PaperlessDocumentsPanelProps {
   maxHeight?: number;
   /** Callback when a document is clicked */
   onDocumentClick?: (doc: PaperlessDocument) => void;
+  /** Default document type name to preselect in upload dialog */
+  defaultDocumentTypeName?: string;
 }
 
 const styles = {
@@ -205,6 +207,7 @@ const PaperlessDocumentsPanel: React.FC<PaperlessDocumentsPanelProps> = ({
   defaultCollapsed = true,
   maxHeight = 300,
   onDocumentClick,
+  defaultDocumentTypeName,
 }) => {
   const [documents, setDocuments] = useState<PaperlessDocument[]>([]);
   const [loading, setLoading] = useState(false);
@@ -305,6 +308,11 @@ const PaperlessDocumentsPanel: React.FC<PaperlessDocumentsPanelProps> = ({
       case 'operation':
         params.erp_operation_id = entityId;
         break;
+    }
+
+    // Add default document type name if provided
+    if (defaultDocumentTypeName) {
+      params.defaultDocumentTypeName = defaultDocumentTypeName;
     }
 
     return params;

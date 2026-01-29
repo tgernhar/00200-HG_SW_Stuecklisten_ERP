@@ -1,8 +1,8 @@
 """
 Paperless-ngx Pydantic Schemas
 """
-from pydantic import BaseModel
-from typing import Optional, List, Dict, Any
+from pydantic import BaseModel, field_validator
+from typing import Optional, List, Dict, Any, Union
 from datetime import datetime
 
 
@@ -25,6 +25,14 @@ class PaperlessDocumentResponse(BaseModel):
     custom_fields: Dict[str, Any] = {}
     download_url: Optional[str] = None
     thumbnail_url: Optional[str] = None
+    
+    @field_validator('custom_fields', mode='before')
+    @classmethod
+    def convert_custom_fields_keys_to_str(cls, v):
+        """Convert custom_fields keys to strings (Paperless may return int keys)"""
+        if isinstance(v, dict):
+            return {str(k): val for k, val in v.items()}
+        return v
 
 
 class PaperlessDocumentListResponse(BaseModel):

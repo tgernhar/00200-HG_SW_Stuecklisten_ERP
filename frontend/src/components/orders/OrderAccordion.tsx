@@ -7,7 +7,6 @@ import { useNavigate } from 'react-router-dom'
 import { OrderOverviewItem, HierarchyRemark, ChildRemarksSummary } from '../../services/types'
 import OrderArticlesPanel from './OrderArticlesPanel'
 import remarksApi from '../../services/remarksApi'
-import DMSDocumentsPanel from '../dms/DMSDocumentsPanel'
 import PaperlessDocumentsPanel from '../dms/PaperlessDocumentsPanel'
 
 interface OrderAccordionProps {
@@ -538,14 +537,6 @@ export default function OrderAccordion({
       
       {isExpanded && order.order_id && (
         <div style={styles.detailPanel}>
-          {/* DMS Documents Panel for Order (HUGWAWI) */}
-          <DMSDocumentsPanel
-            entityType="order"
-            entityId={order.order_id}
-            title="Auftragsdokumente (HUGWAWI DMS)"
-            defaultCollapsed={true}
-          />
-          
           {/* Paperless Documents Panel for Order */}
           <PaperlessDocumentsPanel
             entityType="order"

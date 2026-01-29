@@ -5,10 +5,22 @@
  */
 import React, { useState, useEffect } from 'react'
 import { OrderDetailItem, getContacts, getAddresses, Contact, Address } from '../../services/ordersDataApi'
+import PaperlessDocumentsPanel from '../dms/PaperlessDocumentsPanel'
 
 interface OrderDetailViewProps {
   order: OrderDetailItem
   documentTypeLabel: string  // z.B. "Auftrag", "Angebot", etc.
+  orderType?: number  // Order type for document type mapping
+}
+
+// Dokumenttyp-Mapping based on orderType
+const getDefaultDocTypeName = (orderType: number | undefined): string | undefined => {
+  switch (orderType) {
+    case 3: return 'Kunden-Anfrage'           // Angebote
+    case 5: return 'Lieferanten-Bestellung'   // Bestellungen
+    case 14: return 'Kunden-Beistellung'      // Beistellungen
+    default: return undefined
+  }
 }
 
 // Form data type for editable fields
@@ -422,7 +434,7 @@ const TextTabs: React.FC<{
   )
 }
 
-export default function OrderDetailView({ order, documentTypeLabel }: OrderDetailViewProps) {
+export default function OrderDetailView({ order, documentTypeLabel, orderType }: OrderDetailViewProps) {
   // Form state for editable fields
   const [formData, setFormData] = useState<OrderFormData>({
     reference: order.reference || '',
@@ -636,6 +648,16 @@ export default function OrderDetailView({ order, documentTypeLabel }: OrderDetai
           </div>
         </div>
       </div>
+      
+      {/* Paperless Documents Panel */}
+      <PaperlessDocumentsPanel
+        entityType="order"
+        entityId={order.id}
+        entityNumber={order.name}
+        title="Dokumente (Paperless)"
+        defaultCollapsed={false}
+        defaultDocumentTypeName={getDefaultDocTypeName(orderType)}
+      />
     </div>
   )
 }

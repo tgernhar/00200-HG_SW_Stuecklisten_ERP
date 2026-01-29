@@ -256,11 +256,13 @@ class PaperlessService:
         if archive_serial_number:
             data["archive_serial_number"] = str(archive_serial_number)
         
-        # Custom fields are sent as JSON in a separate field
+        # Custom fields are sent as JSON object mapping field IDs to values
+        # Format: {"field_id": value, ...} e.g. {"5": 40004, "6": "AU-2026-00032"}
         if custom_fields:
             import json
+            # Ensure keys are strings for JSON serialization
             data["custom_fields"] = json.dumps(
-                [{"field": k, "value": v} for k, v in custom_fields.items()]
+                {str(k): v for k, v in custom_fields.items()}
             )
         
         # Open file for upload
@@ -268,12 +270,16 @@ class PaperlessService:
             files = {"document": (path.name, f, "application/octet-stream")}
             result = self._api_request("POST", "/api/documents/post_document/", data=data, files=files)
         
-        if result and "task_id" in result:
+        if result:
             # Upload successful - document will be processed asynchronously
-            logger.info(f"Document uploaded, task_id: {result['task_id']}")
-            # Note: The actual document ID is not immediately available
-            # It can be retrieved later via task status or search
-            return result.get("task_id")
+            # Paperless may return either a dict with task_id or directly a string (UUID)
+            if isinstance(result, str):
+                # Direct string response (UUID) - this is the task_id
+                logger.info(f"Document uploaded, task_id: {result}")
+                return result
+            elif isinstance(result, dict) and "task_id" in result:
+                logger.info(f"Document uploaded, task_id: {result['task_id']}")
+                return result.get("task_id")
         
         return None
     
@@ -420,11 +426,14 @@ class PaperlessService:
     
     def find_or_create_correspondent(self, name: str) -> Optional[int]:
         """Find correspondent by name or create if not exists"""
+        # Trim whitespace for comparison
+        name_trimmed = name.strip()
         correspondents = self.get_correspondents()
         for c in correspondents:
-            if c.name.lower() == name.lower():
+            if c.name.strip().lower() == name_trimmed.lower():
                 return c.id
-        return self.create_correspondent(name)
+        # Create with trimmed name to avoid trailing whitespace issues
+        return self.create_correspondent(name_trimmed)
     
     # =========================================================================
     # Document Types
@@ -541,6 +550,7 @@ class PaperlessService:
         Creates these fields if they don't exist:
         - erp_order_id: Order ID (integer)
         - erp_order_number: Order number (string)
+        - erp_customer_number: Customer number / Kundennummer (string)
         - erp_article_id: Article ID (integer)
         - erp_article_number: Article number (string)
         - erp_order_article_id: Order article ID (integer)
@@ -550,6 +560,7 @@ class PaperlessService:
         required_fields = {
             "erp_order_id": "integer",
             "erp_order_number": "string",
+            "erp_customer_number": "string",
             "erp_article_id": "integer",
             "erp_article_number": "string",
             "erp_order_article_id": "integer",

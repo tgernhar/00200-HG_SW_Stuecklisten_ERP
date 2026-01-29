@@ -116,33 +116,45 @@ async def upload_document(
     If no correspondent_id is provided but erp_order_id or erp_order_number is given,
     the correspondent is automatically determined from HUGWAWI (ordertable.kid -> adrbase.suchname)
     and created in Paperless if it doesn't exist.
+    
+    Additionally, customer_number (adrbase.kdn) and order_name (ordertable.name) are 
+    automatically fetched from HUGWAWI and stored as custom fields.
     """
     from app.core.database import get_erp_db_connection
-    from app.services.erp_service import get_order_customer_name, get_order_customer_name_by_order_name
+    from app.services.erp_service import get_order_paperless_info, get_order_paperless_info_by_order_name
     
     service = get_paperless_service()
     
-    # Auto-resolve correspondent from HUGWAWI if not provided
+    # Auto-resolve correspondent and additional fields from HUGWAWI
     resolved_correspondent_id = correspondent_id
-    if resolved_correspondent_id is None and (erp_order_id or erp_order_number):
+    hugwawi_customer_number = None
+    hugwawi_order_name = None
+    
+    if erp_order_id or erp_order_number:
         try:
             erp_conn = get_erp_db_connection()
             try:
-                customer_name = None
+                paperless_info = None
                 if erp_order_id:
-                    customer_name = get_order_customer_name(erp_order_id, erp_conn)
+                    paperless_info = get_order_paperless_info(erp_order_id, erp_conn)
                 elif erp_order_number:
-                    customer_name = get_order_customer_name_by_order_name(erp_order_number, erp_conn)
+                    paperless_info = get_order_paperless_info_by_order_name(erp_order_number, erp_conn)
                 
-                if customer_name:
-                    # Find or create correspondent in Paperless
-                    resolved_correspondent_id = service.find_or_create_correspondent(customer_name)
-                    logger.info(f"Resolved correspondent '{customer_name}' to Paperless ID {resolved_correspondent_id}")
+                if paperless_info:
+                    # Extract customer number and order name for custom fields
+                    hugwawi_customer_number = paperless_info.get("customer_number")
+                    hugwawi_order_name = paperless_info.get("order_name")
+                    
+                    # Find or create correspondent if not provided
+                    customer_name = paperless_info.get("customer_name")
+                    if resolved_correspondent_id is None and customer_name:
+                        resolved_correspondent_id = service.find_or_create_correspondent(customer_name)
+                        logger.info(f"Resolved correspondent '{customer_name}' to Paperless ID {resolved_correspondent_id}")
             finally:
                 erp_conn.close()
         except Exception as e:
-            logger.warning(f"Could not resolve correspondent from HUGWAWI: {e}")
-            # Continue without correspondent - upload should still work
+            logger.warning(f"Could not resolve data from HUGWAWI: {e}")
+            # Continue without HUGWAWI data - upload should still work
     
     # Ensure custom fields exist
     field_ids = service.ensure_erp_custom_fields()
@@ -151,8 +163,13 @@ async def upload_document(
     custom_fields = {}
     if erp_order_id and "erp_order_id" in field_ids:
         custom_fields[field_ids["erp_order_id"]] = erp_order_id
-    if erp_order_number and "erp_order_number" in field_ids:
-        custom_fields[field_ids["erp_order_number"]] = erp_order_number
+    # Use HUGWAWI order_name if available, otherwise fall back to provided erp_order_number
+    order_number_value = hugwawi_order_name or erp_order_number
+    if order_number_value and "erp_order_number" in field_ids:
+        custom_fields[field_ids["erp_order_number"]] = order_number_value
+    # Add customer number from HUGWAWI
+    if hugwawi_customer_number and "erp_customer_number" in field_ids:
+        custom_fields[field_ids["erp_customer_number"]] = hugwawi_customer_number
     if erp_article_id and "erp_article_id" in field_ids:
         custom_fields[field_ids["erp_article_id"]] = erp_article_id
     if erp_article_number and "erp_article_number" in field_ids:

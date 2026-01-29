@@ -104,6 +104,7 @@ export default function OrderDetailPage() {
         <OrderDetailView 
           order={order} 
           documentTypeLabel={documentTypeLabel}
+          orderType={order.orderType}
         />
       ) : null}
     </div>

@@ -94,6 +94,70 @@ def get_order_customer_name(order_id: int, db_connection) -> str | None:
         cursor.close()
 
 
+def get_order_paperless_info(order_id: int, db_connection) -> dict | None:
+    """
+    Holt alle benötigten Informationen für Paperless-Upload für eine Order-ID.
+    Verknüpfung: ordertable.kid -> adrbase.id
+    
+    Args:
+        order_id: Die HUGWAWI Order-ID (ordertable.id)
+        db_connection: MySQL-Verbindung zu HUGWAWI
+    
+    Returns:
+        Dict mit {customer_name, customer_number, order_name} oder None falls nicht gefunden
+    """
+    cursor = db_connection.cursor(dictionary=True)
+    try:
+        cursor.execute(
+            """
+            SELECT 
+                adrbase.suchname AS customer_name,
+                adrbase.kdn AS customer_number,
+                ordertable.name AS order_name
+            FROM ordertable
+            INNER JOIN adrbase ON ordertable.kid = adrbase.id
+            WHERE ordertable.id = %s
+            """,
+            (order_id,),
+        )
+        return cursor.fetchone()
+    finally:
+        cursor.close()
+
+
+def get_order_paperless_info_by_order_name(order_name: str, db_connection) -> dict | None:
+    """
+    Holt alle benötigten Informationen für Paperless-Upload für eine Auftragsnummer.
+    Verknüpfung: ordertable.kid -> adrbase.id
+    
+    Args:
+        order_name: Die Auftragsnummer (ordertable.name, z.B. "AU-12345")
+        db_connection: MySQL-Verbindung zu HUGWAWI
+    
+    Returns:
+        Dict mit {customer_name, customer_number, order_name} oder None falls nicht gefunden
+    """
+    cursor = db_connection.cursor(dictionary=True)
+    try:
+        cursor.execute(
+            """
+            SELECT 
+                adrbase.suchname AS customer_name,
+                adrbase.kdn AS customer_number,
+                ordertable.name AS order_name
+            FROM ordertable
+            INNER JOIN adrbase ON ordertable.kid = adrbase.id
+            WHERE ordertable.name = %s
+            ORDER BY ordertable.id DESC
+            LIMIT 1
+            """,
+            (order_name,),
+        )
+        return cursor.fetchone()
+    finally:
+        cursor.close()
+
+
 def get_order_customer_name_by_order_name(order_name: str, db_connection) -> str | None:
     """
     Holt den Kundennamen (adrbase.suchname) für eine Order-Nummer (ordertable.name).

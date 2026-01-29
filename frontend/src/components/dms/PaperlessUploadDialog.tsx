@@ -244,6 +244,16 @@ const PaperlessUploadDialog: React.FC<PaperlessUploadDialogProps> = ({
         setDocumentTypes(types);
         setCorrespondents(corrs);
         setTags(tgs);
+        
+        // Auto-select document type if defaultDocumentTypeName is provided
+        if (defaultParams.defaultDocumentTypeName && types.length > 0) {
+          const defaultType = types.find(
+            t => t.name.toLowerCase() === String(defaultParams.defaultDocumentTypeName).toLowerCase()
+          );
+          if (defaultType) {
+            setDocumentTypeId(defaultType.id);
+          }
+        }
       } catch (err) {
         console.error('Failed to load metadata:', err);
       } finally {
@@ -251,7 +261,7 @@ const PaperlessUploadDialog: React.FC<PaperlessUploadDialogProps> = ({
       }
     };
     loadMetadata();
-  }, []);
+  }, [defaultParams.defaultDocumentTypeName]);
 
   const handleFileSelect = (selectedFile: File) => {
     setFile(selectedFile);
