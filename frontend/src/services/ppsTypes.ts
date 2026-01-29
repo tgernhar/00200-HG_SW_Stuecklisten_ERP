@@ -384,3 +384,19 @@ export interface TodoTypeConfig {
   created_at?: string
   updated_at?: string
 }
+
+// ============== Todo Existence Check ==============
+
+export interface TodoExistenceCheckRequest {
+  order_ids?: number[]
+  order_article_ids?: number[]
+  bom_item_ids?: number[]  // packingnote_details IDs
+  workstep_ids?: number[]  // workplan_detail IDs
+}
+
+export interface TodoExistenceCheckResponse {
+  order_todos: Record<number, number>          // order_id -> todo_id (or 0)
+  order_article_todos: Record<number, number>  // order_article_id -> todo_id (or 0)
+  bom_item_todos: Record<number, number>       // bom_item_id -> todo_id (or 0)
+  workstep_todos: Record<number, number>       // workstep_id -> todo_id (or 0)
+}

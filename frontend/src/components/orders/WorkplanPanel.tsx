@@ -7,11 +7,14 @@ import React, { useState, useEffect } from 'react'
 import api from '../../services/api'
 import { WorkplanItem, HierarchyRemark } from '../../services/types'
 import remarksApi from '../../services/remarksApi'
+import { checkTodoExistence } from '../../services/ppsApi'
 
 interface WorkplanPanelProps {
   detailId: number
   selectedWorkstepIds?: Set<number>
   onWorkstepSelectionChange?: (workstepIds: number[], selected: boolean) => void
+  // Todo icon click handler (delegated to parent for context menu)
+  onTodoIconClick?: (workstepId: number, todoId: number, event: React.MouseEvent) => void
 }
 
 const styles = {
@@ -88,6 +91,23 @@ const styles = {
     borderRadius: '3px',
     padding: '2px 4px',
     fontSize: '10px'
+  },
+  todoIcon: {
+    padding: '2px 4px',
+    backgroundColor: '#e8f5e9',
+    border: '1px solid #81c784',
+    borderRadius: '3px',
+    cursor: 'pointer',
+    fontSize: '10px',
+    color: '#2e7d32'
+  },
+  todoIconInactive: {
+    padding: '2px 4px',
+    backgroundColor: '#f5f5f5',
+    border: '1px solid #e0e0e0',
+    borderRadius: '3px',
+    fontSize: '10px',
+    color: '#bdbdbd'
   }
 }
 
@@ -99,7 +119,8 @@ const truncateText = (text: string, maxLength: number = 30): string => {
 export default function WorkplanPanel({ 
   detailId,
   selectedWorkstepIds,
-  onWorkstepSelectionChange
+  onWorkstepSelectionChange,
+  onTodoIconClick
 }: WorkplanPanelProps) {
   const [items, setItems] = useState<WorkplanItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -110,6 +131,8 @@ export default function WorkplanPanel({
   const [remarks, setRemarks] = useState<Map<number, HierarchyRemark>>(new Map())
   const [editingRemark, setEditingRemark] = useState<number | null>(null)
   const [remarkText, setRemarkText] = useState('')
+  // Todo existence mapping (workplan_detail_id -> todo_id)
+  const [workstepTodoMapping, setWorkstepTodoMapping] = useState<Record<number, number>>({})
 
   useEffect(() => {
     let isMounted = true
@@ -138,6 +161,16 @@ export default function WorkplanPanel({
             const remarksMap = new Map<number, HierarchyRemark>()
             remarksResponse.items.forEach(r => remarksMap.set(r.hugwawi_id, r))
             setRemarks(remarksMap)
+          }
+          
+          // Load todo existence for worksteps
+          try {
+            const todoResponse = await checkTodoExistence({ workstep_ids: ids })
+            if (isMounted) {
+              setWorkstepTodoMapping(todoResponse.workstep_todos)
+            }
+          } catch (todoErr) {
+            console.error('Error loading workstep todo mappings:', todoErr)
           }
         }
         if (isMounted) setLoading(false)
@@ -261,6 +294,7 @@ export default function WorkplanPanel({
         <thead>
           <tr>
             <th style={{ ...styles.th, width: '25px' }}></th>
+            <th style={{ ...styles.th, width: '30px' }}>ToDo</th>
             <th style={{ ...styles.th, width: '50px' }}>Pos</th>
             <th style={styles.th}>Arbeitsgang</th>
             <th style={styles.th}>Maschine</th>
@@ -283,6 +317,25 @@ export default function WorkplanPanel({
                       checked={isSelected}
                       onChange={() => toggleSelect(item.workplan_detail_id!)}
                     />
+                  )}
+                </td>
+                {/* ToDo Icon */}
+                <td style={styles.td}>
+                  {item.workplan_detail_id && workstepTodoMapping[item.workplan_detail_id] > 0 ? (
+                    <span
+                      style={styles.todoIcon}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        if (onTodoIconClick) {
+                          onTodoIconClick(item.workplan_detail_id!, workstepTodoMapping[item.workplan_detail_id!], e)
+                        }
+                      }}
+                      title="ToDo vorhanden - Klicken für Optionen"
+                    >
+                      ✓
+                    </span>
+                  ) : (
+                    <span style={styles.todoIconInactive} title="Kein ToDo">○</span>
                   )}
                 </td>
                 <td style={styles.td}>{item.pos || '-'}</td>

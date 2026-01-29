@@ -7,6 +7,7 @@ import api from '../../services/api'
 import { BomItem, HierarchyRemark } from '../../services/types'
 import WorkplanPanel from './WorkplanPanel'
 import remarksApi from '../../services/remarksApi'
+import { checkTodoExistence } from '../../services/ppsApi'
 
 interface BomPanelProps {
   orderArticleId: number
@@ -14,6 +15,9 @@ interface BomPanelProps {
   onBomItemSelectionChange?: (bomItemIds: number[], selected: boolean) => void
   selectedWorkstepIds?: Set<number>
   onWorkstepSelectionChange?: (workstepIds: number[], selected: boolean) => void
+  // Todo icon click handler (delegated to parent for context menu)
+  onTodoIconClick?: (bomItemId: number, todoId: number, event: React.MouseEvent) => void
+  onWorkstepTodoIconClick?: (workstepId: number, todoId: number, event: React.MouseEvent) => void
 }
 
 const styles = {
@@ -98,6 +102,23 @@ const styles = {
     borderRadius: '3px',
     padding: '2px 4px',
     fontSize: '10px'
+  },
+  todoIcon: {
+    padding: '2px 4px',
+    backgroundColor: '#e8f5e9',
+    border: '1px solid #81c784',
+    borderRadius: '3px',
+    cursor: 'pointer',
+    fontSize: '10px',
+    color: '#2e7d32'
+  },
+  todoIconInactive: {
+    padding: '2px 4px',
+    backgroundColor: '#f5f5f5',
+    border: '1px solid #e0e0e0',
+    borderRadius: '3px',
+    fontSize: '10px',
+    color: '#bdbdbd'
   }
 }
 
@@ -111,7 +132,9 @@ export default function BomPanel({
   selectedBomItemIds,
   onBomItemSelectionChange,
   selectedWorkstepIds,
-  onWorkstepSelectionChange
+  onWorkstepSelectionChange,
+  onTodoIconClick,
+  onWorkstepTodoIconClick
 }: BomPanelProps) {
   const [items, setItems] = useState<BomItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -123,6 +146,8 @@ export default function BomPanel({
   const [remarks, setRemarks] = useState<Map<number, HierarchyRemark>>(new Map())
   const [editingRemark, setEditingRemark] = useState<number | null>(null)
   const [remarkText, setRemarkText] = useState('')
+  // Todo existence mapping (bom_detail_id -> todo_id)
+  const [bomTodoMapping, setBomTodoMapping] = useState<Record<number, number>>({})
 
   useEffect(() => {
     let isMounted = true
@@ -151,6 +176,16 @@ export default function BomPanel({
             const remarksMap = new Map<number, HierarchyRemark>()
             remarksResponse.items.forEach(r => remarksMap.set(r.hugwawi_id, r))
             setRemarks(remarksMap)
+          }
+          
+          // Load todo existence for BOM items
+          try {
+            const todoResponse = await checkTodoExistence({ bom_item_ids: ids })
+            if (isMounted) {
+              setBomTodoMapping(todoResponse.bom_item_todos)
+            }
+          } catch (todoErr) {
+            console.error('Error loading BOM todo mappings:', todoErr)
           }
         }
         if (isMounted) setLoading(false)
@@ -299,6 +334,7 @@ export default function BomPanel({
           <tr>
             <th style={{ ...styles.th, width: '25px' }}></th>
             <th style={{ ...styles.th, width: '25px' }}></th>
+            <th style={{ ...styles.th, width: '30px' }}>ToDo</th>
             <th style={{ ...styles.th, width: '70px' }}>Pos</th>
             <th style={{ ...styles.th, width: '110px' }}>Artikelnummer</th>
             <th style={styles.th}>Artikelbezeichnung</th>
@@ -341,6 +377,25 @@ export default function BomPanel({
                       >
                         {isExpanded ? '▼' : '▶'}
                       </button>
+                    )}
+                  </td>
+                  {/* ToDo Icon */}
+                  <td style={styles.td}>
+                    {item.detail_id && bomTodoMapping[item.detail_id] > 0 ? (
+                      <span
+                        style={styles.todoIcon}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          if (onTodoIconClick) {
+                            onTodoIconClick(item.detail_id!, bomTodoMapping[item.detail_id!], e)
+                          }
+                        }}
+                        title="ToDo vorhanden - Klicken für Optionen"
+                      >
+                        ✓
+                      </span>
+                    ) : (
+                      <span style={styles.todoIconInactive} title="Kein ToDo">○</span>
                     )}
                   </td>
                   <td style={{ ...styles.td, paddingLeft: `${8 + level * 12}px` }}>
@@ -397,11 +452,12 @@ export default function BomPanel({
                 </tr>
                 {isExpanded && item.detail_id && (
                   <tr>
-                    <td colSpan={10} style={{ padding: 0, backgroundColor: '#f5faff' }}>
+                    <td colSpan={11} style={{ padding: 0, backgroundColor: '#f5faff' }}>
                       <WorkplanPanel 
                         detailId={item.detail_id}
                         selectedWorkstepIds={selectedWorkstepIds}
                         onWorkstepSelectionChange={onWorkstepSelectionChange}
+                        onTodoIconClick={onWorkstepTodoIconClick}
                       />
                     </td>
                   </tr>

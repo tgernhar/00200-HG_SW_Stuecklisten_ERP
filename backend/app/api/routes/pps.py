@@ -36,6 +36,7 @@ from app.schemas.pps import (
     BatchUpdateItem, BatchUpdateRequest, BatchUpdateResponse,
     ShiftTodosRequest, ShiftTodosResponse, TodoDependenciesResponse,
     TodoFromSelectionRequest, TodoFromSelectionResponse,
+    TodoExistenceCheckRequest, TodoExistenceCheckResponse,
 )
 from app.services.pps_sync_service import (
     get_subordinate_ids, 
@@ -2055,3 +2056,75 @@ async def create_todos_from_selection(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Fehler bei Todo-Erstellung: {str(e)}")
+
+
+# ============== Todo Existence Check ==============
+
+@router.post("/todos/check-existence", response_model=TodoExistenceCheckResponse)
+async def check_todo_existence(
+    request: TodoExistenceCheckRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Check if todos exist for given ERP element IDs.
+    
+    Returns a mapping of ERP ID -> todo ID for each element type.
+    If no todo exists for an ID, the value is 0.
+    
+    This is a batch operation for performance - use this instead of
+    checking individual todos one by one.
+    """
+    result = TodoExistenceCheckResponse()
+    
+    # Check order todos
+    if request.order_ids:
+        order_todos = db.query(PPSTodo.erp_order_id, PPSTodo.id).filter(
+            PPSTodo.erp_order_id.in_(request.order_ids),
+            PPSTodo.todo_type.in_(['container_order', 'task', 'project']),
+            PPSTodo.parent_todo_id.is_(None)  # Only top-level order todos
+        ).all()
+        
+        # Build mapping
+        for order_id in request.order_ids:
+            result.order_todos[order_id] = 0
+        for erp_id, todo_id in order_todos:
+            result.order_todos[erp_id] = todo_id
+    
+    # Check order article todos
+    if request.order_article_ids:
+        article_todos = db.query(PPSTodo.erp_order_article_id, PPSTodo.id).filter(
+            PPSTodo.erp_order_article_id.in_(request.order_article_ids),
+            PPSTodo.todo_type.in_(['container_article', 'task'])
+        ).all()
+        
+        for article_id in request.order_article_ids:
+            result.order_article_todos[article_id] = 0
+        for erp_id, todo_id in article_todos:
+            result.order_article_todos[erp_id] = todo_id
+    
+    # Check BOM item todos
+    if request.bom_item_ids:
+        bom_todos = db.query(PPSTodo.erp_packingnote_details_id, PPSTodo.id).filter(
+            PPSTodo.erp_packingnote_details_id.in_(request.bom_item_ids),
+            PPSTodo.todo_type.in_(['bom_item', 'task']),
+            PPSTodo.erp_workplan_detail_id.is_(None)  # Not an operation
+        ).all()
+        
+        for bom_id in request.bom_item_ids:
+            result.bom_item_todos[bom_id] = 0
+        for erp_id, todo_id in bom_todos:
+            result.bom_item_todos[erp_id] = todo_id
+    
+    # Check workstep/operation todos
+    if request.workstep_ids:
+        workstep_todos = db.query(PPSTodo.erp_workplan_detail_id, PPSTodo.id).filter(
+            PPSTodo.erp_workplan_detail_id.in_(request.workstep_ids),
+            PPSTodo.todo_type == 'operation'
+        ).all()
+        
+        for workstep_id in request.workstep_ids:
+            result.workstep_todos[workstep_id] = 0
+        for erp_id, todo_id in workstep_todos:
+            result.workstep_todos[erp_id] = todo_id
+    
+    return result

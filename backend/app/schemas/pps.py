@@ -711,5 +711,21 @@ class TodoFromSelectionResponse(BaseModel):
     errors: List[str] = []
 
 
+class TodoExistenceCheckRequest(BaseModel):
+    """Request to check if todos exist for ERP elements"""
+    order_ids: List[int] = []
+    order_article_ids: List[int] = []
+    bom_item_ids: List[int] = []  # packingnote_details IDs
+    workstep_ids: List[int] = []  # workplan_detail IDs
+
+
+class TodoExistenceCheckResponse(BaseModel):
+    """Response with todo IDs for each ERP element (0 if no todo exists)"""
+    order_todos: dict[int, int] = {}           # order_id -> todo_id (or 0)
+    order_article_todos: dict[int, int] = {}   # order_article_id -> todo_id (or 0)
+    bom_item_todos: dict[int, int] = {}        # bom_item_id -> todo_id (or 0)
+    workstep_todos: dict[int, int] = {}        # workstep_id -> todo_id (or 0)
+
+
 # Forward references for self-referencing models
 TodoWithDetails.model_rebuild()

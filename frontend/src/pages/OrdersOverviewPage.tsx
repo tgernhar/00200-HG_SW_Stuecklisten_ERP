@@ -4,6 +4,7 @@
  * Auftragsartikel, Stücklisten and Arbeitspläne
  */
 import React, { useState, useEffect, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import api from '../services/api'
 import { OrderOverviewItem, HierarchyRemark, ChildRemarksSummary, DeepSearchResultItem } from '../services/types'
 import OrdersFilterBar, { FilterValues } from '../components/orders/OrdersFilterBar'
@@ -11,6 +12,9 @@ import OrderAccordion from '../components/orders/OrderAccordion'
 import ChildRemarksPopup from '../components/orders/ChildRemarksPopup'
 import DeepSearchResultsTable from '../components/orders/DeepSearchResultsTable'
 import remarksApi from '../services/remarksApi'
+import { checkTodoExistence, getTodo } from '../services/ppsApi'
+import { PPSTodoWithERPDetails } from '../services/ppsTypes'
+import TodoEditDialog from '../components/pps/TodoEditDialog'
 
 const initialFilters: FilterValues = {
   dateFrom: '',
@@ -102,6 +106,10 @@ const styles = {
     width: '100px'
   },
   headerCrm: {
+    width: '40px',
+    textAlign: 'center' as const
+  },
+  headerTodo: {
     width: '40px',
     textAlign: 'center' as const
   },
@@ -232,6 +240,29 @@ const styles = {
   loadMoreButtonDisabled: {
     backgroundColor: '#9e9e9e',
     cursor: 'not-allowed'
+  },
+  // Todo context menu styles
+  todoContextMenu: {
+    position: 'fixed' as const,
+    backgroundColor: 'white',
+    border: '1px solid #ccc',
+    borderRadius: '4px',
+    boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+    zIndex: 1000,
+    minWidth: '180px',
+    padding: '4px 0'
+  },
+  todoContextMenuItem: {
+    padding: '8px 12px',
+    fontSize: '12px',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    color: '#333'
+  },
+  todoContextMenuItemHover: {
+    backgroundColor: '#f5f5f5'
   }
 }
 
@@ -239,6 +270,7 @@ const styles = {
 const PAGE_SIZE = 100
 
 export default function OrdersOverviewPage() {
+  const navigate = useNavigate()
   const [orders, setOrders] = useState<OrderOverviewItem[]>([])
   const [loading, setLoading] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
@@ -259,6 +291,17 @@ export default function OrdersOverviewPage() {
   const [selectedArticleIds, setSelectedArticleIds] = useState<Set<number>>(new Set())
   const [selectedBomItemIds, setSelectedBomItemIds] = useState<Set<number>>(new Set())
   const [selectedWorkstepIds, setSelectedWorkstepIds] = useState<Set<number>>(new Set())
+  // Todo existence mapping (order_id -> todo_id, 0 if no todo)
+  const [orderTodoMapping, setOrderTodoMapping] = useState<Record<number, number>>({})
+  // Todo context menu state
+  const [todoContextMenu, setTodoContextMenu] = useState<{
+    x: number
+    y: number
+    orderId: number
+    todoId: number
+  } | null>(null)
+  // Todo edit dialog state
+  const [editingTodo, setEditingTodo] = useState<PPSTodoWithERPDetails | null>(null)
 
   // Build filter params for API call
   const buildFilterParams = useCallback((activeFilters: FilterValues) => {
@@ -351,8 +394,18 @@ export default function OrdersOverviewPage() {
           console.error('Error loading order remarks:', remarksErr)
           // Don't fail the whole page if remarks fail
         }
+        
+        // Load todo existence mapping for orders
+        try {
+          const todoResponse = await checkTodoExistence({ order_ids: orderIds })
+          setOrderTodoMapping(todoResponse.order_todos)
+        } catch (todoErr) {
+          console.error('Error loading todo mappings:', todoErr)
+          // Don't fail if todo check fails
+        }
       } else {
         setOrderRemarks(new Map())
+        setOrderTodoMapping({})
       }
     } catch (err: any) {
       const message = err.response?.data?.detail || err.message || 'Fehler beim Laden'
@@ -381,7 +434,7 @@ export default function OrdersOverviewPage() {
       // Append to existing orders
       setOrders(prev => [...prev, ...newOrders])
       
-      // Load remarks for new orders
+      // Load remarks and todo mappings for new orders
       const newOrderIds = newOrders
         .map((o: OrderOverviewItem) => o.order_id)
         .filter((id: number | null): id is number => id !== null)
@@ -394,7 +447,15 @@ export default function OrdersOverviewPage() {
             return next
           })
         } catch (remarksErr) {
-          console.error('Error loading order remarks for new orders:', remarksErr)
+          console.error('Error loading new order remarks:', remarksErr)
+        }
+        
+        // Load todo existence mapping for new orders
+        try {
+          const todoResponse = await checkTodoExistence({ order_ids: newOrderIds })
+          setOrderTodoMapping(prev => ({ ...prev, ...todoResponse.order_todos }))
+        } catch (todoErr) {
+          console.error('Error loading todo mappings for new orders:', todoErr)
         }
       }
     } catch (err: any) {
@@ -402,7 +463,7 @@ export default function OrdersOverviewPage() {
     } finally {
       setLoadingMore(false)
     }
-  }, [orders.length, total, loadingMore, filters, buildFilterParams])
+  }, [loadingMore, orders.length, total, filters, buildFilterParams])
 
   // Load on mount
   useEffect(() => {
@@ -517,6 +578,105 @@ export default function OrdersOverviewPage() {
         workstepIds.forEach(id => next.add(id))
       } else {
         workstepIds.forEach(id => next.delete(id))
+      }
+      return next
+    })
+  }, [])
+
+  // Handle todo icon click - show context menu
+  const handleTodoIconClick = useCallback((orderId: number, todoId: number, event: React.MouseEvent) => {
+    event.preventDefault()
+    event.stopPropagation()
+    setTodoContextMenu({
+      x: event.clientX,
+      y: event.clientY,
+      orderId,
+      todoId
+    })
+  }, [])
+
+  // Handle article todo icon click (reuses the same context menu)
+  const handleArticleTodoIconClick = useCallback((articleId: number, todoId: number, event: React.MouseEvent) => {
+    event.preventDefault()
+    event.stopPropagation()
+    setTodoContextMenu({
+      x: event.clientX,
+      y: event.clientY,
+      orderId: articleId,  // Using orderId field for consistency (it's the source element ID)
+      todoId
+    })
+  }, [])
+
+  // Handle BOM item todo icon click (reuses the same context menu)
+  const handleBomTodoIconClick = useCallback((bomItemId: number, todoId: number, event: React.MouseEvent) => {
+    event.preventDefault()
+    event.stopPropagation()
+    setTodoContextMenu({
+      x: event.clientX,
+      y: event.clientY,
+      orderId: bomItemId,  // Using orderId field for consistency (it's the source element ID)
+      todoId
+    })
+  }, [])
+
+  // Handle workstep todo icon click (reuses the same context menu)
+  const handleWorkstepTodoIconClick = useCallback((workstepId: number, todoId: number, event: React.MouseEvent) => {
+    event.preventDefault()
+    event.stopPropagation()
+    setTodoContextMenu({
+      x: event.clientX,
+      y: event.clientY,
+      orderId: workstepId,  // Using orderId field for consistency (it's the source element ID)
+      todoId
+    })
+  }, [])
+
+  // Close context menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = () => setTodoContextMenu(null)
+    if (todoContextMenu) {
+      document.addEventListener('click', handleClickOutside)
+      return () => document.removeEventListener('click', handleClickOutside)
+    }
+  }, [todoContextMenu])
+
+  // Handle context menu actions
+  const handleEditTodo = useCallback(async (todoId: number) => {
+    setTodoContextMenu(null)
+    try {
+      const todo = await getTodo(todoId)
+      setEditingTodo(todo)
+    } catch (err) {
+      console.error('Error loading todo for edit:', err)
+    }
+  }, [])
+
+  const handleNavigateToPlanboard = useCallback((todoId: number) => {
+    setTodoContextMenu(null)
+    navigate(`/menu/produktionsplanung/planboard?highlight=${todoId}`)
+  }, [navigate])
+
+  const handleNavigateToTodoList = useCallback((todoId: number) => {
+    setTodoContextMenu(null)
+    navigate(`/menu/produktionsplanung/todos?highlight=${todoId}`)
+  }, [navigate])
+
+  // Handle todo dialog save
+  const handleTodoSave = useCallback((updatedTodo: PPSTodoWithERPDetails) => {
+    setEditingTodo(null)
+    // Optionally refresh data
+  }, [])
+
+  // Handle todo dialog delete
+  const handleTodoDelete = useCallback((todoId: number) => {
+    setEditingTodo(null)
+    // Update mapping to remove the deleted todo
+    setOrderTodoMapping(prev => {
+      const next = { ...prev }
+      for (const key in next) {
+        if (next[key] === todoId) {
+          next[key] = 0
+        }
       }
       return next
     })
@@ -696,6 +856,7 @@ export default function OrdersOverviewPage() {
         <div style={{ ...styles.headerCell, ...styles.headerResponsible }}>Verantw.</div>
         <div style={{ ...styles.headerCell, ...styles.headerStatus }}>Status</div>
         <div style={{ ...styles.headerCell, ...styles.headerCrm }}>CRM</div>
+        <div style={{ ...styles.headerCell, ...styles.headerTodo }}>ToDo</div>
         <div style={{ ...styles.headerCell, ...styles.headerRemark }}>Bemerkung</div>
       </div>
 
@@ -724,6 +885,11 @@ export default function OrdersOverviewPage() {
                 onBomItemSelectionChange={handleBomItemSelectionChange}
                 selectedWorkstepIds={selectedWorkstepIds}
                 onWorkstepSelectionChange={handleWorkstepSelectionChange}
+                todoId={order.order_id ? orderTodoMapping[order.order_id] : undefined}
+                onTodoIconClick={handleTodoIconClick}
+                onArticleTodoIconClick={handleArticleTodoIconClick}
+                onBomTodoIconClick={handleBomTodoIconClick}
+                onWorkstepTodoIconClick={handleWorkstepTodoIconClick}
               />
             ))}
             {/* Load More Button */}
@@ -782,6 +948,53 @@ export default function OrdersOverviewPage() {
         <ChildRemarksPopup
           summary={childRemarksPopup}
           onClose={() => setChildRemarksPopup(null)}
+        />
+      )}
+
+      {/* Todo Context Menu */}
+      {todoContextMenu && (
+        <div
+          style={{
+            ...styles.todoContextMenu,
+            left: todoContextMenu.x,
+            top: todoContextMenu.y
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div
+            style={styles.todoContextMenuItem}
+            onClick={() => handleEditTodo(todoContextMenu.todoId)}
+            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#f5f5f5')}
+            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+          >
+            ✏️ ToDo bearbeiten
+          </div>
+          <div
+            style={styles.todoContextMenuItem}
+            onClick={() => handleNavigateToPlanboard(todoContextMenu.todoId)}
+            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#f5f5f5')}
+            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+          >
+            📊 Im Planboard anzeigen
+          </div>
+          <div
+            style={styles.todoContextMenuItem}
+            onClick={() => handleNavigateToTodoList(todoContextMenu.todoId)}
+            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#f5f5f5')}
+            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+          >
+            📋 In ToDo-Liste anzeigen
+          </div>
+        </div>
+      )}
+
+      {/* Todo Edit Dialog */}
+      {editingTodo && (
+        <TodoEditDialog
+          todo={editingTodo}
+          onClose={() => setEditingTodo(null)}
+          onSave={handleTodoSave}
+          onDelete={handleTodoDelete}
         />
       )}
     </div>

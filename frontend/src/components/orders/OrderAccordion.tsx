@@ -24,6 +24,13 @@ interface OrderAccordionProps {
   onBomItemSelectionChange?: (bomItemIds: number[], selected: boolean) => void
   selectedWorkstepIds?: Set<number>
   onWorkstepSelectionChange?: (workstepIds: number[], selected: boolean) => void
+  // Todo link props
+  todoId?: number  // If > 0, a todo exists for this order
+  onTodoIconClick?: (orderId: number, todoId: number, event: React.MouseEvent) => void
+  // Sub-level todo icon click handlers
+  onArticleTodoIconClick?: (articleId: number, todoId: number, event: React.MouseEvent) => void
+  onBomTodoIconClick?: (bomItemId: number, todoId: number, event: React.MouseEvent) => void
+  onWorkstepTodoIconClick?: (workstepId: number, todoId: number, event: React.MouseEvent) => void
 }
 
 const styles = {
@@ -134,6 +141,34 @@ const styles = {
   crmButtonHover: {
     backgroundColor: '#bbdefb'
   },
+  todoIcon: {
+    padding: '4px 6px',
+    backgroundColor: '#e8f5e9',
+    border: '1px solid #81c784',
+    borderRadius: '3px',
+    cursor: 'pointer',
+    fontSize: '11px',
+    color: '#2e7d32',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '2px',
+    whiteSpace: 'nowrap' as const
+  },
+  todoIconHover: {
+    backgroundColor: '#c8e6c9'
+  },
+  todoIconInactive: {
+    padding: '4px 6px',
+    backgroundColor: '#f5f5f5',
+    border: '1px solid #e0e0e0',
+    borderRadius: '3px',
+    fontSize: '11px',
+    color: '#bdbdbd',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '2px',
+    whiteSpace: 'nowrap' as const
+  },
   cellRemark: {
     width: '160px',
     fontSize: '11px'
@@ -243,7 +278,12 @@ export default function OrderAccordion({
   selectedBomItemIds,
   onBomItemSelectionChange,
   selectedWorkstepIds,
-  onWorkstepSelectionChange
+  onWorkstepSelectionChange,
+  todoId,
+  onTodoIconClick,
+  onArticleTodoIconClick,
+  onBomTodoIconClick,
+  onWorkstepTodoIconClick
 }: OrderAccordionProps) {
   const navigate = useNavigate()
   // Use preloaded remark if available, otherwise local state
@@ -254,6 +294,7 @@ export default function OrderAccordion({
   const [childRemarksCount, setChildRemarksCount] = useState<number>(0)
   const [childRemarksSummary, setChildRemarksSummary] = useState<ChildRemarksSummary | null>(null)
   const [crmButtonHovered, setCrmButtonHovered] = useState(false)
+  const [todoButtonHovered, setTodoButtonHovered] = useState(false)
 
   // Navigate to CRM timeline for this order
   const handleCrmClick = (e: React.MouseEvent) => {
@@ -416,6 +457,36 @@ export default function OrderAccordion({
           </button>
         </div>
 
+        {/* Todo Icon */}
+        <div style={{ ...styles.cell, ...styles.cellActions }}>
+          {todoId && todoId > 0 ? (
+            <button
+              style={{
+                ...styles.todoIcon,
+                ...(todoButtonHovered ? styles.todoIconHover : {})
+              }}
+              onClick={(e) => {
+                e.stopPropagation()
+                if (onTodoIconClick && order.order_id) {
+                  onTodoIconClick(order.order_id, todoId, e)
+                }
+              }}
+              onMouseEnter={() => setTodoButtonHovered(true)}
+              onMouseLeave={() => setTodoButtonHovered(false)}
+              title="ToDo vorhanden - Klicken für Optionen"
+            >
+              ✓
+            </button>
+          ) : (
+            <span
+              style={styles.todoIconInactive}
+              title="Kein ToDo vorhanden"
+            >
+              ○
+            </span>
+          )}
+        </div>
+
         {/* Remark Cell */}
         <div style={{ ...styles.cell, ...styles.cellRemark, borderRight: 'none' }} onClick={handleRemarkClick}>
           {editingRemark ? (
@@ -473,6 +544,9 @@ export default function OrderAccordion({
             onBomItemSelectionChange={onBomItemSelectionChange}
             selectedWorkstepIds={selectedWorkstepIds}
             onWorkstepSelectionChange={onWorkstepSelectionChange}
+            onTodoIconClick={onArticleTodoIconClick}
+            onBomTodoIconClick={onBomTodoIconClick}
+            onWorkstepTodoIconClick={onWorkstepTodoIconClick}
           />
         </div>
       )}

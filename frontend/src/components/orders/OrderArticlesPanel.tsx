@@ -7,6 +7,7 @@ import api from '../../services/api'
 import { OrderArticleItem, HierarchyRemark } from '../../services/types'
 import BomPanel from './BomPanel'
 import remarksApi from '../../services/remarksApi'
+import { checkTodoExistence } from '../../services/ppsApi'
 
 interface OrderArticlesPanelProps {
   orderId: number
@@ -16,6 +17,10 @@ interface OrderArticlesPanelProps {
   onBomItemSelectionChange?: (bomItemIds: number[], selected: boolean) => void
   selectedWorkstepIds?: Set<number>
   onWorkstepSelectionChange?: (workstepIds: number[], selected: boolean) => void
+  // Todo icon click handlers (delegated to parent for context menu)
+  onTodoIconClick?: (articleId: number, todoId: number, event: React.MouseEvent) => void
+  onBomTodoIconClick?: (bomItemId: number, todoId: number, event: React.MouseEvent) => void
+  onWorkstepTodoIconClick?: (workstepId: number, todoId: number, event: React.MouseEvent) => void
 }
 
 const styles = {
@@ -106,6 +111,23 @@ const styles = {
     borderRadius: '3px',
     padding: '3px 5px',
     fontSize: '11px'
+  },
+  todoIcon: {
+    padding: '2px 4px',
+    backgroundColor: '#e8f5e9',
+    border: '1px solid #81c784',
+    borderRadius: '3px',
+    cursor: 'pointer',
+    fontSize: '10px',
+    color: '#2e7d32'
+  },
+  todoIconInactive: {
+    padding: '2px 4px',
+    backgroundColor: '#f5f5f5',
+    border: '1px solid #e0e0e0',
+    borderRadius: '3px',
+    fontSize: '10px',
+    color: '#bdbdbd'
   }
 }
 
@@ -136,7 +158,10 @@ export default function OrderArticlesPanel({
   selectedBomItemIds,
   onBomItemSelectionChange,
   selectedWorkstepIds,
-  onWorkstepSelectionChange
+  onWorkstepSelectionChange,
+  onTodoIconClick,
+  onBomTodoIconClick,
+  onWorkstepTodoIconClick
 }: OrderArticlesPanelProps) {
   const [items, setItems] = useState<OrderArticleItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -148,6 +173,8 @@ export default function OrderArticlesPanel({
   const [remarks, setRemarks] = useState<Map<number, HierarchyRemark>>(new Map())
   const [editingRemark, setEditingRemark] = useState<number | null>(null)
   const [remarkText, setRemarkText] = useState('')
+  // Todo existence mapping (order_article_id -> todo_id)
+  const [articleTodoMapping, setArticleTodoMapping] = useState<Record<number, number>>({})
 
   useEffect(() => {
     let isMounted = true
@@ -176,6 +203,16 @@ export default function OrderArticlesPanel({
             const remarksMap = new Map<number, HierarchyRemark>()
             remarksResponse.items.forEach(r => remarksMap.set(r.hugwawi_id, r))
             setRemarks(remarksMap)
+          }
+          
+          // Load todo existence for articles
+          try {
+            const todoResponse = await checkTodoExistence({ order_article_ids: ids })
+            if (isMounted) {
+              setArticleTodoMapping(todoResponse.order_article_todos)
+            }
+          } catch (todoErr) {
+            console.error('Error loading article todo mappings:', todoErr)
           }
         }
         if (isMounted) setLoading(false)
@@ -311,6 +348,7 @@ export default function OrderArticlesPanel({
           <tr>
             <th style={{ ...styles.th, width: '30px' }}></th>
             <th style={{ ...styles.th, width: '30px' }}></th>
+            <th style={{ ...styles.th, width: '30px' }}>ToDo</th>
             <th style={{ ...styles.th, width: '60px' }}>Pos.</th>
             <th style={{ ...styles.th, width: '130px' }}>Artikelnummer</th>
             <th style={styles.th}>Bezeichnung</th>
@@ -351,6 +389,25 @@ export default function OrderArticlesPanel({
                       >
                         {isExpanded ? '▼' : '▶'}
                       </button>
+                    )}
+                  </td>
+                  {/* ToDo Icon */}
+                  <td style={styles.td}>
+                    {item.order_article_id && articleTodoMapping[item.order_article_id] > 0 ? (
+                      <span
+                        style={styles.todoIcon}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          if (onTodoIconClick) {
+                            onTodoIconClick(item.order_article_id!, articleTodoMapping[item.order_article_id!], e)
+                          }
+                        }}
+                        title="ToDo vorhanden - Klicken für Optionen"
+                      >
+                        ✓
+                      </span>
+                    ) : (
+                      <span style={styles.todoIconInactive} title="Kein ToDo">○</span>
                     )}
                   </td>
                   <td style={styles.td}>{item.pos || '-'}</td>
@@ -404,13 +461,15 @@ export default function OrderArticlesPanel({
                 </tr>
                 {isExpanded && item.order_article_id && (
                   <tr>
-                    <td colSpan={9} style={{ padding: 0, backgroundColor: '#fafafa' }}>
+                    <td colSpan={10} style={{ padding: 0, backgroundColor: '#fafafa' }}>
                       <BomPanel 
                         orderArticleId={item.order_article_id}
                         selectedBomItemIds={selectedBomItemIds}
                         onBomItemSelectionChange={onBomItemSelectionChange}
                         selectedWorkstepIds={selectedWorkstepIds}
                         onWorkstepSelectionChange={onWorkstepSelectionChange}
+                        onTodoIconClick={onBomTodoIconClick}
+                        onWorkstepTodoIconClick={onWorkstepTodoIconClick}
                       />
                     </td>
                   </tr>

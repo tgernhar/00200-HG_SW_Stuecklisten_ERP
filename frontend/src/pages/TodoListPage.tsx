@@ -10,7 +10,8 @@
  * - ERP reference columns (order_name, article_number, etc.)
  * - Quick edit functionality via TodoEditDialog
  */
-import React, { useState, useEffect, useCallback, useMemo } from 'react'
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { AgGridReact } from 'ag-grid-react'
 import { ColDef, GridReadyEvent, ValueFormatterParams, RowDoubleClickedEvent } from 'ag-grid-community'
 import 'ag-grid-community/styles/ag-grid.css'
@@ -187,6 +188,10 @@ const statusColors: Record<string, string> = {
 }
 
 export default function TodoListPage() {
+  // URL search params for highlight feature
+  const [searchParams, setSearchParams] = useSearchParams()
+  const highlightTodoId = searchParams.get('highlight')
+  
   const [allTodos, setAllTodos] = useState<PPSTodoWithERPDetails[]>([])
   const [filteredTodos, setFilteredTodos] = useState<PPSTodoWithERPDetails[]>([])
   const [resources, setResources] = useState<PPSResource[]>([])
@@ -195,6 +200,10 @@ export default function TodoListPage() {
   
   // Edit dialog state
   const [editingTodo, setEditingTodo] = useState<PPSTodoWithERPDetails | null>(null)
+  
+  // Ref for AG Grid API
+  const gridRef = useRef<any>(null)
+  const hasHighlightedRef = useRef(false)
   
   // Bulk date edit state
   const [showDatePicker, setShowDatePicker] = useState(false)
@@ -304,6 +313,59 @@ export default function TodoListPage() {
   useEffect(() => {
     loadPresets()
   }, [loadPresets])
+  
+  // Handle highlight parameter from URL (for navigating from other pages)
+  useEffect(() => {
+    if (highlightTodoId && allTodos.length > 0 && !loading && !hasHighlightedRef.current) {
+      const todoId = parseInt(highlightTodoId)
+      // Find the todo in the list
+      const todoIndex = filteredTodos.findIndex(t => t.id === todoId)
+      if (todoIndex >= 0) {
+        // For grouped view, switch to flat view to show the row and then scroll
+        if (viewMode === 'grouped') {
+          setViewMode('flat')
+        }
+        
+        // Use AG Grid API to scroll to and select the row
+        setTimeout(() => {
+          if (gridRef.current?.api) {
+            const rowNode = gridRef.current.api.getRowNode(String(todoId))
+            if (rowNode) {
+              gridRef.current.api.ensureNodeVisible(rowNode, 'middle')
+              rowNode.setSelected(true)
+              // Flash the row for visual feedback
+              gridRef.current.api.flashCells({ rowNodes: [rowNode] })
+            }
+          } else {
+            // Fallback: scroll to DOM element
+            const rowElement = document.querySelector(`[row-id="${todoId}"]`)
+            if (rowElement) {
+              rowElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
+              rowElement.classList.add('ag-row-highlight')
+              setTimeout(() => rowElement.classList.remove('ag-row-highlight'), 3000)
+            }
+          }
+        }, 500)  // Small delay to ensure grid is rendered
+        
+        hasHighlightedRef.current = true
+        // Clear the highlight parameter from URL after use
+        setSearchParams({}, { replace: true })
+      } else {
+        // Todo not in filtered list - might need to adjust filters
+        // Try finding in all todos
+        const existsInAll = allTodos.some(t => t.id === todoId)
+        if (existsInAll) {
+          // Open the edit dialog for this todo directly
+          const todo = allTodos.find(t => t.id === todoId)
+          if (todo) {
+            setEditingTodo(todo)
+            hasHighlightedRef.current = true
+            setSearchParams({}, { replace: true })
+          }
+        }
+      }
+    }
+  }, [highlightTodoId, allTodos, filteredTodos, loading, viewMode, setSearchParams])
 
   // Apply preset filters
   const applyPreset = useCallback((preset: FilterPreset) => {
@@ -1169,6 +1231,7 @@ export default function TodoListPage() {
       {viewMode === 'flat' ? (
         <div style={styles.gridContainer} className="ag-theme-alpine">
           <AgGridReact
+            ref={gridRef}
             rowData={filteredTodos}
             columnDefs={columnDefs}
             defaultColDef={defaultColDef}

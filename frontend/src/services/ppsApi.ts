@@ -34,6 +34,8 @@ import {
   AllWorkstepOption,
   MachineOption,
   TodoTypeConfig,
+  TodoExistenceCheckRequest,
+  TodoExistenceCheckResponse,
 } from './ppsTypes'
 
 const BASE_URL = '/pps'
@@ -363,6 +365,18 @@ export async function getTodoTypeConfigs(): Promise<TodoTypeConfig[]> {
   return response.data.items
 }
 
+// ============== Todo Existence Check ==============
+
+export async function checkTodoExistence(
+  request: TodoExistenceCheckRequest
+): Promise<TodoExistenceCheckResponse> {
+  const response = await api.post<TodoExistenceCheckResponse>(
+    `${BASE_URL}/todos/check-existence`,
+    request
+  )
+  return response.data
+}
+
 // Export all functions as a single object for convenience
 export const ppsApi = {
   getTodos,
@@ -402,6 +416,8 @@ export const ppsApi = {
   autoLinkSelectedTodos,
   // Configuration
   getTodoTypeConfigs,
+  // Todo existence check
+  checkTodoExistence,
 }
 
 export default ppsApi

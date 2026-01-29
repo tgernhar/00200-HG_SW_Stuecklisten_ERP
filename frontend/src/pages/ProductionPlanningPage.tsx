@@ -8,6 +8,7 @@
  * - Bottom panel with conflicts
  */
 import React, { useState, useEffect, useCallback, useRef } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import GanttChart, { zoomIn, zoomOut, setZoom, scrollToTask } from '../components/pps/GanttChart'
 import ResourcePanel from '../components/pps/ResourcePanel'
 import ConflictPanel from '../components/pps/ConflictPanel'
@@ -220,6 +221,10 @@ const styles = {
 }
 
 export default function ProductionPlanningPage() {
+  // URL search params for highlight feature
+  const [searchParams, setSearchParams] = useSearchParams()
+  const highlightTodoId = searchParams.get('highlight')
+  
   // State
   const [ganttData, setGanttData] = useState<GanttData | null>(null)
   const [resources, setResources] = useState<PPSResource[]>([])
@@ -338,10 +343,29 @@ export default function ProductionPlanningPage() {
   }, [selectedResourceIds, resourceLevelFilter])
 
   // Initial load
-  // Initial load
   useEffect(() => {
     loadData()
   }, [loadData])
+  
+  // Handle highlight parameter from URL (for navigating from other pages)
+  const hasHighlightedRef = useRef(false)
+  useEffect(() => {
+    if (highlightTodoId && ganttData && !loading && !hasHighlightedRef.current) {
+      const todoId = parseInt(highlightTodoId)
+      // Check if the task exists in the gantt data
+      const taskExists = ganttData.data?.some(task => task.id === todoId)
+      if (taskExists) {
+        // Scroll to and select the task
+        setTimeout(() => {
+          scrollToTask(todoId)
+          setSelectedTaskIds([todoId])
+        }, 500)  // Small delay to ensure Gantt is fully rendered
+        hasHighlightedRef.current = true
+        // Clear the highlight parameter from URL after use
+        setSearchParams({}, { replace: true })
+      }
+    }
+  }, [highlightTodoId, ganttData, loading, setSearchParams])
 
   // Handle resource filter change - sync pending changes before switching
   const handleResourceFilterChange = useCallback(async (resourceIds: number[]) => {
