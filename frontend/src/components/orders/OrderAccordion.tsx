@@ -7,6 +7,8 @@ import { useNavigate } from 'react-router-dom'
 import { OrderOverviewItem, HierarchyRemark, ChildRemarksSummary } from '../../services/types'
 import OrderArticlesPanel from './OrderArticlesPanel'
 import remarksApi from '../../services/remarksApi'
+import DMSDocumentsPanel from '../dms/DMSDocumentsPanel'
+import PaperlessDocumentsPanel from '../dms/PaperlessDocumentsPanel'
 
 interface OrderAccordionProps {
   order: OrderOverviewItem
@@ -534,20 +536,40 @@ export default function OrderAccordion({
         </div>
       </div>
       
-      {isExpanded && order.order_id && order.has_articles && (
+      {isExpanded && order.order_id && (
         <div style={styles.detailPanel}>
-          <OrderArticlesPanel 
-            orderId={order.order_id}
-            selectedArticleIds={selectedArticleIds}
-            onArticleSelectionChange={onArticleSelectionChange}
-            selectedBomItemIds={selectedBomItemIds}
-            onBomItemSelectionChange={onBomItemSelectionChange}
-            selectedWorkstepIds={selectedWorkstepIds}
-            onWorkstepSelectionChange={onWorkstepSelectionChange}
-            onTodoIconClick={onArticleTodoIconClick}
-            onBomTodoIconClick={onBomTodoIconClick}
-            onWorkstepTodoIconClick={onWorkstepTodoIconClick}
+          {/* DMS Documents Panel for Order (HUGWAWI) */}
+          <DMSDocumentsPanel
+            entityType="order"
+            entityId={order.order_id}
+            title="Auftragsdokumente (HUGWAWI DMS)"
+            defaultCollapsed={true}
           />
+          
+          {/* Paperless Documents Panel for Order */}
+          <PaperlessDocumentsPanel
+            entityType="order"
+            entityId={order.order_id}
+            entityNumber={order.order_number}
+            title="Auftragsdokumente (Paperless)"
+            defaultCollapsed={true}
+          />
+          
+          {/* Order Articles */}
+          {order.has_articles && (
+            <OrderArticlesPanel 
+              orderId={order.order_id}
+              selectedArticleIds={selectedArticleIds}
+              onArticleSelectionChange={onArticleSelectionChange}
+              selectedBomItemIds={selectedBomItemIds}
+              onBomItemSelectionChange={onBomItemSelectionChange}
+              selectedWorkstepIds={selectedWorkstepIds}
+              onWorkstepSelectionChange={onWorkstepSelectionChange}
+              onTodoIconClick={onArticleTodoIconClick}
+              onBomTodoIconClick={onBomTodoIconClick}
+              onWorkstepTodoIconClick={onWorkstepTodoIconClick}
+            />
+          )}
         </div>
       )}
     </div>

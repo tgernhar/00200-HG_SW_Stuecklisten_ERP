@@ -247,9 +247,6 @@ export default function TodoListPage() {
   const loadData = useCallback(async () => {
     setLoading(true)
     try {
-      // #region agent log
-      fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'TodoListPage.tsx:240',message:'H1: Starting todos load',data:{statusFilter,employeeFilter},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
-      // #endregion
       const [todosResponse, resourcesResponse] = await Promise.all([
         getTodosWithERPDetails({ 
           status: statusFilter || undefined,
@@ -258,9 +255,6 @@ export default function TodoListPage() {
         }),
         getResources({ is_active: true }),
       ])
-      // #region agent log
-      fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'TodoListPage.tsx:252',message:'H1-H3: Todos API response',data:{todosCount:todosResponse?.items?.length,totalCount:todosResponse?.total,resourcesCount:resourcesResponse?.length},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1-H3'})}).catch(()=>{});
-      // #endregion
       
       // Sort by priority then by planned_start
       const sortedTodos = [...todosResponse.items].sort((a, b) => {
@@ -276,9 +270,6 @@ export default function TodoListPage() {
       setAllTodos(sortedTodos)
       setResources(resourcesResponse)
     } catch (err: any) {
-      // #region agent log
-      fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'TodoListPage.tsx:270',message:'H1: Error loading todos',data:{error:err?.message,status:err?.response?.status,detail:err?.response?.data?.detail},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
-      // #endregion
       console.error('Error loading todos:', err)
     } finally {
       setLoading(false)

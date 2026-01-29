@@ -8,6 +8,8 @@ import { BomItem, HierarchyRemark } from '../../services/types'
 import WorkplanPanel from './WorkplanPanel'
 import remarksApi from '../../services/remarksApi'
 import { checkTodoExistence } from '../../services/ppsApi'
+import DMSDocumentsPanel from '../dms/DMSDocumentsPanel'
+import PaperlessDocumentsPanel from '../dms/PaperlessDocumentsPanel'
 
 interface BomPanelProps {
   orderArticleId: number
@@ -453,6 +455,26 @@ export default function BomPanel({
                 {isExpanded && item.detail_id && (
                   <tr>
                     <td colSpan={11} style={{ padding: 0, backgroundColor: '#f5faff' }}>
+                      {/* DMS Documents for BOM Item (HUGWAWI) */}
+                      <div style={{ marginLeft: '20px', marginRight: '10px' }}>
+                        <DMSDocumentsPanel
+                          entityType="bom_item"
+                          entityId={item.detail_id}
+                          title="Stücklistendokumente (HUGWAWI DMS)"
+                          defaultCollapsed={true}
+                          maxHeight={200}
+                        />
+                        {/* Paperless Documents for BOM Item */}
+                        <PaperlessDocumentsPanel
+                          entityType="bom_item"
+                          entityId={item.detail_id}
+                          entityNumber={item.articlenumber || undefined}
+                          title="Stücklistendokumente (Paperless)"
+                          defaultCollapsed={true}
+                          maxHeight={200}
+                        />
+                      </div>
+                      {/* Workplan */}
                       <WorkplanPanel 
                         detailId={item.detail_id}
                         selectedWorkstepIds={selectedWorkstepIds}

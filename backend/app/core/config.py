@@ -34,6 +34,12 @@ class Settings(BaseSettings):
     # File Paths
     UPLOAD_PATH: str = "./uploads"
     
+    # Paperless-ngx DMS Integration
+    PAPERLESS_URL: str = "https://paperless.hug.gernhard.net"
+    PAPERLESS_USERNAME: str = ""  # Set in .env file
+    PAPERLESS_PASSWORD: str = ""  # Set in .env file
+    PAPERLESS_TOKEN: str = ""  # Alternative: API Token instead of user/password
+    
     # Security
     SECRET_KEY: str = "your-secret-key-here-change-in-production"
     ALGORITHM: str = "HS256"

@@ -5,7 +5,7 @@ from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
-from app.api.routes import projects, articles, documents, erp, hugwawi, boms, import_jobs, auth, orders_overview, hierarchy_remarks, pps, pps_config, crm, orders_data, images
+from app.api.routes import projects, articles, documents, erp, hugwawi, boms, import_jobs, auth, orders_overview, hierarchy_remarks, pps, pps_config, crm, orders_data, images, dms, paperless
 from app.core.config import settings
 import traceback
 
@@ -65,6 +65,8 @@ app.include_router(pps_config.router, prefix=settings.API_V1_STR, tags=["pps-con
 app.include_router(crm.router, prefix=settings.API_V1_STR, tags=["crm"])
 app.include_router(orders_data.router, prefix=f"{settings.API_V1_STR}/orders-data", tags=["orders-data"])
 app.include_router(images.router, prefix=settings.API_V1_STR, tags=["images"])
+app.include_router(dms.router, prefix=settings.API_V1_STR, tags=["dms"])
+app.include_router(paperless.router, prefix=settings.API_V1_STR, tags=["paperless"])
 
 
 @app.on_event("startup")

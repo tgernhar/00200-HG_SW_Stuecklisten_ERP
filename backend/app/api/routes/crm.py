@@ -324,6 +324,12 @@ async def add_document_link(comm_id: int, payload: CommunicationLinkBase, db: Se
         link_type=payload.link_type.value,
         erp_document_id=payload.erp_document_id,
         erp_document_number=payload.erp_document_number,
+        # Extended references
+        erp_order_article_id=payload.erp_order_article_id,
+        erp_bom_item_id=payload.erp_bom_item_id,
+        erp_operation_id=payload.erp_operation_id,
+        local_article_id=payload.local_article_id,
+        local_pps_todo_id=payload.local_pps_todo_id,
         is_auto_assigned=False,
     )
     
@@ -484,6 +490,266 @@ async def get_document_timeline(
     return TimelineResponse(
         entity_type=link_type,
         entity_id=erp_document_id,
+        entries=entries,
+        total=len(entries),
+        email_count=sum(1 for e in entries if e.entry_type in ("email_in", "email_out")),
+        call_count=sum(1 for e in entries if e.entry_type == "phone"),
+        meeting_count=sum(1 for e in entries if e.entry_type == "meeting"),
+        note_count=sum(1 for e in entries if e.entry_type == "note"),
+        task_count=sum(1 for e in entries if e.entry_type == "task"),
+    )
+
+
+@router.get("/timeline/order-article/{order_article_id}", response_model=TimelineResponse)
+async def get_order_article_timeline(
+    order_article_id: int,
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
+    """Get timeline for an order article (Auftragsartikel)"""
+    # Get communications linked to this order article
+    comm_ids = db.query(CRMCommunicationLink.communication_id).filter(
+        CRMCommunicationLink.erp_order_article_id == order_article_id
+    ).all()
+    comm_ids = [c[0] for c in comm_ids]
+    
+    communications = []
+    if comm_ids:
+        communications = db.query(CRMCommunicationEntry).options(
+            joinedload(CRMCommunicationEntry.attachments)
+        ).filter(
+            CRMCommunicationEntry.id.in_(comm_ids)
+        ).order_by(desc(CRMCommunicationEntry.communication_date)).limit(limit).all()
+    
+    # Build timeline entries
+    entries = []
+    for comm in communications:
+        entries.append(TimelineEntry(
+            id=comm.id,
+            entry_type=comm.entry_type,
+            date=comm.communication_date,
+            subject=comm.subject,
+            body_preview=(comm.body_text or "")[:200] if comm.body_text else None,
+            sender=comm.sender_name or comm.sender_email,
+            is_internal=comm.is_internal,
+            has_attachments=len(comm.attachments) > 0 if comm.attachments else False,
+            attachment_count=len(comm.attachments) if comm.attachments else 0,
+        ))
+    
+    entries.sort(key=lambda x: x.date, reverse=True)
+    entries = entries[:limit]
+    
+    return TimelineResponse(
+        entity_type="order_article",
+        entity_id=order_article_id,
+        entries=entries,
+        total=len(entries),
+        email_count=sum(1 for e in entries if e.entry_type in ("email_in", "email_out")),
+        call_count=sum(1 for e in entries if e.entry_type == "phone"),
+        meeting_count=sum(1 for e in entries if e.entry_type == "meeting"),
+        note_count=sum(1 for e in entries if e.entry_type == "note"),
+        task_count=sum(1 for e in entries if e.entry_type == "task"),
+    )
+
+
+@router.get("/timeline/bom-item/{bom_item_id}", response_model=TimelineResponse)
+async def get_bom_item_timeline(
+    bom_item_id: int,
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
+    """Get timeline for a BOM item (Stücklistenartikel)"""
+    # Get communications linked to this BOM item
+    comm_ids = db.query(CRMCommunicationLink.communication_id).filter(
+        CRMCommunicationLink.erp_bom_item_id == bom_item_id
+    ).all()
+    comm_ids = [c[0] for c in comm_ids]
+    
+    communications = []
+    if comm_ids:
+        communications = db.query(CRMCommunicationEntry).options(
+            joinedload(CRMCommunicationEntry.attachments)
+        ).filter(
+            CRMCommunicationEntry.id.in_(comm_ids)
+        ).order_by(desc(CRMCommunicationEntry.communication_date)).limit(limit).all()
+    
+    # Build timeline entries
+    entries = []
+    for comm in communications:
+        entries.append(TimelineEntry(
+            id=comm.id,
+            entry_type=comm.entry_type,
+            date=comm.communication_date,
+            subject=comm.subject,
+            body_preview=(comm.body_text or "")[:200] if comm.body_text else None,
+            sender=comm.sender_name or comm.sender_email,
+            is_internal=comm.is_internal,
+            has_attachments=len(comm.attachments) > 0 if comm.attachments else False,
+            attachment_count=len(comm.attachments) if comm.attachments else 0,
+        ))
+    
+    entries.sort(key=lambda x: x.date, reverse=True)
+    entries = entries[:limit]
+    
+    return TimelineResponse(
+        entity_type="bom_item",
+        entity_id=bom_item_id,
+        entries=entries,
+        total=len(entries),
+        email_count=sum(1 for e in entries if e.entry_type in ("email_in", "email_out")),
+        call_count=sum(1 for e in entries if e.entry_type == "phone"),
+        meeting_count=sum(1 for e in entries if e.entry_type == "meeting"),
+        note_count=sum(1 for e in entries if e.entry_type == "note"),
+        task_count=sum(1 for e in entries if e.entry_type == "task"),
+    )
+
+
+@router.get("/timeline/operation/{operation_id}", response_model=TimelineResponse)
+async def get_operation_timeline(
+    operation_id: int,
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
+    """Get timeline for an operation (Arbeitsgang)"""
+    # Get communications linked to this operation
+    comm_ids = db.query(CRMCommunicationLink.communication_id).filter(
+        CRMCommunicationLink.erp_operation_id == operation_id
+    ).all()
+    comm_ids = [c[0] for c in comm_ids]
+    
+    communications = []
+    if comm_ids:
+        communications = db.query(CRMCommunicationEntry).options(
+            joinedload(CRMCommunicationEntry.attachments)
+        ).filter(
+            CRMCommunicationEntry.id.in_(comm_ids)
+        ).order_by(desc(CRMCommunicationEntry.communication_date)).limit(limit).all()
+    
+    # Build timeline entries
+    entries = []
+    for comm in communications:
+        entries.append(TimelineEntry(
+            id=comm.id,
+            entry_type=comm.entry_type,
+            date=comm.communication_date,
+            subject=comm.subject,
+            body_preview=(comm.body_text or "")[:200] if comm.body_text else None,
+            sender=comm.sender_name or comm.sender_email,
+            is_internal=comm.is_internal,
+            has_attachments=len(comm.attachments) > 0 if comm.attachments else False,
+            attachment_count=len(comm.attachments) if comm.attachments else 0,
+        ))
+    
+    entries.sort(key=lambda x: x.date, reverse=True)
+    entries = entries[:limit]
+    
+    return TimelineResponse(
+        entity_type="operation",
+        entity_id=operation_id,
+        entries=entries,
+        total=len(entries),
+        email_count=sum(1 for e in entries if e.entry_type in ("email_in", "email_out")),
+        call_count=sum(1 for e in entries if e.entry_type == "phone"),
+        meeting_count=sum(1 for e in entries if e.entry_type == "meeting"),
+        note_count=sum(1 for e in entries if e.entry_type == "note"),
+        task_count=sum(1 for e in entries if e.entry_type == "task"),
+    )
+
+
+@router.get("/timeline/local-article/{article_id}", response_model=TimelineResponse)
+async def get_local_article_timeline(
+    article_id: int,
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
+    """Get timeline for a local article (Stücklistenartikel aus lokaler DB)"""
+    # Get communications linked to this local article
+    comm_ids = db.query(CRMCommunicationLink.communication_id).filter(
+        CRMCommunicationLink.local_article_id == article_id
+    ).all()
+    comm_ids = [c[0] for c in comm_ids]
+    
+    communications = []
+    if comm_ids:
+        communications = db.query(CRMCommunicationEntry).options(
+            joinedload(CRMCommunicationEntry.attachments)
+        ).filter(
+            CRMCommunicationEntry.id.in_(comm_ids)
+        ).order_by(desc(CRMCommunicationEntry.communication_date)).limit(limit).all()
+    
+    # Build timeline entries
+    entries = []
+    for comm in communications:
+        entries.append(TimelineEntry(
+            id=comm.id,
+            entry_type=comm.entry_type,
+            date=comm.communication_date,
+            subject=comm.subject,
+            body_preview=(comm.body_text or "")[:200] if comm.body_text else None,
+            sender=comm.sender_name or comm.sender_email,
+            is_internal=comm.is_internal,
+            has_attachments=len(comm.attachments) > 0 if comm.attachments else False,
+            attachment_count=len(comm.attachments) if comm.attachments else 0,
+        ))
+    
+    entries.sort(key=lambda x: x.date, reverse=True)
+    entries = entries[:limit]
+    
+    return TimelineResponse(
+        entity_type="local_article",
+        entity_id=article_id,
+        entries=entries,
+        total=len(entries),
+        email_count=sum(1 for e in entries if e.entry_type in ("email_in", "email_out")),
+        call_count=sum(1 for e in entries if e.entry_type == "phone"),
+        meeting_count=sum(1 for e in entries if e.entry_type == "meeting"),
+        note_count=sum(1 for e in entries if e.entry_type == "note"),
+        task_count=sum(1 for e in entries if e.entry_type == "task"),
+    )
+
+
+@router.get("/timeline/pps-todo/{todo_id}", response_model=TimelineResponse)
+async def get_pps_todo_timeline(
+    todo_id: int,
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
+    """Get timeline for a PPS Todo"""
+    # Get communications linked to this PPS todo
+    comm_ids = db.query(CRMCommunicationLink.communication_id).filter(
+        CRMCommunicationLink.local_pps_todo_id == todo_id
+    ).all()
+    comm_ids = [c[0] for c in comm_ids]
+    
+    communications = []
+    if comm_ids:
+        communications = db.query(CRMCommunicationEntry).options(
+            joinedload(CRMCommunicationEntry.attachments)
+        ).filter(
+            CRMCommunicationEntry.id.in_(comm_ids)
+        ).order_by(desc(CRMCommunicationEntry.communication_date)).limit(limit).all()
+    
+    # Build timeline entries
+    entries = []
+    for comm in communications:
+        entries.append(TimelineEntry(
+            id=comm.id,
+            entry_type=comm.entry_type,
+            date=comm.communication_date,
+            subject=comm.subject,
+            body_preview=(comm.body_text or "")[:200] if comm.body_text else None,
+            sender=comm.sender_name or comm.sender_email,
+            is_internal=comm.is_internal,
+            has_attachments=len(comm.attachments) > 0 if comm.attachments else False,
+            attachment_count=len(comm.attachments) if comm.attachments else 0,
+        ))
+    
+    entries.sort(key=lambda x: x.date, reverse=True)
+    entries = entries[:limit]
+    
+    return TimelineResponse(
+        entity_type="pps_todo",
+        entity_id=todo_id,
         entries=entries,
         total=len(entries),
         email_count=sum(1 for e in entries if e.entry_type in ("email_in", "email_out")),

@@ -69,6 +69,12 @@ class DocumentLinkType(str, Enum):
     PURCHASE_ORDER = "purchase_order"
     DELIVERY_NOTE = "delivery_note"
     INVOICE = "invoice"
+    # Extended link types for DMS integration
+    ORDER_ARTICLE = "order_article"
+    BOM_ITEM = "bom_item"
+    OPERATION = "operation"
+    LOCAL_ARTICLE = "local_article"
+    PPS_TODO = "pps_todo"
 
 
 # ============== Base Schemas ==============
@@ -179,8 +185,15 @@ class Attachment(AttachmentBase):
 
 class CommunicationLinkBase(CRMBaseSchema):
     link_type: DocumentLinkType
-    erp_document_id: int
+    erp_document_id: Optional[int] = None  # ID from HUGWAWI (order, offer, etc.)
     erp_document_number: Optional[str] = None
+    # Extended ERP references
+    erp_order_article_id: Optional[int] = None  # order_article.id
+    erp_bom_item_id: Optional[int] = None  # packingnote_details.id
+    erp_operation_id: Optional[int] = None  # workplan_details.id
+    # Local DB references
+    local_article_id: Optional[int] = None  # articles.id
+    local_pps_todo_id: Optional[int] = None  # pps_todos.id
 
 
 class CommunicationLinkCreate(CommunicationLinkBase):

@@ -705,17 +705,12 @@ export default function OrdersOverviewPage() {
       // Merge with existing bom_item_ids selection
       const allBomItemIds = new Set([...selectedBomItemIds, ...deepSearchBomIds])
       
-      // #region agent log
-      const requestPayload = {
+      const response = await api.post('/pps/todos/from-selection', {
         order_ids: Array.from(selectedOrders),
         order_article_ids: Array.from(selectedArticleIds),
         bom_item_ids: Array.from(allBomItemIds),
         workstep_ids: Array.from(selectedWorkstepIds)
-      };
-      fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'OrdersOverviewPage.tsx:548',message:'H1-H4: Todo creation request payload',data:{selectedDeepSearchItems:selectedDeepSearchItems.slice(0,3),deepSearchBomIds,allBomItemIds:Array.from(allBomItemIds),requestPayload},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1-H4'})}).catch(()=>{});
-      // #endregion
-      
-      const response = await api.post('/pps/todos/from-selection', requestPayload)
+      })
       
       const result = response.data
       setTodoCreationResult({
@@ -733,9 +728,6 @@ export default function OrdersOverviewPage() {
       // Auto-hide success message after 5 seconds
       setTimeout(() => setTodoCreationResult(null), 5000)
     } catch (err: any) {
-      // #region agent log
-      fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'OrdersOverviewPage.tsx:575',message:'H3: Todo creation error response',data:{status:err.response?.status,detail:err.response?.data?.detail,fullData:err.response?.data},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3'})}).catch(()=>{});
-      // #endregion
       setTodoCreationResult({
         success: false,
         message: err.response?.data?.detail || 'Fehler beim Erstellen der Todos'

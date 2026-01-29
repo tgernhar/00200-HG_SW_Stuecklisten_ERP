@@ -153,16 +153,26 @@ class CRMCommunicationAttachment(Base):
 
 
 class CRMCommunicationLink(Base):
-    """Link between communication and ERP documents"""
+    """Link between communication and ERP documents/entities"""
     __tablename__ = "crm_communication_links"
     
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     communication_id = Column(Integer, ForeignKey("crm_communication_entries.id", ondelete="CASCADE"), nullable=False, index=True)
     
-    # Link type: inquiry, offer, order, purchase_order, delivery_note, invoice
+    # Link type: inquiry, offer, order, purchase_order, delivery_note, invoice,
+    #            order_article, bom_item, operation, local_article, pps_todo
     link_type = Column(String(30), nullable=False)
-    erp_document_id = Column(Integer, nullable=False)  # ID from HUGWAWI
+    erp_document_id = Column(Integer, nullable=True)  # ID from HUGWAWI (order, offer, etc.)
     erp_document_number = Column(String(50), nullable=True)  # e.g., "AU-2026-00001"
+    
+    # Extended ERP references (NEW)
+    erp_order_article_id = Column(Integer, nullable=True, index=True)  # order_article.id
+    erp_bom_item_id = Column(Integer, nullable=True, index=True)  # packingnote_details.id
+    erp_operation_id = Column(Integer, nullable=True, index=True)  # workplan_details.id
+    
+    # Local DB references (NEW)
+    local_article_id = Column(Integer, ForeignKey("articles.id", ondelete="SET NULL"), nullable=True, index=True)
+    local_pps_todo_id = Column(Integer, ForeignKey("pps_todos.id", ondelete="SET NULL"), nullable=True, index=True)
     
     # Assignment metadata
     is_auto_assigned = Column(Boolean, nullable=False, default=False)
@@ -171,6 +181,8 @@ class CRMCommunicationLink(Base):
     
     # Relationships
     communication = relationship("CRMCommunicationEntry", back_populates="links")
+    local_article = relationship("Article", foreign_keys=[local_article_id])
+    local_pps_todo = relationship("PPSTodo", foreign_keys=[local_pps_todo_id])
 
 
 class CRMTag(Base):

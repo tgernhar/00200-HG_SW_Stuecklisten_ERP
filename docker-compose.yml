@@ -33,6 +33,11 @@ services:
       ERP_DB_PASSWORD: ${ERP_DB_PASSWORD}
       SOLIDWORKS_CONNECTOR_URL: ${SOLIDWORKS_CONNECTOR_URL:-http://host.docker.internal:8001}
       UPLOAD_PATH: /app/uploads
+      # Paperless-ngx DMS Integration
+      PAPERLESS_URL: ${PAPERLESS_URL:-https://paperless.hug.gernhard.net}
+      PAPERLESS_USERNAME: ${PAPERLESS_USERNAME:-}
+      PAPERLESS_PASSWORD: ${PAPERLESS_PASSWORD:-}
+      PAPERLESS_TOKEN: ${PAPERLESS_TOKEN:-}
     volumes:
       - ./backend:/app
       - uploads_data:/app/uploads
