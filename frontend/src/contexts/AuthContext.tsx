@@ -51,8 +51,11 @@ const INACTIVITY_SHOWN_KEY = 'inactivity_logout_shown'
 // Inactivity timeout (45 minutes in milliseconds)
 const INACTIVITY_TIMEOUT = 45 * 60 * 1000
 
-// Token refresh interval (40 minutes - refresh before expiry)
-const REFRESH_INTERVAL = 40 * 60 * 1000
+// Token refresh cooldown (5 minutes) - don't refresh more often than this
+const REFRESH_COOLDOWN = 5 * 60 * 1000
+
+// Token refresh interval (every 10 minutes as backup)
+const REFRESH_INTERVAL = 10 * 60 * 1000
 
 interface AuthProviderProps {
   children: ReactNode
@@ -69,6 +72,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   // Activity tracking
   const [lastActivity, setLastActivity] = useState<number>(Date.now())
+  const [lastRefresh, setLastRefresh] = useState<number>(Date.now())
   const [inactivityTimer, setInactivityTimer] = useState<NodeJS.Timeout | null>(null)
   const [refreshTimer, setRefreshTimer] = useState<NodeJS.Timeout | null>(null)
 
@@ -118,6 +122,29 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   }, [])
 
+  // Activity-based token refresh (with cooldown)
+  const refreshTokenIfNeeded = useCallback(async () => {
+    const now = Date.now()
+    const timeSinceLastRefresh = now - lastRefresh
+    
+    // Only refresh if cooldown has passed
+    if (timeSinceLastRefresh >= REFRESH_COOLDOWN) {
+      try {
+        const response = await api.post('/auth/refresh')
+        const { access_token } = response.data
+        
+        // Update token
+        localStorage.setItem(TOKEN_KEY, access_token)
+        api.defaults.headers.common['Authorization'] = `Bearer ${access_token}`
+        setLastRefresh(now)
+        console.log('Token refreshed on activity')
+      } catch (error) {
+        console.error('Activity-based token refresh failed:', error)
+        // Don't logout here - let the normal 401 handler deal with it
+      }
+    }
+  }, [lastRefresh])
+
   // Track user activity
   useEffect(() => {
     if (!state.isAuthenticated) return
@@ -125,6 +152,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
     const handleActivity = () => {
       setLastActivity(Date.now())
       resetInactivityTimer()
+      // Refresh token on activity (with cooldown)
+      refreshTokenIfNeeded()
     }
 
     // Track mouse and keyboard events
@@ -141,7 +170,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       window.removeEventListener('scroll', handleActivity)
       window.removeEventListener('touchstart', handleActivity)
     }
-  }, [state.isAuthenticated])
+  }, [state.isAuthenticated, refreshTokenIfNeeded])
 
   const startInactivityTimer = useCallback(() => {
     if (inactivityTimer) clearTimeout(inactivityTimer)

@@ -24,9 +24,6 @@ const TOKEN_KEY = 'auth_token';
  */
 function getAuthHeaders(): HeadersInit {
   const token = localStorage.getItem(TOKEN_KEY);
-  // #region agent log
-  fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'paperlessApi.ts:getAuthHeaders',message:'Auth token check',data:{hasToken:!!token,tokenLength:token?.length||0,tokenPreview:token?token.substring(0,20)+'...':'NONE'},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A,B'})}).catch(()=>{});
-  // #endregion
   return {
     'Authorization': token ? `Bearer ${token}` : '',
   };
@@ -54,6 +51,14 @@ async function fetchApi<T>(url: string, options?: RequestInit): Promise<T> {
 
   if (!response.ok) {
     if (response.status === 401) {
+      // Token expired or invalid - redirect to login
+      if (!window.location.pathname.includes('/login')) {
+        localStorage.removeItem(TOKEN_KEY);
+        localStorage.removeItem('auth_user');
+        localStorage.removeItem('auth_roles');
+        localStorage.removeItem('auth_log_id');
+        window.location.href = '/login';
+      }
       throw new Error('Nicht authentifiziert');
     }
     const errorText = await response.text();
