@@ -103,3 +103,94 @@ async def search_addresses(
         return result
     finally:
         erp_connection.close()
+
+
+@router.get("/payment-terms")
+async def get_payment_terms():
+    """
+    Returns all payment terms for dropdown selection.
+    
+    Returns:
+        List of {id: int, days: int, text: str}
+    """
+    erp_connection = get_erp_db_connection()
+    try:
+        result = adressen_data_service.get_payment_terms(erp_connection)
+        return result
+    finally:
+        erp_connection.close()
+
+
+@router.get("/packing-conditions")
+async def get_packing_conditions():
+    """
+    Returns all packing conditions for dropdown selection.
+    
+    Returns:
+        List of {id: int, name: str}
+    """
+    erp_connection = get_erp_db_connection()
+    try:
+        result = adressen_data_service.get_packing_conditions(erp_connection)
+        return result
+    finally:
+        erp_connection.close()
+
+
+@router.get("/{address_id}")
+async def get_address_detail(address_id: int):
+    """
+    Returns all detail data for a single address.
+    
+    Args:
+        address_id: The adrbase.id
+    
+    Returns:
+        Address detail object with all fields
+    """
+    erp_connection = get_erp_db_connection()
+    try:
+        result = adressen_data_service.get_address_detail(erp_connection, address_id)
+        if result is None:
+            raise HTTPException(status_code=404, detail=f"Adresse mit ID {address_id} nicht gefunden")
+        return result
+    finally:
+        erp_connection.close()
+
+
+@router.get("/{address_id}/contacts")
+async def get_address_contacts(address_id: int):
+    """
+    Returns all contacts for an address with phone numbers, emails, type, and function.
+    
+    Args:
+        address_id: The adrbase.id
+    
+    Returns:
+        List of contact objects
+    """
+    erp_connection = get_erp_db_connection()
+    try:
+        result = adressen_data_service.get_address_contacts(erp_connection, address_id)
+        return result
+    finally:
+        erp_connection.close()
+
+
+@router.get("/{address_id}/address-lines")
+async def get_address_lines(address_id: int):
+    """
+    Returns all address lines for an address.
+    
+    Args:
+        address_id: The adrbase.id
+    
+    Returns:
+        List of address line objects
+    """
+    erp_connection = get_erp_db_connection()
+    try:
+        result = adressen_data_service.get_address_lines(erp_connection, address_id)
+        return result
+    finally:
+        erp_connection.close()

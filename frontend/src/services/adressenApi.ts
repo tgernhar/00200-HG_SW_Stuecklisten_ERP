@@ -68,6 +68,73 @@ export interface AddressSearchResponse {
   total_pages: number
 }
 
+// Detail view types
+export interface AddressDetailItem {
+  id: number
+  kdn: string | null
+  suchname: string | null
+  url: string | null
+  comment: string | null
+  currency: string | null
+  customer: number | null
+  distributor: number | null
+  salesprospect: number | null
+  reminderstop: number | null
+  blocked: number | null
+  employee: number | null
+  concern: number | null
+  termofpayment: number | null
+  packingConditions: number | null
+  tage: number | null
+  stage: number | null
+  skonto: number | null
+  butext: string | null
+  invlid: number | null
+  dnlid: number | null
+  oldSupplierId: string | null
+  code: string | null
+  materialgroupid: string | null
+  distriMaterialgroup: string | null
+  upsAccount: string | null
+  kdnAtDistributor: string | null
+  sendUpsEmail: number | null
+  notificationInfo: string | null
+  notificationDate: string | null
+  zahlziel_days: number | null
+  zahlziel_text: string | null
+  versandbedingung_name: string | null
+}
+
+export interface AddressContact {
+  id: number
+  suchname: string | null
+  phones: string | null
+  emails: string | null
+  type_name: string | null
+  function: string | null
+  favorite: number | null
+}
+
+export interface AddressLine {
+  id: number
+  kdn: string | null
+  suchname: string | null
+  street: string | null
+  zipcode: string | null
+  city: string | null
+}
+
+export interface PaymentTerm {
+  id: number
+  days: number | null
+  text: string | null
+}
+
+export interface PackingCondition {
+  id: number
+  name: string | null
+}
+
 // ============ API Functions ============
 
 /**
@@ -118,5 +185,45 @@ export async function searchAddresses(filters: AddressFilters): Promise<AddressS
   if (filters.sort_dir) params.append('sort_dir', filters.sort_dir)
   
   const response = await api.get(`/adressen-data/search?${params.toString()}`)
+  return response.data
+}
+
+/**
+ * Loads detail data for a single address.
+ */
+export async function getAddressDetail(addressId: number): Promise<AddressDetailItem> {
+  const response = await api.get(`/adressen-data/${addressId}`)
+  return response.data
+}
+
+/**
+ * Loads all contacts for an address.
+ */
+export async function getAddressContacts(addressId: number): Promise<AddressContact[]> {
+  const response = await api.get(`/adressen-data/${addressId}/contacts`)
+  return response.data
+}
+
+/**
+ * Loads all address lines for an address.
+ */
+export async function getAddressLines(addressId: number): Promise<AddressLine[]> {
+  const response = await api.get(`/adressen-data/${addressId}/address-lines`)
+  return response.data
+}
+
+/**
+ * Loads all payment terms for dropdown.
+ */
+export async function getPaymentTerms(): Promise<PaymentTerm[]> {
+  const response = await api.get('/adressen-data/payment-terms')
+  return response.data
+}
+
+/**
+ * Loads all packing conditions for dropdown.
+ */
+export async function getPackingConditions(): Promise<PackingCondition[]> {
+  const response = await api.get('/adressen-data/packing-conditions')
   return response.data
 }

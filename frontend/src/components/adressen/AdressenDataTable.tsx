@@ -4,6 +4,7 @@
  * Features toggle buttons for switching between search groups (Kunde/Kontakt/Adresszeile).
  */
 import React, { useState, useCallback, useRef, useMemo, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   searchAddresses,
   getContactTypes,
@@ -194,6 +195,9 @@ const styles: Record<string, React.CSSProperties> = {
   rowHover: {
     backgroundColor: '#f5f9ff',
   },
+  rowClickable: {
+    cursor: 'pointer',
+  },
   autofilterInput: {
     width: '100%',
     padding: '4px',
@@ -207,6 +211,8 @@ const styles: Record<string, React.CSSProperties> = {
 }
 
 export default function AdressenDataTable({ pageTitle }: AdressenDataTableProps) {
+  const navigate = useNavigate()
+
   // Active search group
   const [activeGroup, setActiveGroup] = useState<SearchGroup>('kunde')
 
@@ -491,6 +497,11 @@ export default function AdressenDataTable({ pageTitle }: AdressenDataTableProps)
     if (!searchExecuted) return ''
     if (sortField !== field) return ' ⇅'
     return sortDir === 'asc' ? ' ▲' : ' ▼'
+  }
+
+  // Row click handler - navigate to detail page
+  const handleRowClick = (item: AddressItem) => {
+    navigate(`/menu/adressen/${item.id}`)
   }
 
   // Render toggle buttons
@@ -836,7 +847,11 @@ export default function AdressenDataTable({ pageTitle }: AdressenDataTableProps)
               key={item.id}
               onMouseEnter={() => setHoveredRow(item.id)}
               onMouseLeave={() => setHoveredRow(null)}
-              style={hoveredRow === item.id ? styles.rowHover : undefined}
+              onClick={() => handleRowClick(item)}
+              style={{
+                ...(hoveredRow === item.id ? styles.rowHover : {}),
+                ...styles.rowClickable,
+              }}
             >
               <td style={styles.td}>{item.kdn || '-'}</td>
               <td style={styles.td}>{item.suchname || '-'}</td>

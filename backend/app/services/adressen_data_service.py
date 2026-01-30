@@ -244,3 +244,174 @@ def search_addresses(
         
     finally:
         cursor.close()
+
+
+def get_address_detail(db_connection, address_id: int) -> Optional[Dict[str, Any]]:
+    """
+    Loads all detail data for a single address from adrbase with JOINs.
+    
+    Args:
+        address_id: The adrbase.id
+    
+    Returns:
+        Dict with all address fields and joined data, or None if not found
+    """
+    cursor = db_connection.cursor(dictionary=True)
+    
+    try:
+        query = """
+            SELECT 
+                ab.id,
+                ab.kdn,
+                ab.suchname,
+                ab.url,
+                ab.comment,
+                ab.currency,
+                ab.customer,
+                ab.distributor,
+                ab.salesprospect,
+                ab.reminderstop,
+                ab.blocked,
+                ab.employee,
+                ab.concern,
+                ab.termofpayment,
+                ab.packingConditions,
+                ab.tage,
+                ab.stage,
+                ab.skonto,
+                ab.butext,
+                ab.invlid,
+                ab.dnlid,
+                ab.oldSupplierId,
+                ab.code,
+                ab.materialgroupid,
+                ab.distriMaterialgroup,
+                ab.upsAccount,
+                ab.kdnAtDistributor,
+                ab.sendUpsEmail,
+                ab.notificationInfo,
+                ab.notificationDate,
+                bc.days AS zahlziel_days,
+                bc.textde AS zahlziel_text,
+                bp.name AS versandbedingung_name
+            FROM adrbase ab
+            LEFT JOIN billing_creditperiod bc ON ab.termofpayment = bc.id
+            LEFT JOIN billing_packingconditions bp ON ab.packingConditions = bp.id
+            WHERE ab.id = %s
+        """
+        cursor.execute(query, [address_id])
+        result = cursor.fetchone()
+        return result
+    finally:
+        cursor.close()
+
+
+def get_address_contacts(db_connection, address_id: int) -> List[Dict[str, Any]]:
+    """
+    Loads all contacts for an address with phone numbers, emails, type, and function.
+    
+    Args:
+        address_id: The adrbase.id (contacts are linked via adrcont.kid)
+    
+    Returns:
+        List of contact dicts
+    """
+    cursor = db_connection.cursor(dictionary=True)
+    
+    try:
+        query = """
+            SELECT 
+                ac.id,
+                ac.suchname,
+                ac.function,
+                ac.favorite,
+                GROUP_CONCAT(DISTINCT acp.phonenumber SEPARATOR ', ') AS phones,
+                GROUP_CONCAT(DISTINCT ace.email SEPARATOR ', ') AS emails,
+                act.name AS type_name
+            FROM adrcont ac
+            LEFT JOIN adrcont_phone acp ON ac.id = acp.adrcont
+            LEFT JOIN adrcont_email ace ON ac.id = ace.adrcont
+            LEFT JOIN adrconttype act ON ac.type = act.id
+            WHERE ac.kid = %s
+            GROUP BY ac.id, ac.suchname, ac.function, ac.favorite, act.name
+            ORDER BY ac.favorite DESC, ac.suchname ASC
+        """
+        cursor.execute(query, [address_id])
+        return cursor.fetchall() or []
+    finally:
+        cursor.close()
+
+
+def get_address_lines(db_connection, address_id: int) -> List[Dict[str, Any]]:
+    """
+    Loads all address lines for an address.
+    
+    Args:
+        address_id: The adrbase.id (address lines are linked via adrline.kid)
+    
+    Returns:
+        List of address line dicts
+    """
+    cursor = db_connection.cursor(dictionary=True)
+    
+    try:
+        query = """
+            SELECT 
+                al.id,
+                al.suchname,
+                al.street,
+                al.zipcode,
+                al.city,
+                ab.kdn
+            FROM adrline al
+            LEFT JOIN adrbase ab ON al.kid = ab.id
+            WHERE al.kid = %s
+            ORDER BY al.suchname ASC
+        """
+        cursor.execute(query, [address_id])
+        return cursor.fetchall() or []
+    finally:
+        cursor.close()
+
+
+def get_payment_terms(db_connection) -> List[Dict[str, Any]]:
+    """
+    Loads all payment terms from billing_creditperiod for dropdown.
+    
+    Returns:
+        List of {id, days, text} objects
+    """
+    cursor = db_connection.cursor(dictionary=True)
+    
+    try:
+        query = """
+            SELECT id, days, textde AS text
+            FROM billing_creditperiod
+            WHERE hidden = 0 OR hidden IS NULL
+            ORDER BY ordering ASC, days ASC
+        """
+        cursor.execute(query)
+        return cursor.fetchall() or []
+    finally:
+        cursor.close()
+
+
+def get_packing_conditions(db_connection) -> List[Dict[str, Any]]:
+    """
+    Loads all packing conditions from billing_packingconditions for dropdown.
+    
+    Returns:
+        List of {id, name} objects
+    """
+    cursor = db_connection.cursor(dictionary=True)
+    
+    try:
+        query = """
+            SELECT id, name
+            FROM billing_packingconditions
+            ORDER BY name ASC
+        """
+        cursor.execute(query)
+        return cursor.fetchall() or []
+    finally:
+        cursor.close()

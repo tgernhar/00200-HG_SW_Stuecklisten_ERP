@@ -37,6 +37,7 @@ const WarengruppenListePage = React.lazy(() => import('./pages/WarengruppenListe
 
 // Adressen Pages
 const AdressenListePage = React.lazy(() => import('./pages/AdressenListePage'))
+const AdressenDetailPage = React.lazy(() => import('./pages/AdressenDetailPage'))
 
 // DMS Pages
 const PaperlessSearchPage = React.lazy(() => import('./pages/PaperlessSearchPage'))
@@ -232,6 +233,14 @@ function App() {
             element={
               <React.Suspense fallback={<div style={{ padding: 20 }}>Lade Adressen...</div>}>
                 <AdressenListePage />
+              </React.Suspense>
+            } 
+          />
+          <Route 
+            path="adressen/:addressId" 
+            element={
+              <React.Suspense fallback={<div style={{ padding: 20 }}>Lade Adressdetails...</div>}>
+                <AdressenDetailPage />
               </React.Suspense>
             } 
           />

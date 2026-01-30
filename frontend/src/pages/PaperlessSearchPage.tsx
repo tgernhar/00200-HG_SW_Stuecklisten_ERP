@@ -380,24 +380,15 @@ export default function PaperlessSearchPage() {
   useEffect(() => {
     const loadMetadata = async () => {
       try {
-        // #region agent log
-        fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hypothesisId:'H-CORR-API',location:'PaperlessSearchPage:loadMetadata',message:'loading metadata started',timestamp:Date.now(),sessionId:'debug-session'})}).catch(()=>{});
-        // #endregion
         const [corr, types, tagsList] = await Promise.all([
           getCorrespondents(),
           getDocumentTypes(),
           getTags(),
         ]);
-        // #region agent log
-        fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hypothesisId:'H-CORR-API',location:'PaperlessSearchPage:loadMetadata',message:'metadata loaded',data:{correspondentsCount:corr.length,typesCount:types.length,tagsCount:tagsList.length,correspondents:corr.slice(0,5)},timestamp:Date.now(),sessionId:'debug-session'})}).catch(()=>{});
-        // #endregion
         setCorrespondents(corr);
         setDocumentTypes(types);
         setTags(tagsList);
       } catch (err) {
-        // #region agent log
-        fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hypothesisId:'H-CORR-API',location:'PaperlessSearchPage:loadMetadata',message:'metadata load error',data:{error:String(err)},timestamp:Date.now(),sessionId:'debug-session'})}).catch(()=>{});
-        // #endregion
         console.error('Error loading metadata:', err);
       }
     };
@@ -441,22 +432,10 @@ export default function PaperlessSearchPage() {
         params.erp_article_number = erpArticleNumber;
       }
       
-      // #region agent log
-      fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hypothesisId:'H-SEARCH',location:'PaperlessSearchPage:performSearch',message:'search params',data:{params,searchQuery},timestamp:Date.now(),sessionId:'debug-session'})}).catch(()=>{});
-      // #endregion
-      
       const result = await searchDocuments(params);
-      
-      // #region agent log
-      fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hypothesisId:'H-SEARCH',location:'PaperlessSearchPage:performSearch',message:'search result',data:{itemsCount:result.items.length,total:result.total},timestamp:Date.now(),sessionId:'debug-session'})}).catch(()=>{});
-      // #endregion
-      
       setDocuments(result.items);
       setTotalCount(result.total);
     } catch (err) {
-      // #region agent log
-      fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hypothesisId:'H-SEARCH',location:'PaperlessSearchPage:performSearch',message:'search error',data:{error:String(err)},timestamp:Date.now(),sessionId:'debug-session'})}).catch(()=>{});
-      // #endregion
       setError(err instanceof Error ? err.message : 'Fehler bei der Suche');
       setDocuments([]);
       setTotalCount(0);
@@ -787,7 +766,7 @@ export default function PaperlessSearchPage() {
                     onMouseLeave={() => setHoveredRow(null)}
                     onClick={() => setSelectedDoc(doc)}
                   >
-                    <td style={styles.td}>{doc.correspondent_name || '-'}</td>
+                    <td style={styles.td}>{doc.correspondent_name || getCorrespondentName(doc.correspondent_id)}</td>
                     <td style={styles.td}>
                       <div style={styles.titleCell}>
                         <span style={styles.fileIcon}>{getFileIcon(doc.original_file_name)}</span>
@@ -798,8 +777,8 @@ export default function PaperlessSearchPage() {
                       </div>
                     </td>
                     <td style={styles.td}>
-                      {doc.document_type_name && (
-                        <span style={styles.typeBadge}>{doc.document_type_name}</span>
+                      {(doc.document_type_name || doc.document_type_id) && (
+                        <span style={styles.typeBadge}>{doc.document_type_name || getDocTypeName(doc.document_type_id)}</span>
                       )}
                     </td>
                     <td style={styles.td}>{formatDate(doc.created)}</td>
@@ -829,8 +808,8 @@ export default function PaperlessSearchPage() {
               <div style={styles.previewHeader}>
                 <div style={styles.previewTitle}>{selectedDoc.title}</div>
                 <div style={styles.previewMeta}>
-                  {selectedDoc.correspondent_name && `${selectedDoc.correspondent_name} • `}
-                  {selectedDoc.document_type_name && `${selectedDoc.document_type_name} • `}
+                  {(selectedDoc.correspondent_name || selectedDoc.correspondent_id) && `${selectedDoc.correspondent_name || getCorrespondentName(selectedDoc.correspondent_id)} • `}
+                  {(selectedDoc.document_type_name || selectedDoc.document_type_id) && `${selectedDoc.document_type_name || getDocTypeName(selectedDoc.document_type_id)} • `}
                   {formatDate(selectedDoc.created)}
                 </div>
               </div>
