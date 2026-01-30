@@ -269,6 +269,11 @@ export interface CustomerSearchResult {
   kdn: string | null
 }
 
+export interface SelectlistValue {
+  id: number
+  value: string | null
+}
+
 // ============ Article Detail API Functions ============
 
 /**
@@ -330,5 +335,14 @@ export async function searchCustomers(term: string, limit?: number): Promise<Cus
   params.append('term', term)
   if (limit) params.append('limit', String(limit))
   const response = await api.get(`/artikel-data/customers/search?${params.toString()}`)
+  return response.data
+}
+
+/**
+ * Loads all values for a specific selectlist.
+ * Used for custom fields that have a selectlist assigned.
+ */
+export async function getSelectlistValues(selectlistId: number): Promise<SelectlistValue[]> {
+  const response = await api.get(`/artikel-data/selectlist/${selectlistId}/values`)
   return response.data
 }

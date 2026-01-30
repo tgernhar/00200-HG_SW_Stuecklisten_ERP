@@ -200,6 +200,26 @@ async def search_customers(
         erp_connection.close()
 
 
+@router.get("/selectlist/{selectlist_id}/values")
+async def get_selectlist_values(selectlist_id: int):
+    """
+    Returns all values for a specific selectlist.
+    Used for custom fields that have a selectlist assigned.
+    
+    Args:
+        selectlist_id: The selectlist ID from article_selectlist
+    
+    Returns:
+        List of {id: int, value: str}
+    """
+    erp_connection = get_erp_db_connection()
+    try:
+        result = artikel_data_service.get_selectlist_values(erp_connection, selectlist_id)
+        return result
+    finally:
+        erp_connection.close()
+
+
 # ============ Dynamic routes AFTER static routes ============
 
 @router.get("/{article_id}")

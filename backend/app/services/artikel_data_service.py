@@ -527,3 +527,29 @@ def get_materialgroups_for_dropdown(db_connection, search_term: Optional[str] = 
         return cursor.fetchall() or []
     finally:
         cursor.close()
+
+
+def get_selectlist_values(db_connection, selectlist_id: int) -> List[Dict[str, Any]]:
+    """
+    Loads all values for a specific selectlist.
+    Used for custom fields that have a selectlist assigned.
+    
+    Args:
+        selectlist_id: The selectlist ID from article_selectlist
+    
+    Returns:
+        List of {id, value} objects
+    """
+    cursor = db_connection.cursor(dictionary=True)
+    
+    try:
+        query = """
+            SELECT id, value
+            FROM article_selectlist_value
+            WHERE selectlist = %s
+            ORDER BY value ASC
+        """
+        cursor.execute(query, [selectlist_id])
+        return cursor.fetchall() or []
+    finally:
+        cursor.close()

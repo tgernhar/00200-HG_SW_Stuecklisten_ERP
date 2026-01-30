@@ -12,6 +12,7 @@ import {
   Calculation,
   MaterialgroupDropdownItem,
   CustomerSearchResult,
+  SelectlistValue,
   getArticleDetail,
   getCustomFieldLabels,
   getCalculationsForArticle,
@@ -19,6 +20,7 @@ import {
   getCalculationTypes,
   getMaterialgroupsForDropdown,
   searchCustomers,
+  getSelectlistValues,
 } from '../../services/artikelApi'
 
 interface ArtikelDetailViewProps {
@@ -306,6 +308,7 @@ export default function ArtikelDetailView({ articleId, onClose, onToggleFullscre
   const [departments, setDepartments] = useState<Department[]>([])
   const [calculationTypes, setCalculationTypes] = useState<CalculationType[]>([])
   const [calculations, setCalculations] = useState<Calculation[]>([])
+  const [selectlistValuesCache, setSelectlistValuesCache] = useState<Record<number, SelectlistValue[]>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -395,6 +398,26 @@ export default function ArtikelDetailView({ articleId, onClose, onToggleFullscre
       setCustomFieldLabels(labelsData)
       setCalculations(calcsData)
       
+      // Load selectlist values for custom fields that have a selectlist assigned
+      const selectlistIds = [...new Set(
+        labelsData
+          .filter(label => label.selectlist != null)
+          .map(label => label.selectlist as number)
+      )]
+      
+      if (selectlistIds.length > 0) {
+        const selectlistPromises = selectlistIds.map(async (id) => {
+          const values = await getSelectlistValues(id)
+          return { id, values }
+        })
+        const selectlistResults = await Promise.all(selectlistPromises)
+        const newCache: Record<number, SelectlistValue[]> = {}
+        selectlistResults.forEach(({ id, values }) => {
+          newCache[id] = values
+        })
+        setSelectlistValuesCache(newCache)
+      }
+      
     } catch (err: any) {
       console.error('Error loading article detail:', err)
       setError(err.response?.data?.detail || 'Fehler beim Laden der Artikeldaten')
@@ -450,6 +473,7 @@ export default function ArtikelDetailView({ articleId, onClose, onToggleFullscre
     const fieldType = label.field_type
     const displayLabel = label.label || fieldName
     
+    // 1. Boolean -> Checkbox
     if (fieldType === 'java.lang.Boolean') {
       return (
         <CheckboxField
@@ -461,6 +485,7 @@ export default function ArtikelDetailView({ articleId, onClose, onToggleFullscre
       )
     }
     
+    // 2. Date -> Date input with calendar
     if (fieldType === 'java.util.Date') {
       return (
         <InputField
@@ -473,7 +498,27 @@ export default function ArtikelDetailView({ articleId, onClose, onToggleFullscre
       )
     }
     
-    // Default: text/number input
+    // 3. Selectlist assigned -> Dropdown
+    if (label.selectlist != null) {
+      const selectlistOptions = selectlistValuesCache[label.selectlist] || []
+      return (
+        <div key={label.id} style={styles.fieldBlock}>
+          <span style={styles.fieldLabel}>{displayLabel}</span>
+          <select
+            value={formData[fieldName] || ''}
+            onChange={(e) => updateField(fieldName, e.target.value)}
+            style={styles.select}
+          >
+            <option value="">Bitte wählen...</option>
+            {selectlistOptions.map(opt => (
+              <option key={opt.id} value={opt.value || ''}>{opt.value || '-'}</option>
+            ))}
+          </select>
+        </div>
+      )
+    }
+    
+    // 4. Default: text/number input
     return (
       <InputField
         key={label.id}
