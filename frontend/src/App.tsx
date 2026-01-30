@@ -42,6 +42,9 @@ const AdressenDetailPage = React.lazy(() => import('./pages/AdressenDetailPage')
 // DMS Pages
 const PaperlessSearchPage = React.lazy(() => import('./pages/PaperlessSearchPage'))
 
+// Administration Pages
+const DbSwitchConfigPage = React.lazy(() => import('./pages/DbSwitchConfigPage'))
+
 function App() {
   const { isAuthenticated, isLoading } = useAuth()
 
@@ -116,6 +119,14 @@ function App() {
             element={
               <React.Suspense fallback={<div style={{ padding: 20 }}>Lade Konfiguration...</div>}>
                 <PPSConfigPage />
+              </React.Suspense>
+            } 
+          />
+          <Route 
+            path="administration/db-switch" 
+            element={
+              <React.Suspense fallback={<div style={{ padding: 20 }}>Lade DB-Konfiguration...</div>}>
+                <DbSwitchConfigPage />
               </React.Suspense>
             } 
           />

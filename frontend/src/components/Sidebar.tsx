@@ -165,6 +165,11 @@ const menuItems: MenuItem[] = [
         id: 'pps-config',
         label: 'Produktionsplanung_Config',
         path: '/menu/administration/pps-config'
+      },
+      {
+        id: 'db-switch',
+        label: 'Datenbank-Umschalter',
+        path: '/menu/administration/db-switch'
       }
     ]
   }

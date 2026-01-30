@@ -103,6 +103,8 @@ export interface AddressDetailItem {
   zahlziel_days: number | null
   zahlziel_text: string | null
   versandbedingung_name: string | null
+  rechnungsadresse_name: string | null
+  lieferadresse_name: string | null
 }
 
 export interface AddressContact {

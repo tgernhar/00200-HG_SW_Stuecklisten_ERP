@@ -645,19 +645,17 @@ export default function AdressenDetailView({ address }: AdressenDetailViewProps)
               />
             </div>
             
-            {/* Rechnungsadresse, Lieferadresse - in one row, 50% shorter */}
+            {/* Rechnungsadresse, Lieferadresse - in one row */}
             <div style={styles.fieldRow}>
-              <InputField
-                label="Rechnungsadresse (ID)"
-                value={formData.invlid}
-                onChange={(v) => updateField('invlid', v)}
-                width="80px"
+              <ReadOnlyField
+                label="Rechnungsadresse"
+                value={address.rechnungsadresse_name || '-'}
+                style={{ flex: 1 }}
               />
-              <InputField
-                label="Lieferadresse (ID)"
-                value={formData.dnlid}
-                onChange={(v) => updateField('dnlid', v)}
-                width="80px"
+              <ReadOnlyField
+                label="Lieferadresse"
+                value={address.lieferadresse_name || '-'}
+                style={{ flex: 1 }}
               />
             </div>
           </div>

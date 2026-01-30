@@ -13,12 +13,21 @@ class Settings(BaseSettings):
     # Kann jederzeit per Umgebungsvariable DATABASE_URL überschrieben werden.
     DATABASE_URL: str = "mysql+pymysql://app_user:app_password@localhost:3306/stuecklisten_erp"
     
-    # ERP Database
+    # ERP Database (Live - HUGWAWI)
     ERP_DB_HOST: str = "10.233.159.44"
     ERP_DB_PORT: int = 3306
     ERP_DB_NAME: str = "hugwawi"
     ERP_DB_USER: str = ""
     ERP_DB_PASSWORD: str = ""
+    
+    # ERP Test Database (Copy of HUGWAWI for testing writes)
+    ERP_TEST_DB_HOST: str = "10.233.159.39"
+    ERP_TEST_DB_PORT: int = 3306
+    ERP_TEST_DB_NAME: str = "hugwawi"
+    # Note: Credentials are shared with ERP_DB_USER/PASSWORD
+    
+    # Database Switch Feature (set to False in production to hide the switch)
+    DB_SWITCH_ENABLED: bool = True
     
     # SOLIDWORKS Connector
     SOLIDWORKS_CONNECTOR_URL: str = "http://localhost:8001"

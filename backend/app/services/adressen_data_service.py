@@ -295,10 +295,14 @@ def get_address_detail(db_connection, address_id: int) -> Optional[Dict[str, Any
                 ab.notificationDate,
                 bc.days AS zahlziel_days,
                 bc.textde AS zahlziel_text,
-                bp.name AS versandbedingung_name
+                bp.name AS versandbedingung_name,
+                inv_line.suchname AS rechnungsadresse_name,
+                del_line.suchname AS lieferadresse_name
             FROM adrbase ab
             LEFT JOIN billing_creditperiod bc ON ab.termofpayment = bc.id
             LEFT JOIN billing_packingconditions bp ON ab.packingConditions = bp.id
+            LEFT JOIN adrline inv_line ON ab.invlid = inv_line.id
+            LEFT JOIN adrline del_line ON ab.dnlid = del_line.id
             WHERE ab.id = %s
         """
         cursor.execute(query, [address_id])
