@@ -79,13 +79,7 @@ const styles = {
 
 // Welcome/Dashboard content shown at /menu
 function WelcomeContent() {
-  // #region agent log
-  fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MenuPage.tsx:WelcomeContent',message:'WelcomeContent render start',data:{},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
-  // #endregion
   const { roles } = useAuth()
-  // #region agent log
-  fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MenuPage.tsx:useAuth',message:'roles from useAuth',data:{roles:roles,rolesType:typeof roles,isArray:Array.isArray(roles)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
-  // #endregion
   const [welcomeText, setWelcomeText] = useState<string>('')
   const [loading, setLoading] = useState(true)
   const [editorOpen, setEditorOpen] = useState(false)
@@ -98,19 +92,10 @@ function WelcomeContent() {
   }, [])
 
   const loadWelcomeText = async () => {
-    // #region agent log
-    fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MenuPage.tsx:loadWelcomeText',message:'loadWelcomeText called',data:{},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2'})}).catch(()=>{});
-    // #endregion
     try {
       const response = await api.get('/hugwawi/welcometext')
-      // #region agent log
-      fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MenuPage.tsx:loadWelcomeText',message:'API success',data:{hasText:!!response.data.text,textLength:response.data.text?.length},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2'})}).catch(()=>{});
-      // #endregion
       setWelcomeText(response.data.text || '')
     } catch (error) {
-      // #region agent log
-      fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MenuPage.tsx:loadWelcomeText',message:'API error',data:{error:String(error)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2'})}).catch(()=>{});
-      // #endregion
       console.error('Error loading welcome text:', error)
       setWelcomeText('<p>Willkommen im System.</p>')
     } finally {
@@ -163,9 +148,6 @@ function WelcomeContent() {
 }
 
 export default function MenuPage() {
-  // #region agent log
-  fetch('http://127.0.0.1:7244/ingest/5fe19d44-ce12-4ffb-b5ca-9a8d2d1f2e70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MenuPage.tsx:MenuPage',message:'MenuPage render start',data:{},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H4'})}).catch(()=>{});
-  // #endregion
   const location = useLocation()
   const isWelcomePage = location.pathname === '/menu' || location.pathname === '/menu/'
   

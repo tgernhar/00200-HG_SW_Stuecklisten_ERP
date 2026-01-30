@@ -5,7 +5,7 @@ from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
-from app.api.routes import projects, articles, documents, erp, hugwawi, boms, import_jobs, auth, orders_overview, hierarchy_remarks, pps, pps_config, crm, orders_data, images, dms, paperless, artikel_data
+from app.api.routes import projects, articles, documents, erp, hugwawi, boms, import_jobs, auth, orders_overview, hierarchy_remarks, pps, pps_config, crm, orders_data, images, dms, paperless, artikel_data, adressen_data
 from app.core.config import settings
 import traceback
 
@@ -68,6 +68,7 @@ app.include_router(images.router, prefix=settings.API_V1_STR, tags=["images"])
 app.include_router(dms.router, prefix=settings.API_V1_STR, tags=["dms"])
 app.include_router(paperless.router, prefix=settings.API_V1_STR, tags=["paperless"])
 app.include_router(artikel_data.router, prefix=f"{settings.API_V1_STR}/artikel-data", tags=["artikel-data"])
+app.include_router(adressen_data.router, prefix=f"{settings.API_V1_STR}/adressen-data", tags=["adressen-data"])
 
 
 @app.on_event("startup")

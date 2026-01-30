@@ -223,21 +223,10 @@ async def get_payment_terms():
     Returns:
         Liste mit {id, text}
     """
-    # #region agent log
-    import json, time; open('/app/debug.log','a').write(json.dumps({"hypothesisId":"H1","location":"orders_data.py:payment-terms","message":"endpoint called","timestamp":time.time()})+'\n')
-    # #endregion
     erp_connection = get_erp_db_connection()
     try:
         result = orders_data_service.get_payment_terms(erp_connection)
-        # #region agent log
-        open('/app/debug.log','a').write(json.dumps({"hypothesisId":"H1","location":"orders_data.py:payment-terms","message":"success","data":{"count":len(result)},"timestamp":time.time()})+'\n')
-        # #endregion
         return {"items": result}
-    except Exception as e:
-        # #region agent log
-        open('/app/debug.log','a').write(json.dumps({"hypothesisId":"H1","location":"orders_data.py:payment-terms","message":"error","data":{"error":str(e),"type":type(e).__name__},"timestamp":time.time()})+'\n')
-        # #endregion
-        raise
     finally:
         erp_connection.close()
 
@@ -266,21 +255,10 @@ async def get_factoring_options():
     Returns:
         Liste mit {fact, text}
     """
-    # #region agent log
-    import json, time; open('/app/debug.log','a').write(json.dumps({"hypothesisId":"H2","location":"orders_data.py:factoring","message":"endpoint called","timestamp":time.time()})+'\n')
-    # #endregion
     erp_connection = get_erp_db_connection()
     try:
         result = orders_data_service.get_factoring_options(erp_connection)
-        # #region agent log
-        open('/app/debug.log','a').write(json.dumps({"hypothesisId":"H2","location":"orders_data.py:factoring","message":"success","data":{"count":len(result)},"timestamp":time.time()})+'\n')
-        # #endregion
         return {"items": result}
-    except Exception as e:
-        # #region agent log
-        open('/app/debug.log','a').write(json.dumps({"hypothesisId":"H2","location":"orders_data.py:factoring","message":"error","data":{"error":str(e),"type":type(e).__name__},"timestamp":time.time()})+'\n')
-        # #endregion
-        raise
     finally:
         erp_connection.close()
 

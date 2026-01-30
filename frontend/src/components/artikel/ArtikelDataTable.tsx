@@ -206,7 +206,7 @@ export default function ArtikelDataTable({ mode, pageTitle }: ArtikelDataTablePr
   const [articleItems, setArticleItems] = useState<ArticleItem[]>([])
   const [articleFilters, setArticleFilters] = useState<ArticleFilters>({
     page: 1,
-    page_size: 40,
+    page_size: 10000, // Load all results at once for client-side autofilter
     sort_field: 'articlenumber',
     sort_dir: 'asc',
   })
@@ -232,7 +232,7 @@ export default function ArtikelDataTable({ mode, pageTitle }: ArtikelDataTablePr
   const [materialgroupItems, setMaterialgroupItems] = useState<MaterialgroupItem[]>([])
   const [materialgroupFilters, setMaterialgroupFilters] = useState<MaterialgroupFilters>({
     page: 1,
-    page_size: 40,
+    page_size: 10000, // Load all results at once for client-side autofilter
     sort_field: 'name',
     sort_dir: 'asc',
   })
@@ -415,7 +415,7 @@ export default function ArtikelDataTable({ mode, pageTitle }: ArtikelDataTablePr
       })
       setArticleFilters({
         page: 1,
-        page_size: 40,
+        page_size: 10000,
         sort_field: 'articlenumber',
         sort_dir: 'asc',
       })
@@ -440,7 +440,7 @@ export default function ArtikelDataTable({ mode, pageTitle }: ArtikelDataTablePr
       })
       setMaterialgroupFilters({
         page: 1,
-        page_size: 40,
+        page_size: 10000,
         sort_field: 'name',
         sort_dir: 'asc',
       })
@@ -932,30 +932,38 @@ export default function ArtikelDataTable({ mode, pageTitle }: ArtikelDataTablePr
         </tr>
       </thead>
       <tbody>
-        {filteredArticleItems.map(item => (
-          <tr
-            key={item.id}
-            onMouseEnter={() => setHoveredRow(item.id)}
-            onMouseLeave={() => setHoveredRow(null)}
-            style={hoveredRow === item.id ? styles.rowHover : undefined}
-          >
-            <td style={{ ...styles.td, ...styles.checkboxColumn }}>
-              <input
-                type="checkbox"
-                checked={selectedArticles.has(item.id)}
-                onChange={() => handleSelectArticle(item.id)}
-              />
+        {filteredArticleItems.length === 0 ? (
+          <tr>
+            <td colSpan={7} style={{ ...styles.td, textAlign: 'center', color: '#999', padding: '40px' }}>
+              {articleItems.length === 0 ? 'Keine Einträge gefunden' : 'Keine Einträge entsprechen dem Spaltenfilter'}
             </td>
-            <td style={styles.td}>{item.articlenumber || '-'}</td>
-            <td style={styles.td}>{item.index || '-'}</td>
-            <td style={styles.td}>{item.materialgroup_name || '-'}</td>
-            <td style={{ ...styles.td, ...styles.tdText }} title={item.description || ''}>
-              {item.description || '-'}
-            </td>
-            <td style={styles.td}>{item.customer_name || '-'}</td>
-            <td style={styles.td}>{item.sparepart || '-'}</td>
           </tr>
-        ))}
+        ) : (
+          filteredArticleItems.map(item => (
+            <tr
+              key={item.id}
+              onMouseEnter={() => setHoveredRow(item.id)}
+              onMouseLeave={() => setHoveredRow(null)}
+              style={hoveredRow === item.id ? styles.rowHover : undefined}
+            >
+              <td style={{ ...styles.td, ...styles.checkboxColumn }}>
+                <input
+                  type="checkbox"
+                  checked={selectedArticles.has(item.id)}
+                  onChange={() => handleSelectArticle(item.id)}
+                />
+              </td>
+              <td style={styles.td}>{item.articlenumber || '-'}</td>
+              <td style={styles.td}>{item.index || '-'}</td>
+              <td style={styles.td}>{item.materialgroup_name || '-'}</td>
+              <td style={{ ...styles.td, ...styles.tdText }} title={item.description || ''}>
+                {item.description || '-'}
+              </td>
+              <td style={styles.td}>{item.customer_name || '-'}</td>
+              <td style={styles.td}>{item.sparepart || '-'}</td>
+            </tr>
+          ))
+        )}
       </tbody>
     </table>
   )
@@ -1031,27 +1039,35 @@ export default function ArtikelDataTable({ mode, pageTitle }: ArtikelDataTablePr
         </tr>
       </thead>
       <tbody>
-        {filteredMaterialgroupItems.map(item => (
-          <tr
-            key={item.id}
-            onMouseEnter={() => setHoveredRow(item.id)}
-            onMouseLeave={() => setHoveredRow(null)}
-            style={hoveredRow === item.id ? styles.rowHover : undefined}
-          >
-            <td style={styles.td}>{item.name || '-'}</td>
-            <td style={{ ...styles.td, ...styles.tdText }} title={item.description || ''}>
-              {item.description || '-'}
-            </td>
-            <td style={styles.td}>{item.articlenumberPrefix || '-'}</td>
-            <td style={styles.td}>{item.oldmaterialgroupid || '-'}</td>
-            <td style={{ ...styles.td, textAlign: 'center' }}>
-              <input type="checkbox" checked={item.hasgeneratedarticlenumber === 1} disabled />
-            </td>
-            <td style={{ ...styles.td, textAlign: 'center' }}>
-              <input type="checkbox" checked={item.showarticleindex === 1} disabled />
+        {filteredMaterialgroupItems.length === 0 ? (
+          <tr>
+            <td colSpan={6} style={{ ...styles.td, textAlign: 'center', color: '#999', padding: '40px' }}>
+              {materialgroupItems.length === 0 ? 'Keine Einträge gefunden' : 'Keine Einträge entsprechen dem Spaltenfilter'}
             </td>
           </tr>
-        ))}
+        ) : (
+          filteredMaterialgroupItems.map(item => (
+            <tr
+              key={item.id}
+              onMouseEnter={() => setHoveredRow(item.id)}
+              onMouseLeave={() => setHoveredRow(null)}
+              style={hoveredRow === item.id ? styles.rowHover : undefined}
+            >
+              <td style={styles.td}>{item.name || '-'}</td>
+              <td style={{ ...styles.td, ...styles.tdText }} title={item.description || ''}>
+                {item.description || '-'}
+              </td>
+              <td style={styles.td}>{item.articlenumberPrefix || '-'}</td>
+              <td style={styles.td}>{item.oldmaterialgroupid || '-'}</td>
+              <td style={{ ...styles.td, textAlign: 'center' }}>
+                <input type="checkbox" checked={item.hasgeneratedarticlenumber === 1} disabled />
+              </td>
+              <td style={{ ...styles.td, textAlign: 'center' }}>
+                <input type="checkbox" checked={item.showarticleindex === 1} disabled />
+              </td>
+            </tr>
+          ))
+        )}
       </tbody>
     </table>
   )
@@ -1100,24 +1116,19 @@ export default function ArtikelDataTable({ mode, pageTitle }: ArtikelDataTablePr
           <div style={styles.loading}>Lade Daten...</div>
         ) : !searchExecuted ? (
           renderInitialMessage()
-        ) : rawItems.length === 0 ? (
-          <div style={styles.noData}>Keine Einträge gefunden</div>
-        ) : items.length === 0 ? (
-          <div style={styles.noData}>Keine Einträge entsprechen dem Spaltenfilter</div>
         ) : (
           mode === 'articles' ? renderArticleTable() : renderMaterialgroupTable()
         )}
       </div>
 
-      {/* Pagination */}
+      {/* Status Bar */}
       <div style={styles.pagination}>
         <div style={styles.paginationInfo}>
           {searchExecuted ? (
             <>
               {items.length !== rawItems.length 
-                ? `${items.length} von ${rawItems.length} (gefiltert) | `
-                : `${total} Einträge | `}
-              Seite {currentPage} von {totalPages}
+                ? `${items.length} von ${rawItems.length} Einträgen angezeigt (Spaltenfilter aktiv)`
+                : `${rawItems.length} Einträge gefunden`}
               {mode === 'articles' && ` | Limit: ${limitApplied}`}
               {mode === 'articles' && selectedArticles.size > 0 && ` | ${selectedArticles.size} ausgewählt`}
             </>
@@ -1127,26 +1138,7 @@ export default function ArtikelDataTable({ mode, pageTitle }: ArtikelDataTablePr
           {loading && <span style={{ marginLeft: '10px', color: '#4a90d9' }}>Lade...</span>}
         </div>
         <div style={styles.paginationButtons}>
-          <button
-            style={{
-              ...styles.paginationButton,
-              ...(currentPage <= 1 || !searchExecuted ? styles.paginationButtonDisabled : {}),
-            }}
-            onClick={() => handlePageChange(currentPage - 1)}
-            disabled={currentPage <= 1 || !searchExecuted}
-          >
-            Zurück
-          </button>
-          <button
-            style={{
-              ...styles.paginationButton,
-              ...(currentPage >= totalPages || !searchExecuted ? styles.paginationButtonDisabled : {}),
-            }}
-            onClick={() => handlePageChange(currentPage + 1)}
-            disabled={currentPage >= totalPages || !searchExecuted}
-          >
-            Weiter
-          </button>
+          {/* Buttons für spätere Funktionen (Export, etc.) */}
         </div>
       </div>
     </div>

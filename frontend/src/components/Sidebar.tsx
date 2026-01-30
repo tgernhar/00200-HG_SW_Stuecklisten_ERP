@@ -136,6 +136,17 @@ const menuItems: MenuItem[] = [
     ]
   },
   {
+    id: 'adressen',
+    label: 'Adressen',
+    children: [
+      {
+        id: 'adressen-liste',
+        label: 'Liste',
+        path: '/menu/adressen/liste'
+      }
+    ]
+  },
+  {
     id: 'administration',
     label: 'Administration',
     children: [
@@ -222,7 +233,7 @@ const styles = {
 }
 
 export default function Sidebar() {
-  const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set(['stuecklisten', 'fertigungsplanung', 'produktionsplanung', 'crm', 'auftragsdaten', 'artikel']))
+  const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set(['stuecklisten', 'fertigungsplanung', 'produktionsplanung', 'crm', 'auftragsdaten', 'artikel', 'adressen']))
   const [hoveredItem, setHoveredItem] = useState<string | null>(null)
   
   const navigate = useNavigate()

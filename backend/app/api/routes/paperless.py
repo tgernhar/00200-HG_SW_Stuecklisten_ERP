@@ -5,11 +5,13 @@ Provides endpoints for Paperless-ngx document management integration.
 Supports document upload, search, and metadata management.
 """
 from fastapi import APIRouter, HTTPException, Query, UploadFile, File, Form, Depends
+from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from typing import Optional, List
 import tempfile
 import os
 import logging
+import httpx
 
 from app.services.paperless_service import get_paperless_service, PaperlessDocument
 from app.services.auth_service import decode_access_token
@@ -43,8 +45,29 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     return payload
 
 
+async def get_current_user_from_token_param(token: Optional[str] = Query(None, description="JWT Token")) -> dict:
+    """
+    Get current user from JWT token passed as query parameter.
+    Used for iframe/image URLs that cannot send Authorization headers.
+    """
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    payload = decode_access_token(token)
+    if not payload:
+        raise HTTPException(status_code=401, detail="Token ungültig")
+    
+    return payload
+
+
 def _document_to_response(doc: PaperlessDocument) -> PaperlessDocumentResponse:
-    """Convert PaperlessDocument to response schema"""
+    """Convert PaperlessDocument to response schema with proxied URLs"""
+    # Use local proxy URLs instead of direct Paperless URLs
+    # This bypasses X-Frame-Options and CORS restrictions
+    proxy_preview_url = f"/api/paperless/documents/{doc.id}/preview"
+    proxy_download_url = f"/api/paperless/documents/{doc.id}/download"
+    proxy_thumb_url = f"/api/paperless/documents/{doc.id}/thumb"
+    
     return PaperlessDocumentResponse(
         id=doc.id,
         title=doc.title,
@@ -61,9 +84,9 @@ def _document_to_response(doc: PaperlessDocument) -> PaperlessDocumentResponse:
         tags=doc.tags,
         tag_names=doc.tag_names,
         custom_fields=doc.custom_fields,
-        download_url=doc.download_url,
-        original_download_url=doc.original_download_url,
-        thumbnail_url=doc.thumbnail_url,
+        download_url=proxy_preview_url,
+        original_download_url=proxy_download_url,
+        thumbnail_url=proxy_thumb_url,
     )
 
 
@@ -236,6 +259,107 @@ async def get_document(
         raise HTTPException(status_code=404, detail="Dokument nicht gefunden")
     
     return _document_to_response(doc)
+
+
+@router.get("/documents/{document_id}/preview")
+async def get_document_preview(
+    document_id: int,
+    current_user: dict = Depends(get_current_user_from_token_param),
+):
+    """
+    Proxy endpoint for document preview (PDF rendering).
+    This bypasses X-Frame-Options restrictions by fetching from backend.
+    Token is passed as query parameter since iframes cannot send headers.
+    """
+    service = get_paperless_service()
+    preview_url = service.get_document_download_url(document_id, original=False)
+    
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            headers = service._get_auth_headers()
+            response = await client.get(preview_url, headers=headers)
+            
+            if response.status_code != 200:
+                raise HTTPException(status_code=response.status_code, detail="Vorschau nicht verfügbar")
+            
+            content_type = response.headers.get("content-type", "application/pdf")
+            
+            return StreamingResponse(
+                iter([response.content]),
+                media_type=content_type,
+                headers={
+                    "Content-Disposition": f"inline; filename=preview_{document_id}.pdf"
+                }
+            )
+    except httpx.RequestError as e:
+        logger.error(f"Error fetching preview for document {document_id}: {e}")
+        raise HTTPException(status_code=502, detail="Paperless-Server nicht erreichbar")
+
+
+@router.get("/documents/{document_id}/download")
+async def get_document_download(
+    document_id: int,
+    current_user: dict = Depends(get_current_user_from_token_param),
+):
+    """
+    Proxy endpoint for document download (original file).
+    Token is passed as query parameter since iframes/links cannot send headers.
+    """
+    service = get_paperless_service()
+    download_url = service.get_document_download_url(document_id, original=True)
+    
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            headers = service._get_auth_headers()
+            response = await client.get(download_url, headers=headers)
+            
+            if response.status_code != 200:
+                raise HTTPException(status_code=response.status_code, detail="Download nicht verfügbar")
+            
+            content_type = response.headers.get("content-type", "application/octet-stream")
+            content_disposition = response.headers.get("content-disposition", f"attachment; filename=document_{document_id}")
+            
+            return StreamingResponse(
+                iter([response.content]),
+                media_type=content_type,
+                headers={
+                    "Content-Disposition": content_disposition
+                }
+            )
+    except httpx.RequestError as e:
+        logger.error(f"Error downloading document {document_id}: {e}")
+        raise HTTPException(status_code=502, detail="Paperless-Server nicht erreichbar")
+
+
+@router.get("/documents/{document_id}/thumb")
+async def get_document_thumbnail(
+    document_id: int,
+    current_user: dict = Depends(get_current_user_from_token_param),
+):
+    """
+    Proxy endpoint for document thumbnail.
+    Token is passed as query parameter since img tags cannot send headers.
+    """
+    service = get_paperless_service()
+    thumb_url = service.get_document_thumbnail_url(document_id)
+    
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            headers = service._get_auth_headers()
+            response = await client.get(thumb_url, headers=headers)
+            
+            if response.status_code != 200:
+                raise HTTPException(status_code=response.status_code, detail="Thumbnail nicht verfügbar")
+            
+            content_type = response.headers.get("content-type", "image/webp")
+            
+            return StreamingResponse(
+                iter([response.content]),
+                media_type=content_type
+            )
+    except httpx.RequestError as e:
+        logger.error(f"Error fetching thumbnail for document {document_id}: {e}")
+        raise HTTPException(status_code=502, detail="Paperless-Server nicht erreichbar")
 
 
 @router.get("/documents", response_model=PaperlessDocumentListResponse)

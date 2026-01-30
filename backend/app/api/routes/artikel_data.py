@@ -27,7 +27,7 @@ async def search_articles(
     show_inactive: bool = Query(False, description="Zeige inaktive Artikel (article.active != 1)"),
     extended_limit: bool = Query(False, description="Mehr als 500 anzeigen (bis 10000)"),
     page: int = Query(1, ge=1, description="Seite"),
-    page_size: int = Query(40, ge=1, le=100, description="Einträge pro Seite"),
+    page_size: int = Query(40, ge=1, le=10000, description="Einträge pro Seite (max 10000 für Autofilter)"),
     sort_field: str = Query("articlenumber", description="Sortierfeld"),
     sort_dir: str = Query("asc", description="Sortierrichtung (asc/desc)")
 ):
@@ -84,7 +84,7 @@ async def search_materialgroups(
     show_inactive: bool = Query(False, description="Zeige inaktive Warengruppen"),
     show_master_only: bool = Query(False, description="Zeige nur Master-Warengruppen (isMasterGroup=1)"),
     page: int = Query(1, ge=1, description="Seite"),
-    page_size: int = Query(40, ge=1, le=100, description="Einträge pro Seite"),
+    page_size: int = Query(40, ge=1, le=10000, description="Einträge pro Seite (max 10000 für Autofilter)"),
     sort_field: str = Query("name", description="Sortierfeld"),
     sort_dir: str = Query("asc", description="Sortierrichtung (asc/desc)")
 ):

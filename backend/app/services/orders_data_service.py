@@ -491,9 +491,6 @@ def get_payment_terms(db_connection) -> List[Dict[str, Any]]:
     Returns:
         Liste mit {id, text}
     """
-    # #region agent log
-    import json, time; open('/app/debug.log','a').write(json.dumps({"hypothesisId":"H1-svc","location":"orders_data_service.py:get_payment_terms","message":"service called","timestamp":time.time()})+'\n')
-    # #endregion
     cursor = db_connection.cursor(dictionary=True)
     try:
         cursor.execute("""
@@ -501,16 +498,7 @@ def get_payment_terms(db_connection) -> List[Dict[str, Any]]:
             FROM billing_creditperiod
             ORDER BY id
         """)
-        result = cursor.fetchall() or []
-        # #region agent log
-        open('/app/debug.log','a').write(json.dumps({"hypothesisId":"H1-svc","location":"orders_data_service.py:get_payment_terms","message":"query success","data":{"count":len(result)},"timestamp":time.time()})+'\n')
-        # #endregion
-        return result
-    except Exception as e:
-        # #region agent log
-        open('/app/debug.log','a').write(json.dumps({"hypothesisId":"H1-svc","location":"orders_data_service.py:get_payment_terms","message":"SQL error","data":{"error":str(e),"type":type(e).__name__},"timestamp":time.time()})+'\n')
-        # #endregion
-        raise
+        return cursor.fetchall() or []
     finally:
         cursor.close()
 
@@ -544,9 +532,6 @@ def get_factoring_options(db_connection) -> List[Dict[str, Any]]:
     Returns:
         Liste mit {fact, text}
     """
-    # #region agent log
-    import json, time; open('/app/debug.log','a').write(json.dumps({"hypothesisId":"H2-svc","location":"orders_data_service.py:get_factoring_options","message":"service called","timestamp":time.time()})+'\n')
-    # #endregion
     cursor = db_connection.cursor(dictionary=True)
     try:
         cursor.execute("""
@@ -554,16 +539,7 @@ def get_factoring_options(db_connection) -> List[Dict[str, Any]]:
             FROM billing_factoring
             ORDER BY fact
         """)
-        result = cursor.fetchall() or []
-        # #region agent log
-        open('/app/debug.log','a').write(json.dumps({"hypothesisId":"H2-svc","location":"orders_data_service.py:get_factoring_options","message":"query success","data":{"count":len(result)},"timestamp":time.time()})+'\n')
-        # #endregion
-        return result
-    except Exception as e:
-        # #region agent log
-        open('/app/debug.log','a').write(json.dumps({"hypothesisId":"H2-svc","location":"orders_data_service.py:get_factoring_options","message":"SQL error","data":{"error":str(e),"type":type(e).__name__},"timestamp":time.time()})+'\n')
-        # #endregion
-        raise
+        return cursor.fetchall() or []
     finally:
         cursor.close()
 
