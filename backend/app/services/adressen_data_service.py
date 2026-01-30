@@ -86,7 +86,9 @@ def search_addresses(
         # === Kunde group filters ===
         if search_group == "kunde":
             if suchname:
-                conditions.append("ab.suchname LIKE %s")
+                # Search in both suchname and kdn columns
+                conditions.append("(ab.suchname LIKE %s OR ab.kdn LIKE %s)")
+                params.append(f"%{suchname}%")
                 params.append(f"%{suchname}%")
             
             if kdn:

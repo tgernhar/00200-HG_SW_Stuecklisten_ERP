@@ -27,7 +27,8 @@ const styles: Record<string, React.CSSProperties> = {
     gap: '8px',
     padding: '10px',
     backgroundColor: '#f5f5f5',
-    minHeight: '100%',
+    height: '100%',
+    overflow: 'hidden',
   },
   header: {
     display: 'flex',
@@ -169,43 +170,57 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'grid',
     gridTemplateColumns: '1fr 1fr',
     gap: '8px',
+    flex: 1,
+    minHeight: 0,
+  },
+  tableCard: {
+    backgroundColor: 'white',
+    borderRadius: '6px',
+    padding: '10px',
+    boxShadow: '0 1px 2px rgba(0,0,0,0.08)',
+    display: 'flex',
+    flexDirection: 'column' as const,
+    minHeight: 0,
   },
   tableWrapper: {
-    maxHeight: '200px',
+    flex: 1,
     overflow: 'auto',
+    minHeight: 0,
   },
   table: {
     width: '100%',
     borderCollapse: 'collapse' as const,
-    fontSize: '11px',
+    fontSize: '12px',
   },
-  tableTh: {
+  tableHead: {
     position: 'sticky' as const,
     top: 0,
+    zIndex: 2,
+    backgroundColor: 'white',
+  },
+  tableTh: {
     textAlign: 'left' as const,
-    padding: '4px 6px',
+    padding: '5px 6px',
     backgroundColor: '#f8f9fa',
     borderBottom: '1px solid #ddd',
     fontWeight: 600,
     color: '#333',
-    zIndex: 1,
   },
-  tableFilterRow: {
-    position: 'sticky' as const,
-    top: '24px',
+  tableFilterTh: {
+    padding: '3px 4px',
     backgroundColor: '#f0f0f0',
-    zIndex: 1,
+    borderBottom: '1px solid #ddd',
   },
   tableFilterInput: {
     width: '100%',
-    padding: '2px 4px',
-    fontSize: '10px',
+    padding: '3px 4px',
+    fontSize: '11px',
     border: '1px solid #ccc',
     borderRadius: '2px',
     boxSizing: 'border-box' as const,
   },
   tableTd: {
-    padding: '4px 6px',
+    padding: '5px 6px',
     borderBottom: '1px solid #eee',
     color: '#333',
   },
@@ -495,7 +510,7 @@ export default function AdressenDetailView({ address }: AdressenDetailViewProps)
               <textarea
                 value={formData.comment}
                 onChange={(e) => updateField('comment', e.target.value)}
-                style={{ ...styles.textarea, minHeight: '40px' }}
+                style={{ ...styles.textarea, minHeight: '80px' }}
                 placeholder="Kommentar eingeben..."
               />
             </div>
@@ -588,34 +603,35 @@ export default function AdressenDetailView({ address }: AdressenDetailViewProps)
               options={packingConditions.map(p => ({ id: p.id, name: p.name }))}
               placeholder={address.versandbedingung_name || 'Bitte wählen...'}
             />
-            <InputField
-              label="Währung"
-              value={formData.currency}
-              onChange={(v) => updateField('currency', v)}
-            />
             
-            {/* Tage, Skonto Tage, Skonto - in one row, 90% shorter */}
+            {/* Währung (80% shorter), Tage, Skonto Tage, Skonto - in one row */}
             <div style={styles.fieldRow}>
+              <InputField
+                label="Währung"
+                value={formData.currency}
+                onChange={(v) => updateField('currency', v)}
+                width="45px"
+              />
               <InputField
                 label="Tage"
                 value={formData.tage}
                 onChange={(v) => updateField('tage', v)}
                 type="number"
-                width="50px"
+                width="45px"
               />
               <InputField
-                label="Skonto Tage"
+                label="Skonto T."
                 value={formData.stage}
                 onChange={(v) => updateField('stage', v)}
                 type="number"
-                width="50px"
+                width="45px"
               />
               <InputField
-                label="Skonto (%)"
+                label="Skonto %"
                 value={formData.skonto}
                 onChange={(v) => updateField('skonto', v)}
                 type="number"
-                width="50px"
+                width="45px"
               />
             </div>
             
@@ -730,7 +746,7 @@ export default function AdressenDetailView({ address }: AdressenDetailViewProps)
       {/* Tables section: Kontakt and Adresse */}
       <div style={styles.tablesGrid}>
         {/* Kontakt Table */}
-        <div style={styles.card}>
+        <div style={styles.tableCard}>
           <h2 style={styles.cardTitle}>Kontakt</h2>
           {loadingRelated ? (
             <div style={styles.placeholder}>Lade Kontakte...</div>
@@ -739,7 +755,7 @@ export default function AdressenDetailView({ address }: AdressenDetailViewProps)
           ) : (
             <div style={styles.tableWrapper}>
               <table style={styles.table}>
-                <thead>
+                <thead style={styles.tableHead}>
                   <tr>
                     <th style={styles.tableTh}>Suchname</th>
                     <th style={styles.tableTh}>Typ</th>
@@ -748,8 +764,8 @@ export default function AdressenDetailView({ address }: AdressenDetailViewProps)
                     <th style={styles.tableTh}>Funktion</th>
                     <th style={styles.tableTh}>Fav</th>
                   </tr>
-                  <tr style={styles.tableFilterRow}>
-                    <th style={{ padding: '2px 4px' }}>
+                  <tr>
+                    <th style={styles.tableFilterTh}>
                       <input
                         type="text"
                         placeholder="Filter..."
@@ -758,7 +774,7 @@ export default function AdressenDetailView({ address }: AdressenDetailViewProps)
                         style={styles.tableFilterInput}
                       />
                     </th>
-                    <th style={{ padding: '2px 4px' }}>
+                    <th style={styles.tableFilterTh}>
                       <input
                         type="text"
                         placeholder="Filter..."
@@ -767,7 +783,7 @@ export default function AdressenDetailView({ address }: AdressenDetailViewProps)
                         style={styles.tableFilterInput}
                       />
                     </th>
-                    <th style={{ padding: '2px 4px' }}>
+                    <th style={styles.tableFilterTh}>
                       <input
                         type="text"
                         placeholder="Filter..."
@@ -776,7 +792,7 @@ export default function AdressenDetailView({ address }: AdressenDetailViewProps)
                         style={styles.tableFilterInput}
                       />
                     </th>
-                    <th style={{ padding: '2px 4px' }}>
+                    <th style={styles.tableFilterTh}>
                       <input
                         type="text"
                         placeholder="Filter..."
@@ -785,7 +801,7 @@ export default function AdressenDetailView({ address }: AdressenDetailViewProps)
                         style={styles.tableFilterInput}
                       />
                     </th>
-                    <th style={{ padding: '2px 4px' }}>
+                    <th style={styles.tableFilterTh}>
                       <input
                         type="text"
                         placeholder="Filter..."
@@ -794,7 +810,7 @@ export default function AdressenDetailView({ address }: AdressenDetailViewProps)
                         style={styles.tableFilterInput}
                       />
                     </th>
-                    <th style={{ padding: '2px 4px' }}></th>
+                    <th style={styles.tableFilterTh}></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -828,7 +844,7 @@ export default function AdressenDetailView({ address }: AdressenDetailViewProps)
         </div>
 
         {/* Adresse Table */}
-        <div style={styles.card}>
+        <div style={styles.tableCard}>
           <h2 style={styles.cardTitle}>Adresse</h2>
           {loadingRelated ? (
             <div style={styles.placeholder}>Lade Adressen...</div>
@@ -837,7 +853,7 @@ export default function AdressenDetailView({ address }: AdressenDetailViewProps)
           ) : (
             <div style={styles.tableWrapper}>
               <table style={styles.table}>
-                <thead>
+                <thead style={styles.tableHead}>
                   <tr>
                     <th style={styles.tableTh}>KDN</th>
                     <th style={styles.tableTh}>Suchname</th>
@@ -845,8 +861,8 @@ export default function AdressenDetailView({ address }: AdressenDetailViewProps)
                     <th style={styles.tableTh}>PLZ</th>
                     <th style={styles.tableTh}>Stadt</th>
                   </tr>
-                  <tr style={styles.tableFilterRow}>
-                    <th style={{ padding: '2px 4px' }}>
+                  <tr>
+                    <th style={styles.tableFilterTh}>
                       <input
                         type="text"
                         placeholder="Filter..."
@@ -855,7 +871,7 @@ export default function AdressenDetailView({ address }: AdressenDetailViewProps)
                         style={styles.tableFilterInput}
                       />
                     </th>
-                    <th style={{ padding: '2px 4px' }}>
+                    <th style={styles.tableFilterTh}>
                       <input
                         type="text"
                         placeholder="Filter..."
@@ -864,7 +880,7 @@ export default function AdressenDetailView({ address }: AdressenDetailViewProps)
                         style={styles.tableFilterInput}
                       />
                     </th>
-                    <th style={{ padding: '2px 4px' }}>
+                    <th style={styles.tableFilterTh}>
                       <input
                         type="text"
                         placeholder="Filter..."
@@ -873,7 +889,7 @@ export default function AdressenDetailView({ address }: AdressenDetailViewProps)
                         style={styles.tableFilterInput}
                       />
                     </th>
-                    <th style={{ padding: '2px 4px' }}>
+                    <th style={styles.tableFilterTh}>
                       <input
                         type="text"
                         placeholder="Filter..."
@@ -882,7 +898,7 @@ export default function AdressenDetailView({ address }: AdressenDetailViewProps)
                         style={styles.tableFilterInput}
                       />
                     </th>
-                    <th style={{ padding: '2px 4px' }}>
+                    <th style={styles.tableFilterTh}>
                       <input
                         type="text"
                         placeholder="Filter..."

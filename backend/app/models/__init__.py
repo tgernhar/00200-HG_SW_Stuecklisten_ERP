@@ -35,6 +35,8 @@ from app.models.crm import (
 )
 # Image Management
 from app.models.entity_image import EntityImage
+# Database Adapter
+from app.models.hugwawi_table_registry import HugwawiTableRegistry
 
 __all__ = [
     "Project", "Bom", "Article", "Order", "Document", "DocumentGenerationFlag",
@@ -48,4 +50,6 @@ __all__ = [
     "CRMTask", "CRMEmailTemplate", "CRMUserSignature", "CRMAssignmentRule", "CRMAuditLog",
     # Image Management
     "EntityImage",
+    # Database Adapter
+    "HugwawiTableRegistry",
 ]

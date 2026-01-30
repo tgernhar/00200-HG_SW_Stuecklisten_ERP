@@ -542,7 +542,7 @@ export default function AdressenDataTable({ pageTitle }: AdressenDataTableProps)
     <>
       <div style={styles.filterRow}>
         <div style={styles.filterGroup}>
-          <label style={styles.filterLabel}>Suchname</label>
+          <label style={styles.filterLabel}>Suchname (Kdnr)</label>
           <input
             type="text"
             style={{ ...styles.filterInput, width: '180px' }}
