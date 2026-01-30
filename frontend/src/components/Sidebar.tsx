@@ -147,6 +147,17 @@ const menuItems: MenuItem[] = [
     ]
   },
   {
+    id: 'dms',
+    label: 'DMS',
+    children: [
+      {
+        id: 'dms-paperless',
+        label: 'Paperless',
+        path: '/menu/dms/paperless'
+      }
+    ]
+  },
+  {
     id: 'administration',
     label: 'Administration',
     children: [
@@ -233,7 +244,7 @@ const styles = {
 }
 
 export default function Sidebar() {
-  const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set(['stuecklisten', 'fertigungsplanung', 'produktionsplanung', 'crm', 'auftragsdaten', 'artikel', 'adressen']))
+  const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set(['stuecklisten', 'fertigungsplanung', 'produktionsplanung', 'crm', 'auftragsdaten', 'artikel', 'adressen', 'dms']))
   const [hoveredItem, setHoveredItem] = useState<string | null>(null)
   
   const navigate = useNavigate()

@@ -132,6 +132,11 @@ export async function searchDocuments(params: PaperlessSearchParams): Promise<Pa
   }
   if (params.erp_order_id) searchParams.append('erp_order_id', String(params.erp_order_id));
   if (params.erp_article_id) searchParams.append('erp_article_id', String(params.erp_article_id));
+  if (params.erp_order_number) searchParams.append('erp_order_number', params.erp_order_number);
+  if (params.erp_article_number) searchParams.append('erp_article_number', params.erp_article_number);
+  if (params.created_after) searchParams.append('created_after', params.created_after);
+  if (params.created_before) searchParams.append('created_before', params.created_before);
+  if (params.ordering) searchParams.append('ordering', params.ordering);
   if (params.page) searchParams.append('page', String(params.page));
   if (params.page_size) searchParams.append('page_size', String(params.page_size));
 

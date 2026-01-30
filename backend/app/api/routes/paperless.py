@@ -370,6 +370,11 @@ async def search_documents(
     tag_ids: Optional[str] = Query(None, description="Tag-IDs (kommagetrennt)"),
     erp_order_id: Optional[int] = Query(None, description="ERP Auftrags-ID"),
     erp_article_id: Optional[int] = Query(None, description="ERP Artikel-ID"),
+    erp_order_number: Optional[str] = Query(None, description="ERP Auftragsnummer"),
+    erp_article_number: Optional[str] = Query(None, description="ERP Artikelnummer"),
+    created_after: Optional[str] = Query(None, description="Erstellt nach (ISO-Datum, z.B. 2024-01-01)"),
+    created_before: Optional[str] = Query(None, description="Erstellt vor (ISO-Datum, z.B. 2024-12-31)"),
+    ordering: Optional[str] = Query("-created", description="Sortierung (z.B. -created, title, -modified)"),
     page: int = Query(1, ge=1),
     page_size: int = Query(25, ge=1, le=100),
     current_user: dict = Depends(get_current_user),
@@ -377,7 +382,7 @@ async def search_documents(
     """
     Search Paperless documents.
     
-    Supports full-text search and filtering by metadata.
+    Supports full-text search and filtering by metadata, dates, and ERP fields.
     """
     service = get_paperless_service()
     
@@ -392,12 +397,19 @@ async def search_documents(
         search_query += f" erp_order_id:{erp_order_id}"
     if erp_article_id:
         search_query += f" erp_article_id:{erp_article_id}"
+    if erp_order_number:
+        search_query += f" erp_order_number:{erp_order_number}"
+    if erp_article_number:
+        search_query += f" erp_article_number:{erp_article_number}"
     
     documents = service.search_documents(
         query=search_query.strip() if search_query.strip() else None,
         correspondent_id=correspondent_id,
         document_type_id=document_type_id,
         tag_ids=parsed_tag_ids,
+        created_after=created_after,
+        created_before=created_before,
+        ordering=ordering or "-created",
         page=page,
         page_size=page_size,
     )

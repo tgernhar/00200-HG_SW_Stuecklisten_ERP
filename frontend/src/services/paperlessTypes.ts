@@ -87,6 +87,11 @@ export interface PaperlessSearchParams {
   tag_ids?: number[];
   erp_order_id?: number;
   erp_article_id?: number;
+  erp_order_number?: string;
+  erp_article_number?: string;
+  created_after?: string;  // ISO date string
+  created_before?: string; // ISO date string
+  ordering?: string;       // e.g. '-created', 'title', '-modified'
   page?: number;
   page_size?: number;
 }

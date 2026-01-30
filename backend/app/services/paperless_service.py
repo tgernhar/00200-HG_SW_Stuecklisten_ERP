@@ -297,6 +297,8 @@ class PaperlessService:
         correspondent_id: Optional[int] = None,
         document_type_id: Optional[int] = None,
         tag_ids: Optional[List[int]] = None,
+        created_after: Optional[str] = None,
+        created_before: Optional[str] = None,
         ordering: str = "-created",
         page: int = 1,
         page_size: int = 25,
@@ -309,10 +311,13 @@ class PaperlessService:
             correspondent_id: Filter by correspondent
             document_type_id: Filter by document type
             tag_ids: Filter by tags (all must match)
+            created_after: Filter by created date (ISO format, e.g. 2024-01-01)
+            created_before: Filter by created date (ISO format, e.g. 2024-12-31)
             ordering: Sort order (prefix with - for descending)
             page: Page number
             page_size: Results per page
         """
+        import json, time
         params = {
             "ordering": ordering,
             "page": page,
@@ -327,8 +332,21 @@ class PaperlessService:
             params["document_type__id"] = document_type_id
         if tag_ids:
             params["tags__id__all"] = ",".join(str(t) for t in tag_ids)
+        if created_after:
+            params["created__date__gte"] = created_after
+        if created_before:
+            params["created__date__lte"] = created_before
+        
+        # #region agent log
+        with open("/app/debug.log", "a") as f: f.write(json.dumps({"hypothesisId":"H-BACKEND","location":"paperless_service:search_documents","message":"params before api call","data":{"query":query,"params":params},"timestamp":int(time.time()*1000),"sessionId":"debug-session"})+"\n")
+        # #endregion
         
         result = self._api_request("GET", "/api/documents/", params=params)
+        
+        # #region agent log
+        with open("/app/debug.log", "a") as f: f.write(json.dumps({"hypothesisId":"H-BACKEND","location":"paperless_service:search_documents","message":"api result","data":{"hasResult":result is not None,"resultCount":len(result.get("results",[])) if result else 0,"totalCount":result.get("count",0) if result else 0},"timestamp":int(time.time()*1000),"sessionId":"debug-session"})+"\n")
+        # #endregion
+        
         if result and "results" in result:
             return [self._dict_to_document(d) for d in result["results"]]
         return []
