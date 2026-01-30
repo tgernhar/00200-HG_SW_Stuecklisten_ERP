@@ -153,6 +153,39 @@ async def get_packing_conditions():
         erp_connection.close()
 
 
+@router.get("/countries")
+async def get_countries():
+    """
+    Returns all countries for dropdown selection.
+    
+    Returns:
+        List of {id: int, name: str}
+    """
+    erp_connection = get_erp_db_connection()
+    try:
+        result = adressen_data_service.get_countries(erp_connection)
+        return result
+    finally:
+        erp_connection.close()
+
+
+@router.get("/factoring")
+async def get_factoring_options():
+    """
+    Returns all factoring options for dropdown selection.
+    
+    Returns:
+        List of {id: int, name: str}
+    """
+    erp_connection = get_erp_db_connection()
+    try:
+        result = adressen_data_service.get_factoring_options(erp_connection)
+        return result
+    finally:
+        erp_connection.close()
+
+
+# Dynamic routes with path parameters MUST come after static routes
 @router.get("/{address_id}")
 async def get_address_detail(address_id: int):
     """
@@ -357,38 +390,6 @@ async def get_address_line_mline(line_id: int):
     erp_connection = get_erp_db_connection()
     try:
         result = adressen_data_service.get_address_line_mline(erp_connection, line_id)
-        return result
-    finally:
-        erp_connection.close()
-
-
-@router.get("/countries")
-async def get_countries():
-    """
-    Returns all countries for dropdown selection.
-    
-    Returns:
-        List of {id: int, name: str}
-    """
-    erp_connection = get_erp_db_connection()
-    try:
-        result = adressen_data_service.get_countries(erp_connection)
-        return result
-    finally:
-        erp_connection.close()
-
-
-@router.get("/factoring")
-async def get_factoring_options():
-    """
-    Returns all factoring options for dropdown selection.
-    
-    Returns:
-        List of {id: int, name: str}
-    """
-    erp_connection = get_erp_db_connection()
-    try:
-        result = adressen_data_service.get_factoring_options(erp_connection)
         return result
     finally:
         erp_connection.close()

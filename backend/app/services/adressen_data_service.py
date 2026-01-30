@@ -689,7 +689,7 @@ def get_address_line_mline(db_connection, line_id: int) -> Optional[Dict[str, An
                 am.directDebitMandateDate,
                 am.directDebitMandateId,
                 am.fact,
-                bf.name AS factoring_name
+                bf.facttext AS factoring_name
             FROM adrmline am
             LEFT JOIN billing_factoring bf ON am.fact = bf.id
             WHERE am.lid = %s
@@ -727,16 +727,15 @@ def get_factoring_options(db_connection) -> List[Dict[str, Any]]:
     Loads all factoring options from billing_factoring for dropdown.
     
     Returns:
-        List of {id, name} objects
+        List of {id, name} objects (name = facttext)
     """
     cursor = db_connection.cursor(dictionary=True)
     
     try:
         query = """
-            SELECT id, name
+            SELECT id, facttext AS name
             FROM billing_factoring
-            WHERE active = 1 OR active IS NULL
-            ORDER BY name ASC
+            ORDER BY facttext ASC
         """
         cursor.execute(query)
         return cursor.fetchall() or []

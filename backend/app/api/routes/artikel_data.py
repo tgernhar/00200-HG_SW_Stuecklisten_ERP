@@ -118,3 +118,162 @@ async def search_materialgroups(
         return result
     finally:
         erp_connection.close()
+
+
+# ============ Static routes BEFORE dynamic routes ============
+
+@router.get("/departments")
+async def get_departments():
+    """
+    Returns all departments for dropdown selection.
+    
+    Returns:
+        List of {id: int, name: str}
+    """
+    erp_connection = get_erp_db_connection()
+    try:
+        result = artikel_data_service.get_departments(erp_connection)
+        return result
+    finally:
+        erp_connection.close()
+
+
+@router.get("/calculation-types")
+async def get_calculation_types():
+    """
+    Returns all calculation types (units) for dropdown selection.
+    
+    Returns:
+        List of {id: int, name: str}
+    """
+    erp_connection = get_erp_db_connection()
+    try:
+        result = artikel_data_service.get_calculation_types(erp_connection)
+        return result
+    finally:
+        erp_connection.close()
+
+
+@router.get("/materialgroups/dropdown")
+async def get_materialgroups_for_dropdown(
+    search: Optional[str] = Query(None, description="Search term for materialgroup name"),
+    limit: int = Query(50, ge=1, le=200, description="Max results")
+):
+    """
+    Returns materialgroups for dropdown/autocomplete selection.
+    
+    Args:
+        search: Optional filter for name
+        limit: Max results to return
+    
+    Returns:
+        List of {id: int, name: str}
+    """
+    erp_connection = get_erp_db_connection()
+    try:
+        result = artikel_data_service.get_materialgroups_for_dropdown(erp_connection, search, limit)
+        return result
+    finally:
+        erp_connection.close()
+
+
+@router.get("/customers/search")
+async def search_customers(
+    term: str = Query(..., description="Search term for customer suchname"),
+    limit: int = Query(20, ge=1, le=100, description="Max results")
+):
+    """
+    Searches customers (adrbase) by suchname for autocomplete.
+    
+    Args:
+        term: Search term
+        limit: Max results to return
+    
+    Returns:
+        List of {id: int, suchname: str, kdn: str}
+    """
+    erp_connection = get_erp_db_connection()
+    try:
+        result = artikel_data_service.search_customers(erp_connection, term, limit)
+        return result
+    finally:
+        erp_connection.close()
+
+
+# ============ Dynamic routes AFTER static routes ============
+
+@router.get("/{article_id}")
+async def get_article_detail(article_id: int):
+    """
+    Returns all detail data for a single article.
+    
+    Args:
+        article_id: The article.id
+    
+    Returns:
+        Complete article data with all fields and joined names
+    """
+    erp_connection = get_erp_db_connection()
+    try:
+        result = artikel_data_service.get_article_detail(erp_connection, article_id)
+        if not result:
+            raise HTTPException(status_code=404, detail=f"Article {article_id} not found")
+        return result
+    finally:
+        erp_connection.close()
+
+
+@router.get("/{article_id}/custom-field-labels")
+async def get_custom_field_labels(article_id: int):
+    """
+    Returns custom field labels and configuration for the article's materialgroup.
+    
+    Args:
+        article_id: The article.id (used to get materialgroup)
+    
+    Returns:
+        List of field configurations with labels
+    """
+    erp_connection = get_erp_db_connection()
+    try:
+        # First get the article to find its materialgroup
+        article = artikel_data_service.get_article_detail(erp_connection, article_id)
+        if not article:
+            raise HTTPException(status_code=404, detail=f"Article {article_id} not found")
+        
+        materialgroup_id = article.get('materialgroup')
+        if not materialgroup_id:
+            return []  # No materialgroup, no custom field labels
+        
+        result = artikel_data_service.get_custom_field_labels(erp_connection, materialgroup_id)
+        return result
+    finally:
+        erp_connection.close()
+
+
+@router.get("/{article_id}/calculations")
+async def get_calculations_for_article(article_id: int):
+    """
+    Returns calculations (VK-Berechnung) for the article's materialgroup.
+    
+    Args:
+        article_id: The article.id (used to get materialgroup)
+    
+    Returns:
+        List of {id: int, name: str}
+    """
+    erp_connection = get_erp_db_connection()
+    try:
+        # First get the article to find its materialgroup
+        article = artikel_data_service.get_article_detail(erp_connection, article_id)
+        if not article:
+            raise HTTPException(status_code=404, detail=f"Article {article_id} not found")
+        
+        materialgroup_id = article.get('materialgroup')
+        if not materialgroup_id:
+            return []
+        
+        result = artikel_data_service.get_calculations_for_materialgroup(erp_connection, materialgroup_id)
+        return result
+    finally:
+        erp_connection.close()

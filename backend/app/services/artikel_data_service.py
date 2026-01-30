@@ -315,3 +315,215 @@ def search_materialgroups(
         
     finally:
         cursor.close()
+
+
+def get_article_detail(db_connection, article_id: int) -> Optional[Dict[str, Any]]:
+    """
+    Loads all data for a single article including related lookups.
+    
+    Args:
+        article_id: The article.id
+    
+    Returns:
+        Complete article data with joined names, or None if not found
+    """
+    cursor = db_connection.cursor(dictionary=True)
+    
+    try:
+        query = """
+            SELECT 
+                a.*,
+                mg.name AS materialgroup_name,
+                adr.suchname AS customer_name,
+                d.name AS department_name,
+                c.name AS calculation_name,
+                pct.name AS purchasecalctype_name,
+                sct.name AS salescalctype_name
+            FROM article a
+            LEFT JOIN article_materialgroup mg ON a.materialgroup = mg.id
+            LEFT JOIN adrbase adr ON a.kid = adr.id
+            LEFT JOIN department d ON a.department = d.id
+            LEFT JOIN calculation c ON a.calculation = c.id
+            LEFT JOIN calculationtype pct ON a.purchasecalctype = pct.id
+            LEFT JOIN calculationtype sct ON a.salescalctype = sct.id
+            WHERE a.id = %s
+        """
+        cursor.execute(query, [article_id])
+        return cursor.fetchone()
+    finally:
+        cursor.close()
+
+
+def get_departments(db_connection) -> List[Dict[str, Any]]:
+    """
+    Loads all departments for dropdown selection.
+    
+    Returns:
+        List of {id, name} objects
+    """
+    cursor = db_connection.cursor(dictionary=True)
+    
+    try:
+        query = """
+            SELECT id, name
+            FROM department
+            ORDER BY name ASC
+        """
+        cursor.execute(query)
+        return cursor.fetchall() or []
+    finally:
+        cursor.close()
+
+
+def get_calculation_types(db_connection) -> List[Dict[str, Any]]:
+    """
+    Loads all calculation types (units) for dropdown selection.
+    
+    Returns:
+        List of {id, name} objects
+    """
+    cursor = db_connection.cursor(dictionary=True)
+    
+    try:
+        query = """
+            SELECT id, name
+            FROM calculationtype
+            ORDER BY name ASC
+        """
+        cursor.execute(query)
+        return cursor.fetchall() or []
+    finally:
+        cursor.close()
+
+
+def get_calculations_for_materialgroup(db_connection, materialgroup_id: int) -> List[Dict[str, Any]]:
+    """
+    Loads calculations (VK-Berechnung) for a specific materialgroup.
+    
+    Args:
+        materialgroup_id: The materialgroup ID
+    
+    Returns:
+        List of {id, name} objects
+    """
+    cursor = db_connection.cursor(dictionary=True)
+    
+    try:
+        query = """
+            SELECT id, name
+            FROM calculation
+            WHERE materialgroup = %s AND name IS NOT NULL
+            ORDER BY name ASC
+        """
+        cursor.execute(query, [materialgroup_id])
+        return cursor.fetchall() or []
+    finally:
+        cursor.close()
+
+
+def get_custom_field_labels(db_connection, materialgroup_id: int) -> List[Dict[str, Any]]:
+    """
+    Loads custom field labels and configuration for a materialgroup.
+    Only returns actual custom fields (customtext*, customdate*, customint*, customfloat*, customboolean*),
+    not standard article fields.
+    
+    Args:
+        materialgroup_id: The materialgroup ID
+    
+    Returns:
+        List of field configurations with labels
+    """
+    cursor = db_connection.cursor(dictionary=True)
+    
+    try:
+        query = """
+            SELECT 
+                fl.id,
+                fl.customfield,
+                fl.label,
+                fl.mandatory,
+                fl.position,
+                fl.selectlist,
+                fl.standardvalue,
+                fl.showincustomtable,
+                fl.important,
+                cf.name AS field_name,
+                cf.propertytype AS field_type
+            FROM article_materialgroup_field_label fl
+            JOIN article_customfields cf ON fl.customfield = cf.id
+            WHERE fl.materialgroup = %s
+              AND (cf.name LIKE 'customtext%%' 
+                   OR cf.name LIKE 'customdate%%' 
+                   OR cf.name LIKE 'customint%%' 
+                   OR cf.name LIKE 'customfloat%%' 
+                   OR cf.name LIKE 'customboolean%%')
+            ORDER BY fl.position ASC
+        """
+        cursor.execute(query, [materialgroup_id])
+        return cursor.fetchall() or []
+    finally:
+        cursor.close()
+
+
+def search_customers(db_connection, search_term: str, limit: int = 20) -> List[Dict[str, Any]]:
+    """
+    Searches customers (adrbase) by suchname for autocomplete.
+    
+    Args:
+        search_term: Search term for suchname
+        limit: Max results to return
+    
+    Returns:
+        List of {id, suchname} objects
+    """
+    cursor = db_connection.cursor(dictionary=True)
+    
+    try:
+        query = """
+            SELECT id, suchname, kdn
+            FROM adrbase
+            WHERE suchname LIKE %s
+            ORDER BY suchname ASC
+            LIMIT %s
+        """
+        cursor.execute(query, [f"%{search_term}%", limit])
+        return cursor.fetchall() or []
+    finally:
+        cursor.close()
+
+
+def get_materialgroups_for_dropdown(db_connection, search_term: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
+    """
+    Loads materialgroups for dropdown/autocomplete selection.
+    
+    Args:
+        search_term: Optional search filter for name
+        limit: Max results to return
+    
+    Returns:
+        List of {id, name} objects
+    """
+    cursor = db_connection.cursor(dictionary=True)
+    
+    try:
+        if search_term:
+            query = """
+                SELECT id, name
+                FROM article_materialgroup
+                WHERE name LIKE %s AND active = 1
+                ORDER BY name ASC
+                LIMIT %s
+            """
+            cursor.execute(query, [f"%{search_term}%", limit])
+        else:
+            query = """
+                SELECT id, name
+                FROM article_materialgroup
+                WHERE active = 1
+                ORDER BY name ASC
+                LIMIT %s
+            """
+            cursor.execute(query, [limit])
+        return cursor.fetchall() or []
+    finally:
+        cursor.close()

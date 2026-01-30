@@ -336,8 +336,8 @@ interface AddressFormData {
   stage: string
   skonto: string
   butext: string
-  invlid: string
-  dnlid: string
+  invlid: number | null
+  dnlid: number | null
   oldSupplierId: string
   code: string
   materialgroupid: string
@@ -369,8 +369,8 @@ export default function AdressenDetailView({ address }: AdressenDetailViewProps)
     stage: address.stage?.toString() || '',
     skonto: address.skonto?.toString() || '',
     butext: address.butext || '',
-    invlid: address.invlid?.toString() || '',
-    dnlid: address.dnlid?.toString() || '',
+    invlid: address.invlid ?? null,
+    dnlid: address.dnlid ?? null,
     oldSupplierId: address.oldSupplierId || '',
     code: address.code || '',
     materialgroupid: address.materialgroupid || '',
@@ -655,14 +655,20 @@ export default function AdressenDetailView({ address }: AdressenDetailViewProps)
             
             {/* Rechnungsadresse, Lieferadresse - in one row */}
             <div style={styles.fieldRow}>
-              <ReadOnlyField
+              <SelectField
                 label="Rechnungsadresse"
-                value={address.rechnungsadresse_name || '-'}
+                value={formData.invlid}
+                onChange={(v) => updateField('invlid', v as number | null)}
+                options={addressLines.map(l => ({ id: l.id, name: l.suchname }))}
+                placeholder="Bitte wählen..."
                 style={{ flex: 1 }}
               />
-              <ReadOnlyField
+              <SelectField
                 label="Lieferadresse"
-                value={address.lieferadresse_name || '-'}
+                value={formData.dnlid}
+                onChange={(v) => updateField('dnlid', v as number | null)}
+                options={addressLines.map(l => ({ id: l.id, name: l.suchname }))}
+                placeholder="Bitte wählen..."
                 style={{ flex: 1 }}
               />
             </div>

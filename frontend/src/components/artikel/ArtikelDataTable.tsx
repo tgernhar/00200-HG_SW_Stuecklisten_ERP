@@ -17,6 +17,8 @@ type TableMode = 'articles' | 'materialgroups'
 interface ArtikelDataTableProps {
   mode: TableMode
   pageTitle: string
+  onArticleSelect?: (articleId: number) => void
+  selectedArticleId?: number | null
 }
 
 const styles: Record<string, React.CSSProperties> = {
@@ -188,6 +190,12 @@ const styles: Record<string, React.CSSProperties> = {
   rowHover: {
     backgroundColor: '#f5f9ff',
   },
+  rowSelected: {
+    backgroundColor: '#e3f2fd',
+  },
+  rowClickable: {
+    cursor: 'pointer',
+  },
   checkboxColumn: {
     width: '40px',
     textAlign: 'center',
@@ -201,7 +209,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
 }
 
-export default function ArtikelDataTable({ mode, pageTitle }: ArtikelDataTableProps) {
+export default function ArtikelDataTable({ mode, pageTitle, onArticleSelect, selectedArticleId }: ArtikelDataTableProps) {
   // State for articles mode
   const [articleItems, setArticleItems] = useState<ArticleItem[]>([])
   const [articleFilters, setArticleFilters] = useState<ArticleFilters>({
@@ -939,30 +947,41 @@ export default function ArtikelDataTable({ mode, pageTitle }: ArtikelDataTablePr
             </td>
           </tr>
         ) : (
-          filteredArticleItems.map(item => (
-            <tr
-              key={item.id}
-              onMouseEnter={() => setHoveredRow(item.id)}
-              onMouseLeave={() => setHoveredRow(null)}
-              style={hoveredRow === item.id ? styles.rowHover : undefined}
-            >
-              <td style={{ ...styles.td, ...styles.checkboxColumn }}>
-                <input
-                  type="checkbox"
-                  checked={selectedArticles.has(item.id)}
-                  onChange={() => handleSelectArticle(item.id)}
-                />
-              </td>
-              <td style={styles.td}>{item.articlenumber || '-'}</td>
-              <td style={styles.td}>{item.index || '-'}</td>
-              <td style={styles.td}>{item.materialgroup_name || '-'}</td>
-              <td style={{ ...styles.td, ...styles.tdText }} title={item.description || ''}>
-                {item.description || '-'}
-              </td>
-              <td style={styles.td}>{item.customer_name || '-'}</td>
-              <td style={styles.td}>{item.sparepart || '-'}</td>
-            </tr>
-          ))
+          filteredArticleItems.map(item => {
+            const isSelected = selectedArticleId === item.id
+            const isHovered = hoveredRow === item.id
+            return (
+              <tr
+                key={item.id}
+                onMouseEnter={() => setHoveredRow(item.id)}
+                onMouseLeave={() => setHoveredRow(null)}
+                onClick={() => onArticleSelect?.(item.id)}
+                style={{
+                  ...(isSelected ? styles.rowSelected : isHovered ? styles.rowHover : undefined),
+                  ...(onArticleSelect ? styles.rowClickable : undefined),
+                }}
+              >
+                <td style={{ ...styles.td, ...styles.checkboxColumn }}>
+                  <input
+                    type="checkbox"
+                    checked={selectedArticles.has(item.id)}
+                    onChange={(e) => {
+                      e.stopPropagation()
+                      handleSelectArticle(item.id)
+                    }}
+                  />
+                </td>
+                <td style={styles.td}>{item.articlenumber || '-'}</td>
+                <td style={styles.td}>{item.index || '-'}</td>
+                <td style={styles.td}>{item.materialgroup_name || '-'}</td>
+                <td style={{ ...styles.td, ...styles.tdText }} title={item.description || ''}>
+                  {item.description || '-'}
+                </td>
+                <td style={styles.td}>{item.customer_name || '-'}</td>
+                <td style={styles.td}>{item.sparepart || '-'}</td>
+              </tr>
+            )
+          })
         )}
       </tbody>
     </table>

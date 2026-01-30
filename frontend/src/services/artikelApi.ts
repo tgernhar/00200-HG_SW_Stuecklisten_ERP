@@ -137,3 +137,198 @@ export async function searchMaterialgroups(filters: MaterialgroupFilters): Promi
   const response = await api.get(`/artikel-data/materialgroups/search?${params.toString()}`)
   return response.data
 }
+
+// ============ Article Detail Types ============
+
+export interface ArticleDetailItem {
+  id: number
+  mandant: number | null
+  articlenumber: string | null
+  index: string | null
+  description: string | null
+  materialgroup: number | null
+  materialgroup_name: string | null
+  kid: number | null
+  customer_name: string | null
+  evk: number | null
+  purchasecalctype: number | null
+  purchasecalctype_name: string | null
+  salescalctype: number | null
+  salescalctype_name: string | null
+  purchasegrade: number | null
+  salesgrade: number | null
+  ekdatum: string | null
+  ekmenge: number | null
+  department: number | null
+  department_name: string | null
+  calculation: number | null
+  calculation_name: string | null
+  sparepart: string | null
+  din: string | null
+  en: string | null
+  iso: string | null
+  eniso: string | null
+  origin: string | null
+  commoditycode: string | null
+  weight: number | null
+  active: number | null
+  salesfactor: number | null
+  wastefactor: number | null
+  imageurl: string | null
+  imageoriginalurl: string | null
+  picturepath: string | null
+  manufacturer: number | null
+  manufacturerArticleNumber: string | null
+  lastUpdated: string | null
+  // Custom text fields
+  customtext1: string | null
+  customtext2: string | null
+  customtext3: string | null
+  customtext4: string | null
+  customtext5: string | null
+  customtext6: string | null
+  customtext7: string | null
+  customtext8: string | null
+  customtext9: string | null
+  customtext10: string | null
+  customtext11: string | null
+  customtext12: string | null
+  customtext13: string | null
+  customtext14: string | null
+  customtext15: string | null
+  // Custom date fields
+  customdate1: string | null
+  customdate2: string | null
+  customdate3: string | null
+  customdate4: string | null
+  customdate5: string | null
+  // Custom int fields
+  customint1: number | null
+  customint2: number | null
+  customint3: number | null
+  customint4: number | null
+  customint5: number | null
+  customint6: number | null
+  // Custom float fields
+  customfloat1: number | null
+  customfloat2: number | null
+  customfloat3: number | null
+  customfloat4: number | null
+  customfloat5: number | null
+  customfloat6: number | null
+  customfloat7: number | null
+  customfloat8: number | null
+  customfloat9: number | null
+  customfloat10: number | null
+  // Custom boolean fields
+  customboolean1: number | null
+  customboolean2: number | null
+  customboolean3: number | null
+  customboolean4: number | null
+  customboolean5: number | null
+  customboolean6: number | null
+}
+
+export interface CustomFieldLabel {
+  id: number
+  customfield: number
+  field_name: string
+  field_type: string
+  label: string
+  mandatory: number | null
+  position: number | null
+  selectlist: number | null
+  standardvalue: string | null
+  showincustomtable: number | null
+  important: number | null
+}
+
+export interface Department {
+  id: number
+  name: string | null
+}
+
+export interface CalculationType {
+  id: number
+  name: string | null
+}
+
+export interface Calculation {
+  id: number
+  name: string | null
+}
+
+export interface MaterialgroupDropdownItem {
+  id: number
+  name: string | null
+}
+
+export interface CustomerSearchResult {
+  id: number
+  suchname: string | null
+  kdn: string | null
+}
+
+// ============ Article Detail API Functions ============
+
+/**
+ * Loads detailed data for a single article.
+ */
+export async function getArticleDetail(articleId: number): Promise<ArticleDetailItem> {
+  const response = await api.get(`/artikel-data/${articleId}`)
+  return response.data
+}
+
+/**
+ * Loads custom field labels for an article's materialgroup.
+ */
+export async function getCustomFieldLabels(articleId: number): Promise<CustomFieldLabel[]> {
+  const response = await api.get(`/artikel-data/${articleId}/custom-field-labels`)
+  return response.data
+}
+
+/**
+ * Loads calculations (VK-Berechnung) for an article's materialgroup.
+ */
+export async function getCalculationsForArticle(articleId: number): Promise<Calculation[]> {
+  const response = await api.get(`/artikel-data/${articleId}/calculations`)
+  return response.data
+}
+
+/**
+ * Loads all departments for dropdown selection.
+ */
+export async function getDepartments(): Promise<Department[]> {
+  const response = await api.get('/artikel-data/departments')
+  return response.data
+}
+
+/**
+ * Loads all calculation types (units) for dropdown selection.
+ */
+export async function getCalculationTypes(): Promise<CalculationType[]> {
+  const response = await api.get('/artikel-data/calculation-types')
+  return response.data
+}
+
+/**
+ * Loads materialgroups for dropdown/autocomplete.
+ */
+export async function getMaterialgroupsForDropdown(search?: string, limit?: number): Promise<MaterialgroupDropdownItem[]> {
+  const params = new URLSearchParams()
+  if (search) params.append('search', search)
+  if (limit) params.append('limit', String(limit))
+  const response = await api.get(`/artikel-data/materialgroups/dropdown?${params.toString()}`)
+  return response.data
+}
+
+/**
+ * Searches customers by suchname for autocomplete.
+ */
+export async function searchCustomers(term: string, limit?: number): Promise<CustomerSearchResult[]> {
+  const params = new URLSearchParams()
+  params.append('term', term)
+  if (limit) params.append('limit', String(limit))
+  const response = await api.get(`/artikel-data/customers/search?${params.toString()}`)
+  return response.data
+}
