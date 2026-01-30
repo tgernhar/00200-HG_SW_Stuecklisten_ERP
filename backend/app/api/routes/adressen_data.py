@@ -26,6 +26,22 @@ async def get_contact_types():
         erp_connection.close()
 
 
+@router.get("/salutations")
+async def get_salutations():
+    """
+    Returns all salutations for dropdown selection.
+    
+    Returns:
+        List of {id: int, name: str}
+    """
+    erp_connection = get_erp_db_connection()
+    try:
+        result = adressen_data_service.get_salutations(erp_connection)
+        return result
+    finally:
+        erp_connection.close()
+
+
 @router.get("/search")
 async def search_addresses(
     # Search group indicator
@@ -191,6 +207,188 @@ async def get_address_lines(address_id: int):
     erp_connection = get_erp_db_connection()
     try:
         result = adressen_data_service.get_address_lines(erp_connection, address_id)
+        return result
+    finally:
+        erp_connection.close()
+
+
+@router.get("/contacts/{contact_id}")
+async def get_contact_detail(contact_id: int):
+    """
+    Returns detailed data for a single contact.
+    
+    Args:
+        contact_id: The adrcont.id
+    
+    Returns:
+        Contact detail object with all fields
+    """
+    erp_connection = get_erp_db_connection()
+    try:
+        result = adressen_data_service.get_contact_detail(erp_connection, contact_id)
+        if result is None:
+            raise HTTPException(status_code=404, detail=f"Kontakt mit ID {contact_id} nicht gefunden")
+        return result
+    finally:
+        erp_connection.close()
+
+
+@router.get("/contacts/{contact_id}/emails")
+async def get_contact_emails(contact_id: int):
+    """
+    Returns all emails for a contact with their types.
+    
+    Args:
+        contact_id: The adrcont.id
+    
+    Returns:
+        List of email objects
+    """
+    erp_connection = get_erp_db_connection()
+    try:
+        result = adressen_data_service.get_contact_emails(erp_connection, contact_id)
+        return result
+    finally:
+        erp_connection.close()
+
+
+@router.get("/contacts/{contact_id}/phones")
+async def get_contact_phones(contact_id: int):
+    """
+    Returns all phone numbers for a contact with their types.
+    
+    Args:
+        contact_id: The adrcont.id
+    
+    Returns:
+        List of phone objects
+    """
+    erp_connection = get_erp_db_connection()
+    try:
+        result = adressen_data_service.get_contact_phones(erp_connection, contact_id)
+        return result
+    finally:
+        erp_connection.close()
+
+
+@router.get("/email-types")
+async def get_email_types():
+    """
+    Returns all email types for dropdown selection.
+    
+    Returns:
+        List of {id: int, name: str}
+    """
+    erp_connection = get_erp_db_connection()
+    try:
+        result = adressen_data_service.get_email_types(erp_connection)
+        return result
+    finally:
+        erp_connection.close()
+
+
+@router.get("/phone-types")
+async def get_phone_types():
+    """
+    Returns all phone types for dropdown selection.
+    
+    Returns:
+        List of {id: int, name: str}
+    """
+    erp_connection = get_erp_db_connection()
+    try:
+        result = adressen_data_service.get_phone_types(erp_connection)
+        return result
+    finally:
+        erp_connection.close()
+
+
+@router.get("/address-lines/{line_id}")
+async def get_address_line_detail(line_id: int):
+    """
+    Returns detailed data for a single address line.
+    
+    Args:
+        line_id: The adrline.id
+    
+    Returns:
+        Address line detail object with all fields
+    """
+    erp_connection = get_erp_db_connection()
+    try:
+        result = adressen_data_service.get_address_line_detail(erp_connection, line_id)
+        if result is None:
+            raise HTTPException(status_code=404, detail=f"Adresszeile mit ID {line_id} nicht gefunden")
+        return result
+    finally:
+        erp_connection.close()
+
+
+@router.get("/address-lines/{line_id}/accounts")
+async def get_address_line_accounts(line_id: int):
+    """
+    Returns all bank accounts for an address line.
+    
+    Args:
+        line_id: The adrline.id
+    
+    Returns:
+        List of bank account objects
+    """
+    erp_connection = get_erp_db_connection()
+    try:
+        result = adressen_data_service.get_address_line_accounts(erp_connection, line_id)
+        return result
+    finally:
+        erp_connection.close()
+
+
+@router.get("/address-lines/{line_id}/mline")
+async def get_address_line_mline(line_id: int):
+    """
+    Returns direct debit data for an address line.
+    
+    Args:
+        line_id: The adrline.id
+    
+    Returns:
+        Direct debit object or null
+    """
+    erp_connection = get_erp_db_connection()
+    try:
+        result = adressen_data_service.get_address_line_mline(erp_connection, line_id)
+        return result
+    finally:
+        erp_connection.close()
+
+
+@router.get("/countries")
+async def get_countries():
+    """
+    Returns all countries for dropdown selection.
+    
+    Returns:
+        List of {id: int, name: str}
+    """
+    erp_connection = get_erp_db_connection()
+    try:
+        result = adressen_data_service.get_countries(erp_connection)
+        return result
+    finally:
+        erp_connection.close()
+
+
+@router.get("/factoring")
+async def get_factoring_options():
+    """
+    Returns all factoring options for dropdown selection.
+    
+    Returns:
+        List of {id: int, name: str}
+    """
+    erp_connection = get_erp_db_connection()
+    try:
+        result = adressen_data_service.get_factoring_options(erp_connection)
         return result
     finally:
         erp_connection.close()

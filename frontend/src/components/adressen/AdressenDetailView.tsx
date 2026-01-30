@@ -15,6 +15,8 @@ import {
   getPaymentTerms,
   getPackingConditions,
 } from '../../services/adressenApi'
+import ContactDetailDialog from './ContactDetailDialog'
+import AddressLineDetailDialog from './AddressLineDetailDialog'
 
 interface AdressenDetailViewProps {
   address: AddressDetailItem
@@ -395,6 +397,12 @@ export default function AdressenDetailView({ address }: AdressenDetailViewProps)
   const [contacts, setContacts] = useState<AddressContact[]>([])
   const [addressLines, setAddressLines] = useState<AddressLine[]>([])
   const [loadingRelated, setLoadingRelated] = useState(true)
+
+  // Contact detail dialog
+  const [selectedContactId, setSelectedContactId] = useState<number | null>(null)
+
+  // Address line detail dialog
+  const [selectedAddressLineId, setSelectedAddressLineId] = useState<number | null>(null)
 
   // Table filters
   const [contactFilters, setContactFilters] = useState({
@@ -813,7 +821,11 @@ export default function AdressenDetailView({ address }: AdressenDetailViewProps)
                 </thead>
                 <tbody>
                   {filteredContacts.map(contact => (
-                    <tr key={contact.id}>
+                    <tr 
+                      key={contact.id} 
+                      onClick={() => setSelectedContactId(contact.id)}
+                      style={{ cursor: 'pointer' }}
+                    >
                       <td style={styles.tableTd}>{contact.suchname || '-'}</td>
                       <td style={styles.tableTd}>{contact.type_name || '-'}</td>
                       <td style={{ ...styles.tableTd, ...styles.tableTdText }} title={contact.phones || ''}>
@@ -909,7 +921,11 @@ export default function AdressenDetailView({ address }: AdressenDetailViewProps)
                 </thead>
                 <tbody>
                   {filteredAddressLines.map(line => (
-                    <tr key={line.id}>
+                    <tr 
+                      key={line.id}
+                      onClick={() => setSelectedAddressLineId(line.id)}
+                      style={{ cursor: 'pointer' }}
+                    >
                       <td style={styles.tableTd}>{line.kdn || '-'}</td>
                       <td style={styles.tableTd}>{line.suchname || '-'}</td>
                       <td style={{ ...styles.tableTd, ...styles.tableTdText }} title={line.street || ''}>
@@ -932,6 +948,23 @@ export default function AdressenDetailView({ address }: AdressenDetailViewProps)
           )}
         </div>
       </div>
+
+      {/* Contact Detail Dialog */}
+      {selectedContactId && (
+        <ContactDetailDialog
+          contactId={selectedContactId}
+          onClose={() => setSelectedContactId(null)}
+        />
+      )}
+
+      {/* Address Line Detail Dialog */}
+      {selectedAddressLineId && (
+        <AddressLineDetailDialog
+          lineId={selectedAddressLineId}
+          addressKdn={address.kdn}
+          onClose={() => setSelectedAddressLineId(null)}
+        />
+      )}
     </div>
   )
 }

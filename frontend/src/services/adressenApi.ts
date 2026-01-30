@@ -26,7 +26,12 @@ export interface AddressItem {
 
 export interface ContactType {
   id: number
-  name: string
+  name: string | null
+}
+
+export interface Salutation {
+  id: number
+  name: string | null
 }
 
 export interface AddressFilters {
@@ -137,6 +142,100 @@ export interface PackingCondition {
   name: string | null
 }
 
+// Contact Detail types
+export interface ContactDetailItem {
+  id: number
+  mandant: number | null
+  adrnr: number | null
+  firstname: string | null
+  lastname: string | null
+  suchname: string | null
+  addname: string | null
+  salutation: string | null
+  title: string | null
+  url: string | null
+  birthdate: string | null
+  function: string | null
+  description: string | null
+  type_name: string | null
+  favorite: number | null
+  blocked: number | null
+}
+
+export interface ContactEmail {
+  id: number
+  email: string | null
+  type: number | null
+  type_name: string | null
+}
+
+export interface ContactPhone {
+  id: number
+  phonenumber: string | null
+  type: number | null
+  type_name: string | null
+}
+
+export interface EmailType {
+  id: number
+  name: string | null
+}
+
+export interface PhoneType {
+  id: number
+  name: string | null
+}
+
+// Address Line Detail types
+export interface AddressLineDetailItem {
+  id: number
+  kid: number | null
+  kdn: string | null
+  suchname: string | null
+  line1: string | null
+  line2: string | null
+  line3: string | null
+  line4: string | null
+  street: string | null
+  zipcode: string | null
+  city: string | null
+  country: number | null
+  country_name: string | null
+  isPrivate: number | null
+  salestax: string | null
+  steuernum: string | null
+  email: string | null
+  blocked: number | null
+}
+
+export interface AddressLineAccount {
+  id: number
+  taxnumber: string | null
+  bankcode: string | null
+  accountnumber: string | null
+  iban: string | null
+  swift: string | null
+}
+
+export interface AddressLineMLine {
+  id: number | null
+  islsv: number | null
+  directDebitMandateDate: string | null
+  directDebitMandateId: string | null
+  fact: number | null
+  factoring_name: string | null
+}
+
+export interface Country {
+  id: number
+  name: string | null
+}
+
+export interface FactoringOption {
+  id: number
+  name: string | null
+}
+
 // ============ API Functions ============
 
 /**
@@ -144,6 +243,14 @@ export interface PackingCondition {
  */
 export async function getContactTypes(): Promise<ContactType[]> {
   const response = await api.get('/adressen-data/contact-types')
+  return response.data
+}
+
+/**
+ * Loads all salutations for the salutation dropdown.
+ */
+export async function getSalutations(): Promise<Salutation[]> {
+  const response = await api.get('/adressen-data/salutations')
   return response.data
 }
 
@@ -227,5 +334,85 @@ export async function getPaymentTerms(): Promise<PaymentTerm[]> {
  */
 export async function getPackingConditions(): Promise<PackingCondition[]> {
   const response = await api.get('/adressen-data/packing-conditions')
+  return response.data
+}
+
+/**
+ * Loads detailed data for a single contact.
+ */
+export async function getContactDetail(contactId: number): Promise<ContactDetailItem> {
+  const response = await api.get(`/adressen-data/contacts/${contactId}`)
+  return response.data
+}
+
+/**
+ * Loads all emails for a contact.
+ */
+export async function getContactEmails(contactId: number): Promise<ContactEmail[]> {
+  const response = await api.get(`/adressen-data/contacts/${contactId}/emails`)
+  return response.data
+}
+
+/**
+ * Loads all phone numbers for a contact.
+ */
+export async function getContactPhones(contactId: number): Promise<ContactPhone[]> {
+  const response = await api.get(`/adressen-data/contacts/${contactId}/phones`)
+  return response.data
+}
+
+/**
+ * Loads all email types for dropdown.
+ */
+export async function getEmailTypes(): Promise<EmailType[]> {
+  const response = await api.get('/adressen-data/email-types')
+  return response.data
+}
+
+/**
+ * Loads all phone types for dropdown.
+ */
+export async function getPhoneTypes(): Promise<PhoneType[]> {
+  const response = await api.get('/adressen-data/phone-types')
+  return response.data
+}
+
+/**
+ * Loads detailed data for a single address line.
+ */
+export async function getAddressLineDetail(lineId: number): Promise<AddressLineDetailItem> {
+  const response = await api.get(`/adressen-data/address-lines/${lineId}`)
+  return response.data
+}
+
+/**
+ * Loads all bank accounts for an address line.
+ */
+export async function getAddressLineAccounts(lineId: number): Promise<AddressLineAccount[]> {
+  const response = await api.get(`/adressen-data/address-lines/${lineId}/accounts`)
+  return response.data
+}
+
+/**
+ * Loads direct debit data for an address line.
+ */
+export async function getAddressLineMLine(lineId: number): Promise<AddressLineMLine | null> {
+  const response = await api.get(`/adressen-data/address-lines/${lineId}/mline`)
+  return response.data
+}
+
+/**
+ * Loads all countries for dropdown.
+ */
+export async function getCountries(): Promise<Country[]> {
+  const response = await api.get('/adressen-data/countries')
+  return response.data
+}
+
+/**
+ * Loads all factoring options for dropdown.
+ */
+export async function getFactoringOptions(): Promise<FactoringOption[]> {
+  const response = await api.get('/adressen-data/factoring')
   return response.data
 }

@@ -26,6 +26,27 @@ def get_contact_types(db_connection) -> List[Dict[str, Any]]:
         cursor.close()
 
 
+def get_salutations(db_connection) -> List[Dict[str, Any]]:
+    """
+    Loads all salutations from salutation table for dropdown.
+    
+    Returns:
+        List of {id, name} objects
+    """
+    cursor = db_connection.cursor(dictionary=True)
+    
+    try:
+        query = """
+            SELECT id, name
+            FROM salutation
+            ORDER BY name ASC
+        """
+        cursor.execute(query)
+        return cursor.fetchall() or []
+    finally:
+        cursor.close()
+
+
 def search_addresses(
     db_connection,
     # Search group indicator
@@ -415,6 +436,306 @@ def get_packing_conditions(db_connection) -> List[Dict[str, Any]]:
         query = """
             SELECT id, name
             FROM billing_packingconditions
+            ORDER BY name ASC
+        """
+        cursor.execute(query)
+        return cursor.fetchall() or []
+    finally:
+        cursor.close()
+
+
+def get_contact_detail(db_connection, contact_id: int) -> Optional[Dict[str, Any]]:
+    """
+    Loads detailed data for a single contact from adrcont.
+    Joins with adrconttype and salutation tables to get display names.
+    
+    Args:
+        contact_id: The adrcont.id
+    
+    Returns:
+        Dict with all contact fields, or None if not found
+    """
+    cursor = db_connection.cursor(dictionary=True)
+    
+    try:
+        # Join with adrconttype and salutation to get display names
+        # adrcont.type might contain ID or name, so we try to join
+        # adrcont.salutation might contain ID or name, so we try to join
+        query = """
+            SELECT 
+                ac.id,
+                ac.mandant,
+                ac.kid AS adrnr,
+                ac.name AS lastname,
+                ac.prename AS firstname,
+                ac.suchname,
+                ac.addname,
+                COALESCE(sal.name, ac.salutation) AS salutation,
+                ac.title,
+                ac.url,
+                ac.birthdate,
+                ac.function,
+                ac.description,
+                COALESCE(act.name, ac.type) AS type_name,
+                ac.favorite,
+                ac.blocked
+            FROM adrcont ac
+            LEFT JOIN adrconttype act ON (ac.type = act.id OR ac.type = CAST(act.id AS CHAR))
+            LEFT JOIN salutation sal ON (ac.salutation = sal.id OR ac.salutation = CAST(sal.id AS CHAR))
+            WHERE ac.id = %s
+        """
+        cursor.execute(query, [contact_id])
+        result = cursor.fetchone()
+        return result
+    finally:
+        cursor.close()
+
+
+def get_contact_emails(db_connection, contact_id: int) -> List[Dict[str, Any]]:
+    """
+    Loads all emails for a contact with their types.
+    Note: adrcont_email has no 'standard' column.
+    
+    Args:
+        contact_id: The adrcont.id
+    
+    Returns:
+        List of email dicts with type name
+    """
+    cursor = db_connection.cursor(dictionary=True)
+    
+    try:
+        query = """
+            SELECT 
+                ace.id,
+                ace.email,
+                ace.type,
+                acet.name AS type_name
+            FROM adrcont_email ace
+            LEFT JOIN adrcont_emailtype acet ON ace.type = acet.id
+            WHERE ace.adrcont = %s
+            ORDER BY acet.name ASC
+        """
+        cursor.execute(query, [contact_id])
+        return cursor.fetchall() or []
+    finally:
+        cursor.close()
+
+
+def get_contact_phones(db_connection, contact_id: int) -> List[Dict[str, Any]]:
+    """
+    Loads all phone numbers for a contact with their types.
+    Note: adrcont_phone has no 'standard' or 'hotline' columns.
+    
+    Args:
+        contact_id: The adrcont.id
+    
+    Returns:
+        List of phone dicts with type name
+    """
+    cursor = db_connection.cursor(dictionary=True)
+    
+    try:
+        query = """
+            SELECT 
+                acp.id,
+                acp.phonenumber,
+                acp.type,
+                acpt.name AS type_name
+            FROM adrcont_phone acp
+            LEFT JOIN adrcont_phonetype acpt ON acp.type = acpt.id
+            WHERE acp.adrcont = %s
+            ORDER BY acpt.name ASC
+        """
+        cursor.execute(query, [contact_id])
+        return cursor.fetchall() or []
+    finally:
+        cursor.close()
+
+
+def get_email_types(db_connection) -> List[Dict[str, Any]]:
+    """
+    Loads all email types from adrcont_emailtype for dropdown.
+    
+    Returns:
+        List of {id, name} objects
+    """
+    cursor = db_connection.cursor(dictionary=True)
+    
+    try:
+        query = """
+            SELECT id, name
+            FROM adrcont_emailtype
+            ORDER BY name ASC
+        """
+        cursor.execute(query)
+        return cursor.fetchall() or []
+    finally:
+        cursor.close()
+
+
+def get_phone_types(db_connection) -> List[Dict[str, Any]]:
+    """
+    Loads all phone types from adrcont_phonetype for dropdown.
+    
+    Returns:
+        List of {id, name} objects
+    """
+    cursor = db_connection.cursor(dictionary=True)
+    
+    try:
+        query = """
+            SELECT id, name
+            FROM adrcont_phonetype
+            ORDER BY name ASC
+        """
+        cursor.execute(query)
+        return cursor.fetchall() or []
+    finally:
+        cursor.close()
+
+
+def get_address_line_detail(db_connection, line_id: int) -> Optional[Dict[str, Any]]:
+    """
+    Loads detailed data for a single address line from adrline with country name.
+    
+    Args:
+        line_id: The adrline.id
+    
+    Returns:
+        Dict with all address line fields, or None if not found
+    """
+    cursor = db_connection.cursor(dictionary=True)
+    
+    try:
+        query = """
+            SELECT 
+                al.id,
+                al.kid,
+                al.kdn,
+                al.suchname,
+                al.line1,
+                al.line2,
+                al.line3,
+                al.line4,
+                al.street,
+                al.zipcode,
+                al.city,
+                al.country,
+                al.isPrivate,
+                al.salestax,
+                al.steuernum,
+                al.email,
+                al.blocked,
+                ac.name AS country_name
+            FROM adrline al
+            LEFT JOIN adrline_countries ac ON al.country = ac.id
+            WHERE al.id = %s
+        """
+        cursor.execute(query, [line_id])
+        result = cursor.fetchone()
+        return result
+    finally:
+        cursor.close()
+
+
+def get_address_line_accounts(db_connection, line_id: int) -> List[Dict[str, Any]]:
+    """
+    Loads all bank accounts for an address line from adrline_account.
+    
+    Args:
+        line_id: The adrline.id
+    
+    Returns:
+        List of bank account dicts
+    """
+    cursor = db_connection.cursor(dictionary=True)
+    
+    try:
+        query = """
+            SELECT 
+                ala.id,
+                ala.taxnumber,
+                ala.bankcode,
+                ala.accountnumber,
+                ala.iban,
+                ala.swift
+            FROM adrline_account ala
+            WHERE ala.adrlineid = %s
+        """
+        cursor.execute(query, [line_id])
+        return cursor.fetchall() or []
+    finally:
+        cursor.close()
+
+
+def get_address_line_mline(db_connection, line_id: int) -> Optional[Dict[str, Any]]:
+    """
+    Loads direct debit data for an address line from adrmline.
+    
+    Args:
+        line_id: The adrline.id
+    
+    Returns:
+        Dict with direct debit fields, or None if not found
+    """
+    cursor = db_connection.cursor(dictionary=True)
+    
+    try:
+        query = """
+            SELECT 
+                am.id,
+                am.islsv,
+                am.directDebitMandateDate,
+                am.directDebitMandateId,
+                am.fact,
+                bf.name AS factoring_name
+            FROM adrmline am
+            LEFT JOIN billing_factoring bf ON am.fact = bf.id
+            WHERE am.lid = %s
+        """
+        cursor.execute(query, [line_id])
+        result = cursor.fetchone()
+        return result
+    finally:
+        cursor.close()
+
+
+def get_countries(db_connection) -> List[Dict[str, Any]]:
+    """
+    Loads all countries from adrline_countries for dropdown.
+    
+    Returns:
+        List of {id, name} objects
+    """
+    cursor = db_connection.cursor(dictionary=True)
+    
+    try:
+        query = """
+            SELECT id, name
+            FROM adrline_countries
+            ORDER BY name ASC
+        """
+        cursor.execute(query)
+        return cursor.fetchall() or []
+    finally:
+        cursor.close()
+
+
+def get_factoring_options(db_connection) -> List[Dict[str, Any]]:
+    """
+    Loads all factoring options from billing_factoring for dropdown.
+    
+    Returns:
+        List of {id, name} objects
+    """
+    cursor = db_connection.cursor(dictionary=True)
+    
+    try:
+        query = """
+            SELECT id, name
+            FROM billing_factoring
+            WHERE active = 1 OR active IS NULL
             ORDER BY name ASC
         """
         cursor.execute(query)
