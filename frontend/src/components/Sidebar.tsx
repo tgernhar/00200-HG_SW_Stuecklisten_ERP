@@ -24,6 +24,21 @@ const menuItems: MenuItem[] = [
     label: 'Stücklisten',
     children: [
       {
+        id: 'stuecklisten-liste',
+        label: 'Stücklisten',
+        path: '/menu/stuecklisten/liste'
+      },
+      {
+        id: 'stuecklisten-kalkulation',
+        label: 'StücklistenKalkulation',
+        path: '/menu/stuecklisten/kalkulation'
+      },
+      {
+        id: 'stuecklisten-erfassung',
+        label: 'Stücklistenerfassung',
+        path: '/menu/stuecklisten/erfassung'
+      },
+      {
         id: 'sw-import',
         label: 'SW_Stücklistenimport',
         path: '/menu/stuecklisten/sw-import'

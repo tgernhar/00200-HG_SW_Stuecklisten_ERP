@@ -185,6 +185,38 @@ async def get_factoring_options():
         erp_connection.close()
 
 
+@router.get("/email-types")
+async def get_email_types():
+    """
+    Returns all email types for dropdown selection.
+    
+    Returns:
+        List of {id: int, name: str}
+    """
+    erp_connection = get_erp_db_connection()
+    try:
+        result = adressen_data_service.get_email_types(erp_connection)
+        return result
+    finally:
+        erp_connection.close()
+
+
+@router.get("/phone-types")
+async def get_phone_types():
+    """
+    Returns all phone types for dropdown selection.
+    
+    Returns:
+        List of {id: int, name: str}
+    """
+    erp_connection = get_erp_db_connection()
+    try:
+        result = adressen_data_service.get_phone_types(erp_connection)
+        return result
+    finally:
+        erp_connection.close()
+
+
 # Dynamic routes with path parameters MUST come after static routes
 @router.get("/{address_id}")
 async def get_address_detail(address_id: int):
@@ -299,38 +331,6 @@ async def get_contact_phones(contact_id: int):
     erp_connection = get_erp_db_connection()
     try:
         result = adressen_data_service.get_contact_phones(erp_connection, contact_id)
-        return result
-    finally:
-        erp_connection.close()
-
-
-@router.get("/email-types")
-async def get_email_types():
-    """
-    Returns all email types for dropdown selection.
-    
-    Returns:
-        List of {id: int, name: str}
-    """
-    erp_connection = get_erp_db_connection()
-    try:
-        result = adressen_data_service.get_email_types(erp_connection)
-        return result
-    finally:
-        erp_connection.close()
-
-
-@router.get("/phone-types")
-async def get_phone_types():
-    """
-    Returns all phone types for dropdown selection.
-    
-    Returns:
-        List of {id: int, name: str}
-    """
-    erp_connection = get_erp_db_connection()
-    try:
-        result = adressen_data_service.get_phone_types(erp_connection)
         return result
     finally:
         erp_connection.close()

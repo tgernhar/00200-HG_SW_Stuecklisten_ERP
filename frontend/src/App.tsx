@@ -45,6 +45,11 @@ const PaperlessSearchPage = React.lazy(() => import('./pages/PaperlessSearchPage
 // Administration Pages
 const DbSwitchConfigPage = React.lazy(() => import('./pages/DbSwitchConfigPage'))
 
+// Stücklisten Pages
+const StuecklistenPage = React.lazy(() => import('./pages/StuecklistenPage'))
+const StuecklistenKalkulationPage = React.lazy(() => import('./pages/StuecklistenKalkulationPage'))
+const StuecklistenErfassungPage = React.lazy(() => import('./pages/StuecklistenErfassungPage'))
+
 function App() {
   const { isAuthenticated, isLoading } = useAuth()
 
@@ -89,6 +94,30 @@ function App() {
           <Route 
             path="stuecklisten/sw-import" 
             element={<SWImportPage />} 
+          />
+          <Route 
+            path="stuecklisten/liste" 
+            element={
+              <React.Suspense fallback={<div style={{ padding: 20 }}>Lade Stücklisten...</div>}>
+                <StuecklistenPage />
+              </React.Suspense>
+            } 
+          />
+          <Route 
+            path="stuecklisten/kalkulation" 
+            element={
+              <React.Suspense fallback={<div style={{ padding: 20 }}>Lade StücklistenKalkulation...</div>}>
+                <StuecklistenKalkulationPage />
+              </React.Suspense>
+            } 
+          />
+          <Route 
+            path="stuecklisten/erfassung" 
+            element={
+              <React.Suspense fallback={<div style={{ padding: 20 }}>Lade Stücklistenerfassung...</div>}>
+                <StuecklistenErfassungPage />
+              </React.Suspense>
+            } 
           />
           <Route 
             path="fertigungsplanung/auftraege" 

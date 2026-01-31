@@ -120,6 +120,50 @@ const styles: Record<string, React.CSSProperties> = {
     gap: '6px',
     alignItems: 'flex-end',
   },
+  fieldRow4: {
+    display: 'flex',
+    gap: '6px',
+    alignItems: 'flex-end',
+    marginBottom: '5px',
+  },
+  fieldWidth30: {
+    width: '30%',
+    minWidth: '60px',
+    flex: '0 0 auto',
+  },
+  fieldWidth40: {
+    width: '40%',
+    minWidth: '80px',
+    flex: '0 0 auto',
+  },
+  fieldWidth20: {
+    width: '20%',
+    minWidth: '50px',
+    flex: '0 0 auto',
+  },
+  fieldWidth15: {
+    width: '15%',
+    minWidth: '40px',
+    flex: '0 0 auto',
+  },
+  fieldWidth32: {
+    width: '32%',
+    minWidth: '60px',
+    flex: '0 0 auto',
+  },
+  textareaResizable: {
+    padding: '4px 6px',
+    border: '1px solid #ccc',
+    borderRadius: '3px',
+    fontSize: '11px',
+    width: '100%',
+    boxSizing: 'border-box' as const,
+    resize: 'both' as const,
+    minHeight: '66px',
+    height: '66px',
+    overflow: 'auto',
+    fontFamily: 'inherit',
+  },
   fieldBlock: {
     display: 'flex',
     flexDirection: 'column' as const,
@@ -674,168 +718,227 @@ export default function ArtikelDetailView({ articleId, onClose, onToggleFullscre
           {/* Left column: Standard fields */}
           <div style={styles.card}>
             <h2 style={styles.cardTitle}>Artikeldaten</h2>
-            <div style={styles.fieldGrid}>
-              {/* Warengruppensuche */}
-              <div style={styles.autocompleteContainer}>
-                <InputField
-                  label="Warengruppensuche"
-                  value={materialgroupSearch}
-                  onChange={handleMaterialgroupSearch}
-                />
-                {showMaterialgroupDropdown && materialgroupOptions.length > 0 && (
-                  <div style={styles.autocompleteDropdown}>
-                    {materialgroupOptions.map(item => (
-                      <div
-                        key={item.id}
-                        style={styles.autocompleteItem}
-                        onClick={() => selectMaterialgroup(item)}
-                        onMouseOver={(e) => (e.currentTarget.style.backgroundColor = '#f0f0f0')}
-                        onMouseOut={(e) => (e.currentTarget.style.backgroundColor = 'white')}
-                      >
-                        {item.name}
-                      </div>
-                    ))}
-                  </div>
-                )}
+            <div style={styles.fieldGridSingle}>
+              {/* Row: Warengruppensuche + Kundensuche */}
+              <div style={styles.fieldRow4}>
+                {/* Warengruppensuche */}
+                <div style={{ ...styles.autocompleteContainer, flex: 1 }}>
+                  <InputField
+                    label="Warengruppensuche"
+                    value={materialgroupSearch}
+                    onChange={handleMaterialgroupSearch}
+                  />
+                  {showMaterialgroupDropdown && materialgroupOptions.length > 0 && (
+                    <div style={styles.autocompleteDropdown}>
+                      {materialgroupOptions.map(item => (
+                        <div
+                          key={item.id}
+                          style={styles.autocompleteItem}
+                          onClick={() => selectMaterialgroup(item)}
+                          onMouseOver={(e) => (e.currentTarget.style.backgroundColor = '#f0f0f0')}
+                          onMouseOut={(e) => (e.currentTarget.style.backgroundColor = 'white')}
+                        >
+                          {item.name}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Kundensuche */}
+                <div style={{ ...styles.autocompleteContainer, flex: 1 }}>
+                  <InputField
+                    label="Kundensuche"
+                    value={customerSearch}
+                    onChange={handleCustomerSearch}
+                  />
+                  {showCustomerDropdown && customerOptions.length > 0 && (
+                    <div style={styles.autocompleteDropdown}>
+                      {customerOptions.map(item => (
+                        <div
+                          key={item.id}
+                          style={styles.autocompleteItem}
+                          onClick={() => selectCustomer(item)}
+                          onMouseOver={(e) => (e.currentTarget.style.backgroundColor = '#f0f0f0')}
+                          onMouseOut={(e) => (e.currentTarget.style.backgroundColor = 'white')}
+                        >
+                          {item.suchname} ({item.kdn})
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
 
-              {/* Kundensuche */}
-              <div style={styles.autocompleteContainer}>
-                <InputField
-                  label="Kundensuche"
-                  value={customerSearch}
-                  onChange={handleCustomerSearch}
-                />
-                {showCustomerDropdown && customerOptions.length > 0 && (
-                  <div style={styles.autocompleteDropdown}>
-                    {customerOptions.map(item => (
-                      <div
-                        key={item.id}
-                        style={styles.autocompleteItem}
-                        onClick={() => selectCustomer(item)}
-                        onMouseOver={(e) => (e.currentTarget.style.backgroundColor = '#f0f0f0')}
-                        onMouseOut={(e) => (e.currentTarget.style.backgroundColor = 'white')}
-                      >
-                        {item.suchname} ({item.kdn})
-                      </div>
-                    ))}
-                  </div>
-                )}
+              {/* Row 1: Artikelnummer + Index (30%) */}
+              <div style={styles.fieldRow4}>
+                <div style={{ flex: 1 }}>
+                  <InputField
+                    label="Artikelnummer"
+                    value={formData.articlenumber}
+                    onChange={(v) => updateField('articlenumber', v)}
+                  />
+                </div>
+                <div style={styles.fieldWidth30}>
+                  <InputField
+                    label="Index"
+                    value={formData.index}
+                    onChange={(v) => updateField('index', v)}
+                  />
+                </div>
               </div>
 
-              <InputField
-                label="Artikelnummer"
-                value={formData.articlenumber}
-                onChange={(v) => updateField('articlenumber', v)}
-              />
-              <InputField
-                label="Index"
-                value={formData.index}
-                onChange={(v) => updateField('index', v)}
-              />
+              {/* Row 2: Bezeichnung (resizable, 300% height) */}
+              <div style={{ marginBottom: '5px' }}>
+                <div style={styles.fieldBlock}>
+                  <span style={styles.fieldLabel}>Bezeichnung</span>
+                  <textarea
+                    value={formData.description}
+                    onChange={(e) => updateField('description', e.target.value)}
+                    style={styles.textareaResizable}
+                  />
+                </div>
+              </div>
 
-              <InputField
-                label="Bezeichnung"
-                value={formData.description}
-                onChange={(v) => updateField('description', v)}
-              />
-              <InputField
-                label="Teilenummer"
-                value={formData.sparepart}
-                onChange={(v) => updateField('sparepart', v)}
-              />
+              {/* Row 3: Teilenummer + Abteilung */}
+              <div style={styles.fieldRow4}>
+                <div style={{ flex: 1 }}>
+                  <InputField
+                    label="Teilenummer"
+                    value={formData.sparepart}
+                    onChange={(v) => updateField('sparepart', v)}
+                  />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <SelectField
+                    label="Abteilung"
+                    value={formData.department}
+                    onChange={(v) => updateField('department', v)}
+                    options={departments}
+                    currentValueName={article?.department_name}
+                  />
+                </div>
+              </div>
 
-              <SelectField
-                label="Abteilung"
-                value={formData.department}
-                onChange={(v) => updateField('department', v)}
-                options={departments}
-                currentValueName={article?.department_name}
-              />
-              <SelectField
-                label="VK-Berechnung"
-                value={formData.calculation}
-                onChange={(v) => updateField('calculation', v)}
-                options={calculations}
-                currentValueName={article?.calculation_name}
-              />
+              {/* Row 4: VK-Berechnung (25%), Verkaufsfaktor (20%), Verschnittfaktor (20%) */}
+              <div style={styles.fieldRow4}>
+                <div style={{ width: '25%', minWidth: '100px' }}>
+                  <SelectField
+                    label="VK-Berechnung"
+                    value={formData.calculation}
+                    onChange={(v) => updateField('calculation', v)}
+                    options={calculations}
+                    currentValueName={article?.calculation_name}
+                  />
+                </div>
+                <div style={styles.fieldWidth20}>
+                  <InputField
+                    label="Verkaufsfaktor"
+                    value={formData.salesfactor}
+                    onChange={(v) => updateField('salesfactor', v)}
+                    type="number"
+                  />
+                </div>
+                <div style={styles.fieldWidth20}>
+                  <InputField
+                    label="Verschnittfaktor"
+                    value={formData.wastefactor}
+                    onChange={(v) => updateField('wastefactor', v)}
+                    type="number"
+                  />
+                </div>
+              </div>
 
-              <SelectField
-                label="Einkaufseinheit"
-                value={formData.purchasecalctype}
-                onChange={(v) => updateField('purchasecalctype', v)}
-                options={calculationTypes}
-                currentValueName={article?.purchasecalctype_name}
-              />
-              <SelectField
-                label="Verkaufseinheit"
-                value={formData.salescalctype}
-                onChange={(v) => updateField('salescalctype', v)}
-                options={calculationTypes}
-                currentValueName={article?.salescalctype_name}
-              />
+              {/* Row 5: Einkaufseinheit (25%), EK VPE (15%), Verkaufseinheit (25%), VK VPE (15%) */}
+              <div style={styles.fieldRow4}>
+                <div style={{ width: '25%', minWidth: '100px', flex: '0 0 auto' }}>
+                  <SelectField
+                    label="Einkaufseinheit"
+                    value={formData.purchasecalctype}
+                    onChange={(v) => updateField('purchasecalctype', v)}
+                    options={calculationTypes}
+                    currentValueName={article?.purchasecalctype_name}
+                  />
+                </div>
+                <div style={styles.fieldWidth15}>
+                  <InputField
+                    label="EK VPE"
+                    value={formData.purchasegrade}
+                    onChange={(v) => updateField('purchasegrade', v)}
+                    type="number"
+                  />
+                </div>
+                <div style={{ width: '25%', minWidth: '100px', flex: '0 0 auto' }}>
+                  <SelectField
+                    label="Verkaufseinheit"
+                    value={formData.salescalctype}
+                    onChange={(v) => updateField('salescalctype', v)}
+                    options={calculationTypes}
+                    currentValueName={article?.salescalctype_name}
+                  />
+                </div>
+                <div style={styles.fieldWidth15}>
+                  <InputField
+                    label="VK VPE"
+                    value={formData.salesgrade}
+                    onChange={(v) => updateField('salesgrade', v)}
+                    type="number"
+                  />
+                </div>
+              </div>
 
-              <InputField
-                label="EK VPE"
-                value={formData.purchasegrade}
-                onChange={(v) => updateField('purchasegrade', v)}
-                type="number"
-              />
-              <InputField
-                label="VK VPE"
-                value={formData.salesgrade}
-                onChange={(v) => updateField('salesgrade', v)}
-                type="number"
-              />
+              {/* Row 6: EK-Datum, EK-Menge (30%) */}
+              <div style={styles.fieldRow4}>
+                <div style={styles.fieldWidth30}>
+                  <InputField
+                    label="EK-Datum"
+                    value={formData.ekdatum}
+                    onChange={(v) => updateField('ekdatum', v)}
+                    type="date"
+                  />
+                </div>
+                <div style={styles.fieldWidth40}>
+                  <InputField
+                    label="EK-Menge"
+                    value={formData.ekmenge}
+                    onChange={(v) => updateField('ekmenge', v)}
+                    type="number"
+                  />
+                </div>
+              </div>
 
-              <InputField
-                label="Gewicht"
-                value={formData.weight}
-                onChange={(v) => updateField('weight', v)}
-                type="number"
-              />
-              <InputField
-                label="EK-Datum"
-                value={formData.ekdatum}
-                onChange={(v) => updateField('ekdatum', v)}
-                type="date"
-              />
-
-              <InputField
-                label="EK-Menge"
-                value={formData.ekmenge}
-                onChange={(v) => updateField('ekmenge', v)}
-                type="number"
-              />
-              <InputField
-                label="Verkaufsfaktor"
-                value={formData.salesfactor}
-                onChange={(v) => updateField('salesfactor', v)}
-                type="number"
-              />
-
-              <InputField
-                label="Verschnittfaktor"
-                value={formData.wastefactor}
-                onChange={(v) => updateField('wastefactor', v)}
-                type="number"
-              />
-              <InputField
-                label="DIN"
-                value={formData.din}
-                onChange={(v) => updateField('din', v)}
-              />
-
-              <InputField
-                label="EN"
-                value={formData.en}
-                onChange={(v) => updateField('en', v)}
-              />
-              <InputField
-                label="ISO"
-                value={formData.iso}
-                onChange={(v) => updateField('iso', v)}
-              />
+              {/* Row 7: Gewicht (32%), DIN (20%), EN (20%), ISO (20%) */}
+              <div style={styles.fieldRow4}>
+                <div style={styles.fieldWidth32}>
+                  <InputField
+                    label="Gewicht"
+                    value={formData.weight}
+                    onChange={(v) => updateField('weight', v)}
+                    type="number"
+                  />
+                </div>
+                <div style={styles.fieldWidth20}>
+                  <InputField
+                    label="DIN"
+                    value={formData.din}
+                    onChange={(v) => updateField('din', v)}
+                  />
+                </div>
+                <div style={styles.fieldWidth20}>
+                  <InputField
+                    label="EN"
+                    value={formData.en}
+                    onChange={(v) => updateField('en', v)}
+                  />
+                </div>
+                <div style={styles.fieldWidth20}>
+                  <InputField
+                    label="ISO"
+                    value={formData.iso}
+                    onChange={(v) => updateField('iso', v)}
+                  />
+                </div>
+              </div>
             </div>
           </div>
 
