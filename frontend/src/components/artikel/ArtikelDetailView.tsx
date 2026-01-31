@@ -13,6 +13,8 @@ import {
   MaterialgroupDropdownItem,
   CustomerSearchResult,
   SelectlistValue,
+  ArticleDistributor,
+  DistributorPriceinfo,
   getArticleDetail,
   getCustomFieldLabels,
   getCalculationsForArticle,
@@ -21,7 +23,11 @@ import {
   getMaterialgroupsForDropdown,
   searchCustomers,
   getSelectlistValues,
+  getArticleDistributors,
+  getDistributorPriceinfos,
 } from '../../services/artikelApi'
+import LieferantDetailDialog from './LieferantDetailDialog'
+import PreisinfoDetailDialog from './PreisinfoDetailDialog'
 
 interface ArtikelDetailViewProps {
   articleId: number
@@ -198,6 +204,60 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '10px',
     fontStyle: 'italic',
   },
+  tabsContainer: {
+    display: 'flex',
+    borderBottom: '1px solid #ddd',
+    backgroundColor: '#f9f9f9',
+  },
+  tab: {
+    padding: '8px 16px',
+    border: 'none',
+    backgroundColor: 'transparent',
+    cursor: 'pointer',
+    fontSize: '11px',
+    color: '#666',
+    borderBottom: '2px solid transparent',
+  },
+  tabActive: {
+    padding: '8px 16px',
+    border: 'none',
+    backgroundColor: 'transparent',
+    cursor: 'pointer',
+    fontSize: '11px',
+    color: '#333',
+    fontWeight: 600,
+    borderBottom: '2px solid #4a90d9',
+  },
+  distributorTable: {
+    width: '100%',
+    borderCollapse: 'collapse',
+    fontSize: '10px',
+  },
+  distributorTh: {
+    padding: '6px 8px',
+    textAlign: 'left' as const,
+    borderBottom: '1px solid #ddd',
+    backgroundColor: '#f5f5f5',
+    fontWeight: 600,
+    fontSize: '10px',
+  },
+  distributorTd: {
+    padding: '5px 8px',
+    borderBottom: '1px solid #eee',
+    fontSize: '10px',
+  },
+  distributorRowHover: {
+    backgroundColor: '#f5f9ff',
+    cursor: 'pointer',
+  },
+  distributorRowSelected: {
+    backgroundColor: '#e3f2fd',
+  },
+  priceTable: {
+    width: '100%',
+    borderCollapse: 'collapse',
+    fontSize: '10px',
+  },
   loading: {
     display: 'flex',
     alignItems: 'center',
@@ -312,6 +372,15 @@ export default function ArtikelDetailView({ articleId, onClose, onToggleFullscre
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  // Tab and distributor states
+  const [activeTab, setActiveTab] = useState<'lagerbestand' | 'anhaenge' | 'lieferanten' | 'seriennummern'>('lieferanten')
+  const [distributors, setDistributors] = useState<ArticleDistributor[]>([])
+  const [selectedDistributorId, setSelectedDistributorId] = useState<number | null>(null)
+  const [distributorPriceinfos, setDistributorPriceinfos] = useState<DistributorPriceinfo[]>([])
+  const [selectedPriceinfo, setSelectedPriceinfo] = useState<DistributorPriceinfo | null>(null)
+  const [showLieferantDialog, setShowLieferantDialog] = useState(false)
+  const [showPreisinfoDialog, setShowPreisinfoDialog] = useState(false)
+
   // Autocomplete states
   const [materialgroupSearch, setMaterialgroupSearch] = useState('')
   const [materialgroupOptions, setMaterialgroupOptions] = useState<MaterialgroupDropdownItem[]>([])
@@ -418,11 +487,34 @@ export default function ArtikelDetailView({ articleId, onClose, onToggleFullscre
         setSelectlistValuesCache(newCache)
       }
       
+      // Load distributors for the article
+      const distributorsData = await getArticleDistributors(articleId)
+      setDistributors(distributorsData)
+      
+      // Load priceinfos for first distributor if available
+      if (distributorsData.length > 0) {
+        setSelectedDistributorId(distributorsData[0].id)
+        const priceinfos = await getDistributorPriceinfos(distributorsData[0].id)
+        setDistributorPriceinfos(priceinfos)
+      }
+      
     } catch (err: any) {
       console.error('Error loading article detail:', err)
       setError(err.response?.data?.detail || 'Fehler beim Laden der Artikeldaten')
     } finally {
       setLoading(false)
+    }
+  }
+  
+  // Load priceinfos when distributor selection changes
+  const loadDistributorPriceinfos = async (distributorId: number) => {
+    setSelectedDistributorId(distributorId)
+    try {
+      const priceinfos = await getDistributorPriceinfos(distributorId)
+      setDistributorPriceinfos(priceinfos)
+    } catch (err) {
+      console.error('Error loading priceinfos:', err)
+      setDistributorPriceinfos([])
     }
   }
 
@@ -762,21 +854,162 @@ export default function ArtikelDetailView({ articleId, onClose, onToggleFullscre
           </div>
         </div>
 
-        {/* Bottom tables */}
+        {/* Bottom tables with tabs */}
         <div style={styles.tablesGrid}>
+          {/* Left: Tab panel */}
           <div style={styles.tableCard}>
-            <h2 style={styles.cardTitle}>Tabelle 1 (Platzhalter)</h2>
-            <div style={styles.tablePlaceholder}>
-              Zukünftige Erweiterung
+            <div style={styles.tabsContainer}>
+              <button
+                style={activeTab === 'lagerbestand' ? styles.tabActive : styles.tab}
+                onClick={() => setActiveTab('lagerbestand')}
+              >
+                Lagerbestand
+              </button>
+              <button
+                style={activeTab === 'anhaenge' ? styles.tabActive : styles.tab}
+                onClick={() => setActiveTab('anhaenge')}
+              >
+                Anhänge
+              </button>
+              <button
+                style={activeTab === 'lieferanten' ? styles.tabActive : styles.tab}
+                onClick={() => setActiveTab('lieferanten')}
+              >
+                Lieferanten
+              </button>
+              <button
+                style={activeTab === 'seriennummern' ? styles.tabActive : styles.tab}
+                onClick={() => setActiveTab('seriennummern')}
+              >
+                Seriennummern
+              </button>
             </div>
+
+            {activeTab === 'lieferanten' && (
+              <div style={{ overflow: 'auto', maxHeight: '200px' }}>
+                <table style={styles.distributorTable}>
+                  <thead>
+                    <tr>
+                      <th style={styles.distributorTh}>Lieferant</th>
+                      <th style={styles.distributorTh}>Bewertung</th>
+                      <th style={styles.distributorTh}>Lieferzeit</th>
+                      <th style={styles.distributorTh}>Artikel-Nr</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {distributors.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} style={{ ...styles.distributorTd, textAlign: 'center', color: '#999' }}>
+                          Keine Lieferanten vorhanden
+                        </td>
+                      </tr>
+                    ) : (
+                      distributors.map(dist => (
+                        <tr
+                          key={dist.id}
+                          style={selectedDistributorId === dist.id ? styles.distributorRowSelected : undefined}
+                          onClick={() => loadDistributorPriceinfos(dist.id)}
+                          onDoubleClick={() => {
+                            setSelectedDistributorId(dist.id)
+                            setShowLieferantDialog(true)
+                          }}
+                          onMouseOver={(e) => {
+                            if (selectedDistributorId !== dist.id) {
+                              e.currentTarget.style.backgroundColor = '#f5f9ff'
+                            }
+                          }}
+                          onMouseOut={(e) => {
+                            if (selectedDistributorId !== dist.id) {
+                              e.currentTarget.style.backgroundColor = ''
+                            }
+                          }}
+                        >
+                          <td style={{ ...styles.distributorTd, cursor: 'pointer' }}>{dist.distributor_name || '-'}</td>
+                          <td style={{ ...styles.distributorTd, cursor: 'pointer' }}>{dist.rating || '-'}</td>
+                          <td style={{ ...styles.distributorTd, cursor: 'pointer' }}>{dist.deliverytime ? `${dist.deliverytime} Tage` : '-'}</td>
+                          <td style={{ ...styles.distributorTd, cursor: 'pointer' }}>{dist.distributorarticlenumber || '-'}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {activeTab === 'lagerbestand' && (
+              <div style={styles.tablePlaceholder}>Lagerbestand - Zukünftige Erweiterung</div>
+            )}
+            {activeTab === 'anhaenge' && (
+              <div style={styles.tablePlaceholder}>Anhänge - Zukünftige Erweiterung</div>
+            )}
+            {activeTab === 'seriennummern' && (
+              <div style={styles.tablePlaceholder}>Seriennummern - Zukünftige Erweiterung</div>
+            )}
           </div>
+
+          {/* Right: Price info table */}
           <div style={styles.tableCard}>
-            <h2 style={styles.cardTitle}>Tabelle 2 (Platzhalter)</h2>
-            <div style={styles.tablePlaceholder}>
-              Zukünftige Erweiterung
+            <h2 style={styles.cardTitle}>Preisstaffel</h2>
+            <div style={{ overflow: 'auto', maxHeight: '200px' }}>
+              <table style={styles.priceTable}>
+                <thead>
+                  <tr>
+                    <th style={styles.distributorTh}>Staffel</th>
+                    <th style={styles.distributorTh}>EK-Preis</th>
+                    <th style={styles.distributorTh}>Int. VP</th>
+                    <th style={styles.distributorTh}>Datum</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {distributorPriceinfos.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} style={{ ...styles.distributorTd, textAlign: 'center', color: '#999' }}>
+                        {selectedDistributorId ? 'Keine Preisinformationen' : 'Bitte Lieferant auswählen'}
+                      </td>
+                    </tr>
+                  ) : (
+                    distributorPriceinfos.map(price => (
+                      <tr
+                        key={price.id}
+                        onClick={() => {
+                          setSelectedPriceinfo(price)
+                          setShowPreisinfoDialog(true)
+                        }}
+                        onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#f5f9ff'}
+                        onMouseOut={(e) => e.currentTarget.style.backgroundColor = ''}
+                        style={{ cursor: 'pointer' }}
+                      >
+                        <td style={styles.distributorTd}>{price.grade || '-'}</td>
+                        <td style={styles.distributorTd}>{price.price?.toFixed(2) || '-'}</td>
+                        <td style={styles.distributorTd}>{price.variablePrice?.toFixed(2) || '-'}</td>
+                        <td style={styles.distributorTd}>
+                          {price.purchasedate ? new Date(price.purchasedate).toLocaleDateString('de-DE') : '-'}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
             </div>
           </div>
         </div>
+
+        {/* Dialogs */}
+        {showLieferantDialog && selectedDistributorId && (
+          <LieferantDetailDialog
+            distributorId={selectedDistributorId}
+            onClose={() => setShowLieferantDialog(false)}
+          />
+        )}
+        {showPreisinfoDialog && selectedPriceinfo && (
+          <PreisinfoDetailDialog
+            priceinfo={selectedPriceinfo}
+            onClose={() => {
+              setShowPreisinfoDialog(false)
+              setSelectedPriceinfo(null)
+            }}
+          />
+        )}
       </div>
     </div>
   )

@@ -346,3 +346,58 @@ export async function getSelectlistValues(selectlistId: number): Promise<Selectl
   const response = await api.get(`/artikel-data/selectlist/${selectlistId}/values`)
   return response.data
 }
+
+// ============ Article Distributor Types ============
+
+export interface ArticleDistributor {
+  id: number
+  mandant: number | null
+  articleid: number
+  kid: number
+  distributor_name: string | null
+  rating: number | null
+  deliverytime: number | null
+  unitoftrading: number | null
+  distributorarticlenumber: string | null
+  courier: string | null
+  minordervalue: number | null
+  packinggrade: number | null
+  comment: string | null
+}
+
+export interface DistributorPriceinfo {
+  id: number
+  mandant: number | null
+  type: number | null
+  price: number | null
+  variablePrice: number | null
+  grade: number | null
+  purchasedate: string | null
+  distributorofferid: string | null
+}
+
+// ============ Article Distributor API Functions ============
+
+/**
+ * Loads all distributors (suppliers) for an article.
+ */
+export async function getArticleDistributors(articleId: number): Promise<ArticleDistributor[]> {
+  const response = await api.get(`/artikel-data/distributors/article/${articleId}`)
+  return response.data
+}
+
+/**
+ * Loads details of a specific distributor entry.
+ */
+export async function getDistributorDetail(distributorId: number): Promise<ArticleDistributor> {
+  const response = await api.get(`/artikel-data/distributors/${distributorId}`)
+  return response.data
+}
+
+/**
+ * Loads all price information for a distributor.
+ */
+export async function getDistributorPriceinfos(distributorId: number): Promise<DistributorPriceinfo[]> {
+  const response = await api.get(`/artikel-data/distributors/${distributorId}/priceinfos`)
+  return response.data
+}

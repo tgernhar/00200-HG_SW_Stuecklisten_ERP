@@ -220,6 +220,66 @@ async def get_selectlist_values(selectlist_id: int):
         erp_connection.close()
 
 
+@router.get("/distributors/article/{article_id}")
+async def get_article_distributors(article_id: int):
+    """
+    Returns all distributors (suppliers) for an article.
+    Only includes suppliers where adrbase.distributor = 1.
+    
+    Args:
+        article_id: The article.id
+    
+    Returns:
+        List of distributor objects with supplier name
+    """
+    erp_connection = get_erp_db_connection()
+    try:
+        result = artikel_data_service.get_article_distributors(erp_connection, article_id)
+        return result
+    finally:
+        erp_connection.close()
+
+
+@router.get("/distributors/{distributor_id}")
+async def get_distributor_detail(distributor_id: int):
+    """
+    Returns details of a specific distributor entry.
+    
+    Args:
+        distributor_id: The article_distributor.id
+    
+    Returns:
+        Distributor details with supplier name
+    """
+    erp_connection = get_erp_db_connection()
+    try:
+        result = artikel_data_service.get_distributor_detail(erp_connection, distributor_id)
+        if not result:
+            raise HTTPException(status_code=404, detail=f"Distributor {distributor_id} not found")
+        return result
+    finally:
+        erp_connection.close()
+
+
+@router.get("/distributors/{distributor_id}/priceinfos")
+async def get_distributor_priceinfos(distributor_id: int):
+    """
+    Returns all price information for a distributor.
+    
+    Args:
+        distributor_id: The article_distributor.id
+    
+    Returns:
+        List of price info objects
+    """
+    erp_connection = get_erp_db_connection()
+    try:
+        result = artikel_data_service.get_distributor_priceinfos(erp_connection, distributor_id)
+        return result
+    finally:
+        erp_connection.close()
+
+
 # ============ Dynamic routes AFTER static routes ============
 
 @router.get("/{article_id}")

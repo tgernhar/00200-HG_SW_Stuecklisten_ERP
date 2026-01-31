@@ -553,3 +553,118 @@ def get_selectlist_values(db_connection, selectlist_id: int) -> List[Dict[str, A
         return cursor.fetchall() or []
     finally:
         cursor.close()
+
+
+def get_article_distributors(db_connection, article_id: int) -> List[Dict[str, Any]]:
+    """
+    Loads all distributors (suppliers) for an article.
+    JOIN with adrbase for suchname.
+    Only allows results where adrbase.distributor = 1.
+    
+    Args:
+        article_id: The article ID
+    
+    Returns:
+        List of distributor objects with supplier name
+    """
+    cursor = db_connection.cursor(dictionary=True)
+    
+    try:
+        query = """
+            SELECT 
+                ad.id,
+                ad.mandant,
+                ad.articleid,
+                ad.kid,
+                ad.rating,
+                ad.deliverytime,
+                ad.unitoftrading,
+                ad.distributorarticlenumber,
+                ad.courier,
+                ad.minordervalue,
+                ad.packinggrade,
+                ad.comment,
+                adr.suchname AS distributor_name
+            FROM article_distributor ad
+            JOIN adrbase adr ON ad.kid = adr.id
+            WHERE ad.articleid = %s
+              AND adr.distributor = 1
+            ORDER BY adr.suchname ASC
+        """
+        cursor.execute(query, [article_id])
+        return cursor.fetchall() or []
+    finally:
+        cursor.close()
+
+
+def get_distributor_detail(db_connection, distributor_id: int) -> Optional[Dict[str, Any]]:
+    """
+    Loads details of a specific distributor entry.
+    
+    Args:
+        distributor_id: The article_distributor.id
+    
+    Returns:
+        Distributor details with supplier name, or None if not found
+    """
+    cursor = db_connection.cursor(dictionary=True)
+    
+    try:
+        query = """
+            SELECT 
+                ad.id,
+                ad.mandant,
+                ad.articleid,
+                ad.kid,
+                ad.rating,
+                ad.deliverytime,
+                ad.unitoftrading,
+                ad.distributorarticlenumber,
+                ad.courier,
+                ad.minordervalue,
+                ad.packinggrade,
+                ad.comment,
+                adr.suchname AS distributor_name
+            FROM article_distributor ad
+            JOIN adrbase adr ON ad.kid = adr.id
+            WHERE ad.id = %s
+        """
+        cursor.execute(query, [distributor_id])
+        return cursor.fetchone()
+    finally:
+        cursor.close()
+
+
+def get_distributor_priceinfos(db_connection, distributor_id: int) -> List[Dict[str, Any]]:
+    """
+    Loads all price information for a distributor.
+    JOIN article_distributor_priceinfo with article_priceinfo.
+    
+    Args:
+        distributor_id: The article_distributor.id
+    
+    Returns:
+        List of price info objects
+    """
+    cursor = db_connection.cursor(dictionary=True)
+    
+    try:
+        query = """
+            SELECT 
+                pi.id,
+                pi.mandant,
+                pi.type,
+                pi.price,
+                pi.variablePrice,
+                pi.grade,
+                pi.purchasedate,
+                pi.distributorofferid
+            FROM article_priceinfo pi
+            JOIN article_distributor_priceinfo adp ON pi.id = adp.priceinfoid
+            WHERE adp.distributorarticleid = %s
+            ORDER BY pi.grade ASC
+        """
+        cursor.execute(query, [distributor_id])
+        return cursor.fetchall() or []
+    finally:
+        cursor.close()
